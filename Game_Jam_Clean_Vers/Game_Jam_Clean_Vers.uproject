@@ -1,0 +1,43 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "{64B56263-42B1-5DEC-5E47-7995F1DD6EA3}",
+	"Category": "",
+	"Description": "",
+	"Modules": [
+		{
+			"Name": "Game_Jam_Clean_Vers",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"AdditionalDependencies": [
+				"Engine",
+				"AIModule",
+				"UMG"
+			]
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "ModelingToolsEditorMode",
+			"Enabled": true,
+			"TargetAllowList": [
+				"Editor"
+			]
+		},
+		{
+			"Name": "StateTree",
+			"Enabled": true
+		},
+		{
+			"Name": "GameplayStateTree",
+			"Enabled": true
+		},
+		{
+			"Name": "ControlRig",
+			"Enabled": true
+		},
+		{
+			"Name": "FullBodyIK",
+			"Enabled": true
+		}
+	]
+}

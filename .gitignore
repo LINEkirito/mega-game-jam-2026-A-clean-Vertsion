@@ -1,0 +1,13 @@
+# Visual Studio local cache and generated solution files
+.vs/
+*.sln
+*.slnx
+*.suo
+*.VC.db
+*.VC.opendb
+
+# Unreal Engine generated project files
+/Game_Jam_Clean_Vers/Binaries/
+/Game_Jam_Clean_Vers/DerivedDataCache/
+/Game_Jam_Clean_Vers/Intermediate/
+/Game_Jam_Clean_Vers/Saved/
