@@ -1,0 +1,158 @@
+#include "UnifiedBodyAnimInstance.h"
+#include "Animation/AnimInstanceProxy.h"
+#include "Animation/AnimNode_LinkedInputPose.h"
+#include "Animation/AnimationPoseData.h"
+#include "Animation/AnimSequence.h"
+#include "Animation/Skeleton.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Components/PoseableMeshComponent.h"
+#include "Game_Jam_Clean_VersCharacter.h"
+#include "CombatEquipmentComponent.h"
+#include "TacticalWeapon.h"
+#include "Camcorder/CamcorderEquipmentComponent.h"
+#include "Camcorder/ShoulderCamcorder.h"
+#include "Camcorder/ItemInteractionComponent.h"
+#include "GameFramework/PlayerController.h"
+
+namespace UnifiedBody
+{
+// All game objects are sampled on the game thread. Evaluation uses only snapshots.
+struct FProxy : FAnimInstanceProxy
+{
+    TMap<FName,FTransform> BodyLocalPose;
+    TMap<FName,FTransform> AuthoredComponentPose;
+    TMap<FName,FQuat> FingerRotations;
+    TWeakObjectPtr<UAnimSequence> Sequence;
+    FTransform Wrists[2];
+    FTransform MeshWorld;
+    bool Active=false;
+    bool ApplyHand[2]={false,false};
+    float Time=0;
+    explicit FProxy(UAnimInstance* Instance):FAnimInstanceProxy(Instance){}
+    virtual void PreUpdate(UAnimInstance* Instance,float DT) override
+    {
+        FAnimInstanceProxy::PreUpdate(Instance,DT);
+        AuthoredComponentPose.Reset();FingerRotations.Reset();Active=false;ApplyHand[0]=ApplyHand[1]=false;Sequence.Reset();
+        auto* Character=Cast<AGame_Jam_Clean_VersCharacter>(Instance->GetOwningActor());
+        auto* PC=Character?Cast<APlayerController>(Character->GetController()):nullptr;
+        BodyLocalPose.Reset();
+        if(Character&&Character->GetMesh())
+        {
+            auto* Body=Character->GetMesh();
+            const auto& Local=Body->GetBoneSpaceTransforms();
+            for(int32 B=0;B<Local.Num();++B)BodyLocalPose.Add(Body->GetBoneName(B),Local[B]);
+        }
+        if(!PC)return;
+        MeshWorld=Instance->GetSkelMeshComponent()->GetComponentTransform();
+        auto* Combat=PC->FindComponentByClass<UCombatEquipmentComponent>();
+        auto* Gun=Combat?Combat->GetPresentationWeapon():nullptr;
+        USkinnedMeshComponent* Source=nullptr;
+        if(Gun&&Gun->bEquipped)
+        {
+            if(Gun->bPackPresentation && Gun->Hands)
+            {
+                auto* Pack=Gun->Hands.Get();
+                for(int32 B=0;B<Pack->GetNumBones();++B){const FName Name=Pack->GetBoneName(B);AuthoredComponentPose.Add(Name,Pack->GetSocketTransform(Name,RTS_Component));}
+                return;
+            }
+            Source=Gun->RenderArms;
+            const FString Type=Gun->Kind==ETacticalWeaponKind::Pistol?TEXT("Pistol"):Gun->Kind==ETacticalWeaponKind::Shotgun?TEXT("Shotgun"):TEXT("Rifle");
+            FString Clip=TEXT("/Game/Combat/BodyAnimations/Body_A_")+Type+TEXT("_Reload");
+            if(!Gun->IsReloading()||Gun->Handling==EWeaponHandling::Charge)Clip=TEXT("/Game/Characters/Mannequins/Anims/")+(Gun->Kind==ETacticalWeaponKind::Pistol?FString(TEXT("Pistol/MF_Pistol_Idle_ADS")):FString(TEXT("Rifle/MF_Rifle_Idle_ADS")));
+            auto* BodyInstance=CastChecked<UUnifiedBodyAnimInstance>(Instance);
+            auto& Cached=BodyInstance->CachedAnimations.FindOrAdd(Clip);
+            if(!Cached)Cached=LoadObject<UAnimSequence>(nullptr,*Clip);
+            Sequence=Cached.Get();
+            const float Progress=Gun->ReloadProgress();
+            Time=Sequence.IsValid()?Progress*Sequence->GetPlayLength():0;
+        }
+        else if(auto* Equipment=PC->FindComponentByClass<UCamcorderEquipmentComponent>())
+        {
+            if(Equipment->Camcorder&&Equipment->Camcorder->IsPresenting())Source=Equipment->Camcorder->HoldingHands;
+        }
+        if(Source)
+        {
+            Active=true;ApplyHand[0]=ApplyHand[1]=true;
+            Wrists[0]=Source->GetSocketTransform(TEXT("hand_l"));
+            Wrists[1]=Source->GetSocketTransform(TEXT("hand_r"));
+            for(int32 B=0;B<Source->GetNumBones();++B)
+            {
+                const FName Name=Source->GetBoneName(B);const FString N=Name.ToString();
+                if(N.StartsWith(TEXT("index_"))||N.StartsWith(TEXT("middle_"))||N.StartsWith(TEXT("ring_"))||N.StartsWith(TEXT("pinky_"))||N.StartsWith(TEXT("thumb_")))
+                    FingerRotations.Add(Name,Source->GetSocketTransform(Name).GetRelativeTransform(Source->GetSocketTransform(Source->GetParentBone(Name))).GetRotation());
+            }
+        }
+        if(auto* Interaction=Character->FindComponentByClass<UItemInteractionComponent>())
+            if(Interaction->GetLeftWristTarget(Wrists[0])){Active=true;ApplyHand[0]=true;}
+    }
+    virtual bool Evaluate(FPoseContext& Output) override
+    {
+        Output.ResetToRefPose();
+        const auto& Bones=Output.Pose.GetBoneContainer();
+        const auto& Ref=Bones.GetReferenceSkeleton();
+        for(FCompactPoseBoneIndex B:Output.Pose.ForEachBoneIndex())
+            if(const auto* Local=BodyLocalPose.Find(Ref.GetBoneName(Bones.MakeMeshPoseIndex(B).GetInt())))Output.Pose[B]=*Local;
+        if(!AuthoredComponentPose.IsEmpty())
+        {
+            for(FCompactPoseBoneIndex B:Output.Pose.ForEachBoneIndex())
+            {
+                const int32 MeshIndex=Bones.MakeMeshPoseIndex(B).GetInt();
+                if(const FTransform* T=AuthoredComponentPose.Find(Ref.GetBoneName(MeshIndex)))
+                {
+                    const int32 Parent=Ref.GetParentIndex(MeshIndex);
+                    const FTransform* P=Parent>=0?AuthoredComponentPose.Find(Ref.GetBoneName(Parent)):nullptr;
+                    Output.Pose[B]=P?T->GetRelativeTransform(*P):*T;
+                }
+            }
+            return true;
+        }
+        if(!Active)return true;
+        auto Index=[&](FName Name){return Bones.MakeCompactPoseIndex(FMeshPoseBoneIndex(Ref.FindBoneIndex(Name)));};
+        if(auto* Anim=Sequence.Get())
+        {
+            FPoseContext Sample(Output);Sample.ResetToRefPose();
+            FAnimationPoseData Data(Sample);
+            Anim->GetAnimationPose(Data,FAnimExtractContext(Time,false));
+            // Preserve locomotion, pelvis, torso and the camera's head bone.
+            for(FCompactPoseBoneIndex B:Output.Pose.ForEachBoneIndex())
+            {
+                const FString Name=Ref.GetBoneName(Bones.MakeMeshPoseIndex(B).GetInt()).ToString();
+                if(Name.StartsWith(TEXT("upperarm"))||Name.StartsWith(TEXT("lowerarm"))||Name.StartsWith(TEXT("hand_"))||Name.StartsWith(TEXT("index_"))||Name.StartsWith(TEXT("middle_"))||Name.StartsWith(TEXT("ring_"))||Name.StartsWith(TEXT("pinky_"))||Name.StartsWith(TEXT("thumb_")))Output.Pose[B]=Sample.Pose[B];
+            }
+        }
+        for(FCompactPoseBoneIndex B:Output.Pose.ForEachBoneIndex())
+            if(const auto* Rotation=FingerRotations.Find(Ref.GetBoneName(Bones.MakeMeshPoseIndex(B).GetInt())))Output.Pose[B].SetRotation(*Rotation);
+        TArray<FTransform> CS;CS.SetNum(Output.Pose.GetNumBones());
+        auto Rebuild=[&](){for(FCompactPoseBoneIndex B:Output.Pose.ForEachBoneIndex()){const auto Parent=Output.Pose.GetParentBoneIndex(B);CS[B.GetInt()]=Parent.GetInt()<0?Output.Pose[B]:Output.Pose[B]*CS[Parent.GetInt()];}};
+        auto SetRotation=[&](FCompactPoseBoneIndex B,const FQuat& Rotation){const auto Parent=Output.Pose.GetParentBoneIndex(B);Output.Pose[B].SetRotation((Parent.GetInt()<0?Rotation:CS[Parent.GetInt()].GetRotation().Inverse()*Rotation).GetNormalized());Rebuild();};
+        Rebuild();
+        for(int32 Side=0;Side<2;++Side)
+        {
+            if(!ApplyHand[Side])continue;
+            const auto Upper=Index(Side==0?TEXT("upperarm_l"):TEXT("upperarm_r"));
+            const auto Lower=Index(Side==0?TEXT("lowerarm_l"):TEXT("lowerarm_r"));
+            const auto Hand=Index(Side==0?TEXT("hand_l"):TEXT("hand_r"));
+            if(Upper.GetInt()<0||Lower.GetInt()<0||Hand.GetInt()<0)continue;
+            const FVector A=CS[Upper.GetInt()].GetLocation(),B=CS[Lower.GetInt()].GetLocation(),C=CS[Hand.GetInt()].GetLocation();
+            const float L1=FVector::Distance(A,B),L2=FVector::Distance(B,C);
+            if(L1<1||L2<1)continue;
+            const FVector Target=MeshWorld.InverseTransformPosition(Wrists[Side].GetLocation());
+            const FVector Direction=(Target-A).GetSafeNormal();
+            const float Distance=FMath::Clamp(FVector::Distance(Target,A),FMath::Abs(L1-L2)+.1f,L1+L2-.1f);
+            const float Along=(L1*L1-L2*L2+Distance*Distance)/(2*Distance);
+            // Keep the shoulder attached to the real torso and preserve anatomical lengths.
+            FVector Pole=B-A;Pole-=Direction*FVector::DotProduct(Pole,Direction);
+            if(!Pole.Normalize())Pole=FVector::CrossProduct(Direction,FVector::UpVector).GetSafeNormal();
+            const FVector Elbow=A+Direction*Along+Pole*FMath::Sqrt(FMath::Max(0.f,L1*L1-Along*Along));
+            const FVector End=A+Direction*Distance;
+            SetRotation(Upper,FQuat::FindBetweenNormals((B-A).GetSafeNormal(),(Elbow-A).GetSafeNormal())*CS[Upper.GetInt()].GetRotation());
+            const FVector CurrentLower=CS[Lower.GetInt()].GetLocation(),CurrentHand=CS[Hand.GetInt()].GetLocation();
+            SetRotation(Lower,FQuat::FindBetweenNormals((CurrentHand-CurrentLower).GetSafeNormal(),(End-CurrentLower).GetSafeNormal())*CS[Lower.GetInt()].GetRotation());
+            SetRotation(Hand,MeshWorld.GetRotation().Inverse()*Wrists[Side].GetRotation());
+        }
+        return true;
+    }
+};
+}
+FAnimInstanceProxy* UUnifiedBodyAnimInstance::CreateAnimInstanceProxy(){return new UnifiedBody::FProxy(this);}
+void UUnifiedBodyAnimInstance::DestroyAnimInstanceProxy(FAnimInstanceProxy* Proxy){delete Proxy;}

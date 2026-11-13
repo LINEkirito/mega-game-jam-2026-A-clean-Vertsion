@@ -1,7 +1,7 @@
+#include "Game_Jam_Clean_VersPlayerController.h"
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 
-#include "Game_Jam_Clean_VersPlayerController.h"
 #include "EnhancedInputSubsystems.h"
 #include "Engine/LocalPlayer.h"
 #include "InputMappingContext.h"
@@ -9,6 +9,7 @@
 #include "Blueprint/UserWidget.h"
 #include "Game_Jam_Clean_Vers.h"
 #include "Widgets/Input/SVirtualJoystick.h"
+#include "Camcorder/CamcorderEquipmentComponent.h"
 
 AGame_Jam_Clean_VersPlayerController::AGame_Jam_Clean_VersPlayerController()
 {
@@ -19,6 +20,11 @@ AGame_Jam_Clean_VersPlayerController::AGame_Jam_Clean_VersPlayerController()
 void AGame_Jam_Clean_VersPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
+	if (IsLocalPlayerController())
+	{
+		CamcorderEquipment = NewObject<UCamcorderEquipmentComponent>(this, TEXT("CamcorderEquipment"));
+		CamcorderEquipment->RegisterComponent();
+	}
 
 	
 	// only spawn touch controls on local player controllers

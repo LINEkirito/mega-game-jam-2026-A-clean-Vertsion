@@ -8,6 +8,7 @@
 
 class UInputMappingContext;
 class UUserWidget;
+class UCamcorderEquipmentComponent;
 
 /**
  *  Simple first person Player Controller
@@ -25,6 +26,9 @@ public:
 	AGame_Jam_Clean_VersPlayerController();
 
 protected:
+
+	UPROPERTY(Transient)
+	TObjectPtr<UCamcorderEquipmentComponent> CamcorderEquipment;
 
 	/** Input Mapping Contexts */
 	UPROPERTY(EditAnywhere, Category="Input|Input Mappings")

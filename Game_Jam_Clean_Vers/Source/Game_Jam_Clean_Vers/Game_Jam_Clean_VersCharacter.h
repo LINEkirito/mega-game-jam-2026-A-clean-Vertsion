@@ -11,6 +11,8 @@ class UInputComponent;
 class USkeletalMeshComponent;
 class UCameraComponent;
 class UInputAction;
+class USoundBase;
+class UItemInteractionComponent;
 struct FInputActionValue;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
@@ -51,6 +53,25 @@ protected:
 	
 public:
 	AGame_Jam_Clean_VersCharacter();
+    virtual void BeginPlay() override;
+    virtual void Tick(float DeltaSeconds) override;
+    virtual void OnStartCrouch(float HalfHeightAdjust,float ScaledHalfHeightAdjust) override;
+    virtual void OnEndCrouch(float HalfHeightAdjust,float ScaledHalfHeightAdjust) override;
+    virtual float TakeDamage(float Damage,const FDamageEvent& Event,AController* Instigator,AActor* Causer) override;
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Health") float Health=100.f;
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Movement") bool bSprinting=false;
+    float DamageFlash=0.f;
+    UPROPERTY() TObjectPtr<UItemInteractionComponent> ItemInteraction;
+private:
+    float ProtectionUntil=-1.f;
+    float GroundSpeed=360.f;
+    float CrouchCameraOffset=0.f;
+    UPROPERTY() TObjectPtr<USoundBase> HurtSound;
+    UPROPERTY() TArray<TObjectPtr<USoundBase>> FootstepSounds;
+    FVector LastFootstepLocation=FVector::ZeroVector;
+    float FootstepDistance=0;
+    int32 FootstepIndex=0;
+public:
 
 protected:
 

@@ -15,13 +15,16 @@ public class Game_Jam_Clean_Vers : ModuleRules
 			"InputCore",
 			"EnhancedInput",
 			"AIModule",
+			"NavigationSystem",
+            "Niagara",
 			"StateTreeModule",
 			"GameplayStateTreeModule",
 			"UMG",
 			"Slate"
 		});
 
-		PrivateDependencyModuleNames.AddRange(new string[] { });
+		PrivateDependencyModuleNames.AddRange(new string[] { "SlateCore", "ImageWrapper", "RenderCore", "RHI" });
+		if (Target.bBuildEditor) PrivateDependencyModuleNames.AddRange(new string[] { "UnrealEd", "MeshDescription", "StaticMeshDescription", "SkeletalMeshDescription", "AssetRegistry", "Json" });
 
 		PublicIncludePaths.AddRange(new string[] {
 			"Game_Jam_Clean_Vers",
