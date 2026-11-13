@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include "CoreMinimal.h"
 #include "UObject/Object.h"
 #include "GlobalData.generated.h"
@@ -14,10 +14,7 @@ public:
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Audio",meta=(ClampMin="100",Units="cm")) float ImpactAudibleDistance=1200.f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Events") bool bEnableStreetEvents=true;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Events",meta=(ClampMin="1")) float EventAttemptSeconds=18;
- UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Events",meta=(ClampMin="0")) float CommonEventWeight=70;
- UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Events",meta=(ClampMin="0")) float RareEventWeight=26;
- UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Events",meta=(ClampMin="0")) float LegendaryEventWeight=4;
- UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Events",meta=(ClampMin="0")) float LegendaryEarliestSeconds=120;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Events",meta=(ClampMin="0")) float LargeEventEarliestSeconds=120;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Events",meta=(ClampMin="0")) int32 CommonEventPoints=50;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Events",meta=(ClampMin="0")) int32 RareEventPoints=200;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Events",meta=(ClampMin="0")) int32 LegendaryEventPoints=800;
@@ -32,16 +29,27 @@ public:
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Recording") int32 RecordingPersonMinPoints=10;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Recording") int32 RecordingPersonMaxPoints=100;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Recording") float RecordingMaxDistance=8000;
+ // Optional per-type overrides; otherwise events use their level's 1x/2x/3x multiplier.
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Recording") TMap<FName,float> RecordingEventMultipliers;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Recording") float RecordingLevel1Multiplier=1;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Recording") float RecordingLevel2Multiplier=2;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Recording") float RecordingLevel3Multiplier=3;
+ // ENPCRole enumerator names; missing NPC multipliers use 1x.
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Recording") TMap<FName,float> RecordingNPCMultipliers;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC") float NPCPatrolRadius=1100;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC") float NPCHearingRange=6000;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC") float NPCPanicSeconds=12;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC") float NPCInjuryHealth=30;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC") float NPCMeleeDamage=12;
- UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Police") float PoliceShotDamage=2;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Chance",meta=(ClampMin="0",ClampMax="1")) float CivilianFightBackChance=.25f;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Chance",meta=(ClampMin="0",ClampMax="1")) float RareEventChance=.2f;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Interaction",meta=(ClampMin="1")) float NPCInteractionRetrySeconds=12;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Interaction",meta=(ClampMin="100")) float GangAssaultSearchRadius=1400;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Interaction",meta=(ClampMin="1")) float GangMeleeChaseSpeed=470;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Police") float PoliceShotInterval=1.8f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Police") float PoliceSpreadDegrees=0;
- UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Gang",meta=(ClampMin="0",ClampMax="1")) float GangHitChance=.5f;
- UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Police") float GangVsPoliceDamage=3;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Gang",meta=(ClampMin="0",ClampMax="1")) float GangHitChance=.7f;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Combat",meta=(ClampMin="0",ClampMax="1")) float PoliceGangHitChance=.3f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Gang") float GangWarningDistance=500;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Gang") float GangFilmingWarningDistance=1000;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Gang") float GangWarningSeconds=3;

@@ -35,6 +35,7 @@ public:
     void Cycle(int32 Direction);
     void HandleInput();
     void InitializeHUD();
+    void InitializeStartingWeapons();
     FString InteractionText() const;
     int32 Reserve() const;
     float ReloadProgress() const;

@@ -35,7 +35,7 @@ bool FStreetEventRecordsCheck::Update(){
  auto* Camera=W->SpawnActor<AShoulderCamcorder>(Origin,FRotator::ZeroRotator,P);Camera->SetActorTickEnabled(false);Camera->Body->SetSimulatePhysics(false);
  Camera->Capture->SetWorldLocationAndRotation(Origin,FRotator::ZeroRotator);Camera->Capture->FOVAngle=90;
  auto* Owner=W->SpawnActor<AActor>(P);auto* L=NewObject<URecordingLibrary>(Owner);L->RegisterComponent();
- auto Sample=[&](URecordingLibrary* Library){Library->BeginClip(Camera);for(int32 I=0;I<8;++I){Camera->RecordingSeconds=I*.25f;Library->Sample(Camera);}};
+ auto Sample=[&](URecordingLibrary* Library){Library->BeginClip(Camera);for(int32 I=0;I<=16;++I){Camera->RecordingSeconds=I*.25f;Library->Sample(Camera);}};
  Sample(L);L->FinishClip(Camera,true);Test->TestEqual(TEXT("Staging is not a recordable performance"),L->Clips.Last().Events.Num(),0);
  auto* Record=D->Events.FindByPredicate([Trade](const FStreetEventRecord& E){return E.Id==Trade;});Record->bPerforming=true;
  B->SetActorHiddenInGame(true);Sample(L);L->FinishClip(Camera,true);Test->TestEqual(TEXT("One trader is insufficient evidence"),L->Clips.Last().Events.Num(),0);B->SetActorHiddenInGame(false);
@@ -43,8 +43,8 @@ bool FStreetEventRecordsCheck::Update(){
  auto* OtherOwner=W->SpawnActor<AActor>(P);auto* Other=NewObject<URecordingLibrary>(OtherOwner);Other->RegisterComponent();
  Sample(L);Sample(Other);L->FinishClip(Camera,true);Other->FinishClip(Camera,true);
  Test->TestEqual(TEXT("Both visible traders produce one event"),L->Clips.Last().Events.Num(),1);
- if(L->Clips.Last().Events.Num()){Test->TestEqual(TEXT("Event awards configured rare points"),L->Clips.Last().Events[0].Points,GetDefault<UGlobalData>()->RareEventPoints);}
- if(Other->Clips.Last().Events.Num())Test->TestEqual(TEXT("Concurrent recorder cannot duplicate event score"),Other->Clips.Last().Events[0].Points,0);
+ if(L->Clips.Last().Events.Num()){Test->TestEqual(TEXT("Level 2 valid event awards 5x2 plus first type 5"),L->Clips.Last().Events[0].Points,15);}
+ if(Other->Clips.Last().Events.Num())Test->TestEqual(TEXT("Independent player recording has independent session score"),Other->Clips.Last().Events[0].Points,15);
  else Test->AddError(TEXT("Second recorder lost event metadata"));
  D->EndEvent(Trade);Test->TestEqual(TEXT("End releases participant reservations"),A->StreetEventId,0);
  Test->TestFalse(TEXT("Unknown event cannot be claimed"),D->Claim(999999));

@@ -25,7 +25,7 @@ class AGame_Jam_Clean_VersCharacter : public ACharacter
 {
 	GENERATED_BODY()
 
-	/** Pawn mesh: first person view (arms; seen only by self) */
+	/** Full body on the gun pack skeleton; head materials hidden only for the owner */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
 	USkeletalMeshComponent* FirstPersonMesh;
 
@@ -66,6 +66,8 @@ private:
     float ProtectionUntil=-1.f;
     float GroundSpeed=360.f;
     float CrouchCameraOffset=0.f;
+    float CrouchViewAlpha=0.f;
+    FVector BodyCameraOffset() const;
     UPROPERTY() TObjectPtr<USoundBase> HurtSound;
     UPROPERTY() TArray<TObjectPtr<USoundBase>> FootstepSounds;
     FVector LastFootstepLocation=FVector::ZeroVector;

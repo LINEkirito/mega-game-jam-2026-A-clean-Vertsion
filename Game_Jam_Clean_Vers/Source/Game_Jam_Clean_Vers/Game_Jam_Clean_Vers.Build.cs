@@ -23,7 +23,7 @@ public class Game_Jam_Clean_Vers : ModuleRules
 			"Slate"
 		});
 
-		PrivateDependencyModuleNames.AddRange(new string[] { "SlateCore", "ImageWrapper", "RenderCore", "RHI" });
+		PrivateDependencyModuleNames.AddRange(new string[] { "SlateCore", "ImageWrapper", "RenderCore", "RHI", "Json" });
 		if (Target.bBuildEditor) PrivateDependencyModuleNames.AddRange(new string[] { "UnrealEd", "MeshDescription", "StaticMeshDescription", "SkeletalMeshDescription", "AssetRegistry", "Json" });
 
 		PublicIncludePaths.AddRange(new string[] {

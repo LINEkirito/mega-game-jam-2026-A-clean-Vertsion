@@ -79,7 +79,7 @@ public:
             else if(Gun->Kind==ETacticalWeaponKind::Shotgun)Text(X,145*S,TEXT("逐发装填 · 半自动"),15);
             Text(25*S,H-197*S,TEXT("左键 射击 · 按住右键 瞄准 · R 换弹"),17);
             Text(25*S,H-171*S,TEXT("G 丢枪 · B 收枪 · T 战术灯 · 滚轮 切装备"),16);
-            Text(25*S,H-145*S,TEXT("I 背包 · 1–5 快捷槽 · E/F 拾取"),16);
+            Text(25*S,H-145*S,TEXT("I 背包 · 1–4 快捷槽 · E/F 拾取"),16);
             Text(25*S,H-119*S,TEXT("Shift 冲刺 · Ctrl 蹲起 · Space 跳跃"),16);
             if(E->bReloading){Box(W*.5f-90*S,H*.73f,180*S,5*S,FLinearColor(.1f,.1f,.1f,.8f));Box(W*.5f-90*S,H*.73f,180*S*E->ReloadProgress(),5*S,FLinearColor(.4f,.9f,1));}
             if(E->EquipRemaining>0)Text(W*.5f-70*S,H*.68f,TEXT("装备中…"),22);

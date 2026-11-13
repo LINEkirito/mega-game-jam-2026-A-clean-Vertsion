@@ -21,6 +21,7 @@
 #include "Camcorder/BackpackInventory.h"
 #include "NPCMotionAnimInstance.h"
 #include "Engine/DamageEvents.h"
+#include "WorldEvents.h"
 
 DEFINE_LATENT_AUTOMATION_COMMAND_ONE_PARAMETER(FNPCBehaviorCheck,FAutomationTestBase*,Test);
 bool FNPCBehaviorCheck::Update()
@@ -30,6 +31,9 @@ bool FNPCBehaviorCheck::Update()
  auto* Player=PC?Cast<AGame_Jam_Clean_VersCharacter>(PC->GetPawn()):nullptr;
  if(!Player){Test->AddError(TEXT("No PIE player"));return true;}
  Test->TestEqual(TEXT("Player hurtbox blocks the NPC bullet trace channel"),Player->GetCapsuleComponent()->GetCollisionResponseToChannel(ECC_Visibility),ECR_Block);
+ auto* Rules=GetMutableDefault<UGlobalData>();
+ TGuardValue<float> SurviveFire(Player->Health,100000.f);
+ TGuardValue<float> Counterattack(Rules->CivilianFightBackChance,0.f);
  TGuardValue<bool> LegacySocial(GetMutableDefault<UGlobalData>()->bEnableStreetEvents,false);
  TArray<APatrolEnemy*> Spawned;
  const FVector Origin(15000,15000,1200);
@@ -48,6 +52,20 @@ bool FNPCBehaviorCheck::Update()
  auto* Merchant=Spawn(ENPCRole::Merchant,FVector(500,250,0));
  auto* Gang=Spawn(ENPCRole::GangMember,FVector(600,0,0));
  auto* Boss=Spawn(ENPCRole::GangBoss,FVector(650,-200,0));
+ Test->TestEqual(TEXT("Police versus player accuracy"),Officer->ShotHitChance(Player),1.f);
+ for(auto* Criminal:{Gang,Boss}){
+  Test->TestEqual(TEXT("Gang including boss versus player accuracy"),Criminal->ShotHitChance(Player),.7f);
+  Test->TestEqual(TEXT("Gang including boss versus police accuracy"),Criminal->ShotHitChance(Officer),.3f);
+  Test->TestEqual(TEXT("Police versus gang including boss accuracy"),Officer->ShotHitChance(Criminal),.3f);
+ }
+ for(auto Kind:{ETacticalWeaponKind::Pistol,ETacticalWeaponKind::Rifle,ETacticalWeaponKind::Shotgun}){
+  const auto Previous=Boss->HeldWeapon->Kind;Boss->HeldWeapon->Kind=Kind;
+  const auto Spec=Boss->HeldWeapon->Spec();Boss->HeldWeapon->Kind=Previous;
+  const float Expected=Kind==ETacticalWeaponKind::Shotgun?Rules->BuckshotPelletDamage:Kind==ETacticalWeaponKind::Rifle?Rules->RifleBodyDamage:Rules->PistolBodyDamage;
+  Test->TestEqual(TEXT("NPC uses shared per-projectile body damage"),Spec.DamageAtDistance(0),Expected);
+  Test->TestTrue(TEXT("Shared weapon damage falls to 35 percent at maximum range"),FMath::IsNearlyEqual(Spec.DamageAtDistance(Spec.Range),Expected*.35f));
+  Test->TestEqual(TEXT("Shotgun retains eight full-damage pellets"),Spec.Pellets,Kind==ETacticalWeaponKind::Shotgun?8:1);
+ }
  Test->TestTrue(TEXT("Gang uses same weapon actor as player"),Gang->HeldWeapon&&Gang->HeldWeapon->bNPCEquipped);
  Test->TestTrue(TEXT("Boss always carries shared pistol"),Boss->HeldWeapon&&Boss->HeldWeapon->Kind==ETacticalWeaponKind::Pistol);
  Test->TestNull(TEXT("Civilian has no weapon actor"),Civilian->HeldWeapon.Get());
@@ -99,6 +117,8 @@ bool FNPCBehaviorCheck::Update()
  Officer->Destroy();Officer2->Destroy();Civilian->Destroy();Merchant->Destroy();Gang->Destroy();Boss->Destroy();
  auto* Suppressor=Spawn(ENPCRole::GangMember,FVector(0,0,0));
  auto* SafeOfficer=Spawn(ENPCRole::Police,FVector(800,0,0));
+ // Test retaliation independently of lethal shared weapon damage and random misses.
+ SafeOfficer->Health=Suppressor->Health=100000.f;
  SafeOfficer->SetActorRotation(FRotator(0,180,0));
  SafeOfficer->WitnessViolence(Wounded,Suppressor,true);
  for(int I=0;I<20;++I){SafeOfficer->Tick(.1f);Suppressor->Tick(.1f);}
@@ -205,6 +225,20 @@ bool FNPCBehaviorCheck::Update()
  Test->TestTrue(TEXT("A target in the real barrel direction can be fired on"),CountShots()>BeforeAligned);
  Test->TestTrue(TEXT("NPC pistol uses player cadence during sustained aligned fire"),CountShots()-BeforeAligned>20);
  BarrelGuard->Destroy();
+ // Real targets at ordinary ranges/elevations, not artificially placed on the barrel axis.
+ for(auto Kind:{ETacticalWeaponKind::Pistol,ETacticalWeaponKind::Rifle,ETacticalWeaponKind::Shotgun}){
+  for(const FVector Offset:{FVector(300,0,0),FVector(800,0,0),FVector(600,0,200),FVector(600,0,-180)}){
+   const FTransform T(FRotator::ZeroRotator,Origin+FVector(0,7000,0));
+   auto* Shooter=World->SpawnActorDeferred<APatrolEnemy>(APatrolEnemy::StaticClass(),T,nullptr,nullptr,ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+   Shooter->NPCRole=ENPCRole::Police;Shooter->WeaponKind=Kind;Shooter->PatrolRadius=0;Shooter->FinishSpawning(T);Shooter->GetCharacterMovement()->DisableMovement();
+   Shooter->CombatTarget=Player;Shooter->Activity=ENPCActivity::Combat;Shooter->bCombat=true;
+   Player->SetActorLocation(Shooter->GetActorLocation()+Offset);
+   const int32 Before=CountShots();
+   for(int32 I=0;I<50;++I){Shooter->Tick(.1f);Shooter->GetMesh()->TickAnimation(.1f,false);Shooter->GetMesh()->RefreshBoneTransforms();}
+   Test->TestTrue(FString::Printf(TEXT("NPC weapon %d fires at real target offset %s"),int32(Kind),*Offset.ToString()),CountShots()>Before);
+   Shooter->Destroy();
+  }
+ }
 
 
  // Exercise actual NPC ammunition through the shared weapon state machine.
@@ -239,5 +273,75 @@ bool FNPCBehaviorRules::RunTest(const FString&)
 {
  AddCommand(new FStartPIECommand(false));AddCommand(new FWaitLatentCommand(2));AddCommand(new FNPCBehaviorCheck(this));AddCommand(new FEndPlayMapCommand());return true;
 }
+#endif
+
+#if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
+DEFINE_LATENT_AUTOMATION_COMMAND_ONE_PARAMETER(FNPCStreetConflictCheck,FAutomationTestBase*,Test);
+bool FNPCStreetConflictCheck::Update()
+{
+ UWorld* W=nullptr;for(const auto& C:GEngine->GetWorldContexts())if(C.WorldType==EWorldType::PIE){W=C.World();break;}
+ auto* PC=W?W->GetFirstPlayerController():nullptr;auto* Player=PC?PC->GetPawn().Get():nullptr;
+ if(!Player){Test->AddError(TEXT("No PIE world/player"));return true;}
+ auto* Rules=GetMutableDefault<UGlobalData>();auto* Events=W->GetSubsystem<UWorldEvents>();
+ TGuardValue<bool> Automatic(Events->bAutomatic,false),StreetEvents(Rules->bEnableStreetEvents,true);
+ TGuardValue<float> FightChance(Rules->CivilianFightBackChance,1.f),Early(Rules->LargeEventEarliestSeconds,0.f);
+ for(TActorIterator<APatrolEnemy> It(W);It;++It)It->SocialCooldown=999;
+ const FVector Origin(25000,25000,8000);TArray<APatrolEnemy*> People;
+ auto Spawn=[&](ENPCRole Role,FVector Offset){const FTransform T(FRotator::ZeroRotator,Origin+Offset);auto* N=W->SpawnActorDeferred<APatrolEnemy>(APatrolEnemy::StaticClass(),T,nullptr,nullptr,ESpawnActorCollisionHandlingMethod::AlwaysSpawn);N->NPCRole=Role;N->PatrolRadius=0;N->FinishSpawning(T);N->SocialCooldown=0;N->SetActorTickEnabled(false);N->GetCharacterMovement()->DisableMovement();People.Add(N);return N;};
+ auto Clear=[&]{for(auto* N:People)if(IsValid(N))N->Destroy();People.Reset();};
+ auto Hit=[&](APatrolEnemy* Victim,APawn* Attacker,float Damage){FHitResult H(Victim,Victim->GetMesh(),Victim->GetActorLocation(),FVector::UpVector);H.ImpactPoint=Victim->GetActorLocation();return W->GetSubsystem<UDataTransmitter>()->TransmitHit(H,Damage,FVector::ForwardVector,Attacker->GetController(),Attacker);};
+ for(auto Role:{ENPCRole::Civilian,ENPCRole::Merchant}){
+  auto* G=Spawn(ENPCRole::GangMember,FVector::ZeroVector);auto* V=Spawn(Role,FVector(100,0,0));auto* P=Spawn(ENPCRole::Police,FVector(0,400,0));
+  G->Think();Test->TestEqual(TEXT("Active event director does not disable ordinary assaults"),G->AssaultTarget.Get(),V);
+  Test->TestFalse(TEXT("Transaction cannot steal a busy attacker"),Events->TryStartEvent(EStreetEvent::SecretTransaction));
+  G->StateTime=2.1f;G->TickAssault(.1f);G->StateTime=.6f;G->TickAssault(.1f);
+  Test->TestEqual(TEXT("First attack is a real punch"),V->Health,138.f);
+  Test->TestEqual(TEXT("Victim can choose counterattack"),V->Activity,ENPCActivity::Counterattack);
+  Test->TestEqual(TEXT("Police target gangster, not defending civilian"),P->CombatTarget.Get(),static_cast<AActor*>(G));
+  V->StateTime=.6f;V->TickCounterattack(.1f);
+  Test->TestEqual(TEXT("Civilian punch damages attacker"),G->Health,138.f);
+  Test->TestEqual(TEXT("Retaliation escalates gang to firearm combat"),G->CombatTarget.Get(),static_cast<AActor*>(V));
+  Test->TestTrue(TEXT("Gang abandons melee after escalation"),G->bCombat&&!G->AssaultTarget.IsValid());
+  Hit(V,G,110);Test->TestEqual(TEXT("Victim becomes injured"),V->NPCRole,ENPCRole::Injured);
+  Test->TestTrue(TEXT("Escalated gun target remains valid through injury"),G->IsCombatTargetAlive(V));
+  Hit(V,G,1000);Test->TestFalse(TEXT("Escalated target ends only at death"),G->IsCombatTargetAlive(V));
+  Test->TestEqual(TEXT("No resurrection: original corpse lifetime"),V->GetLifeSpan(),30.f);
+  Clear();
+ }
+ {
+  TGuardValue<float> NeverFight(Rules->CivilianFightBackChance,0.f);
+  auto* G=Spawn(ENPCRole::GangMember,FVector::ZeroVector);auto* V=Spawn(ENPCRole::Civilian,FVector(100,0,0));G->BeginAssault(V);Hit(V,G,12);
+  Test->TestEqual(TEXT("Zero retaliation chance flees"),V->Activity,ENPCActivity::Flee);
+  V->SetActorLocation(Origin+FVector(700,0,0));G->TickAssault(.1f);
+  Test->TestEqual(TEXT("Running victim is pursued"),G->Activity,ENPCActivity::PursueMelee);
+  Test->TestEqual(TEXT("Pursuit does not switch to gun for a non-retaliating victim"),G->CombatTarget.Get(),static_cast<AActor*>(nullptr));
+  Test->TestTrue(TEXT("Gang pursuit can catch a fleeing civilian"),G->GetCharacterMovement()->MaxWalkSpeed>430.f);
+  Clear();
+ }
+ {
+  auto* G=Spawn(ENPCRole::GangMember,FVector::ZeroVector);auto* V=Spawn(ENPCRole::Civilian,FVector(100,0,0));auto* P=Spawn(ENPCRole::Police,FVector(0,400,0));
+  Hit(G,Player,125);Test->TestEqual(TEXT("Gang can become injured"),G->NPCRole,ENPCRole::Injured);
+  Test->TestFalse(TEXT("Injury does not turn gang into a protected civilian"),G->IsLawProtected());Hit(G,Player,10);
+  Test->TestTrue(TEXT("Player hitting injured gang never makes police target player"),P->CombatTarget!=Player);
+  Hit(V,Player,5);Test->TestEqual(TEXT("Attacking a civilian can make police target player"),P->CombatTarget.Get(),static_cast<AActor*>(Player));
+  Clear();
+ }
+ // Exercise the actual selector, including the boundary and all three rare types.
+ const EStreetEvent Rare[]={EStreetEvent::SecretTransaction,EStreetEvent::GangMassacre,EStreetEvent::MassiveGangWar};
+ for(int32 I=0;I<3;++I)Test->TestEqual(TEXT("Rare pool contains the requested three events"),UWorldEvents::SelectScheduledEvent(.2f,.199f,I),Rare[I]);
+ Test->TestEqual(TEXT("20 percent boundary belongs to common pool"),UWorldEvents::SelectScheduledEvent(.2f,.2f,0),EStreetEvent::GangMeeting);
+ FRandomStream Random(9482);int32 RareCount=0;
+ for(int32 I=0;I<10000;++I){const auto K=UWorldEvents::SelectScheduledEvent(.2f,Random.FRand(),Random.RandRange(0,2));RareCount+=K==Rare[0]||K==Rare[1]||K==Rare[2];}
+ Test->TestTrue(TEXT("Seeded scheduling sample has roughly 20 percent rare events"),RareCount>1800&&RareCount<2200);
+ // Reserve an isolated cluster; disable other map NPCs only in this test world.
+ for(TActorIterator<APatrolEnemy> It(W);It;++It)It->SocialCooldown=999;
+ for(int32 I=0;I<3;++I){Spawn(ENPCRole::GangMember,FVector(I*250,0,0));Spawn(ENPCRole::Civilian,FVector(I*250,700,0));}
+ Test->TestTrue(TEXT("Mass civilian attack starts with actual participants"),Events->TryStartEvent(EStreetEvent::GangMassacre));
+ for(auto* N:People)if(N->IsGang()){Test->TestTrue(TEXT("Mass attack gang has a protected target"),Cast<APatrolEnemy>(N->CombatTarget)&&Cast<APatrolEnemy>(N->CombatTarget)->IsLawProtected());}
+ if(People[0]->StreetEventId){const auto* E=Events->Find(People[0]->StreetEventId);Test->TestEqual(TEXT("Mass attack retains large-event score tier"),E->Tier,3);Test->TestEqual(TEXT("Mass attack has six participants"),E->Participants.Num(),6);Events->EndEvent(E->Id);}
+ Clear();return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FNPCStreetConflictRules,"Game.NPC.StreetConflict",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
+bool FNPCStreetConflictRules::RunTest(const FString&){AddCommand(new FStartPIECommand(false));AddCommand(new FWaitLatentCommand(3));AddCommand(new FNPCStreetConflictCheck(this));AddCommand(new FEndPlayMapCommand());return true;}
 #endif
 

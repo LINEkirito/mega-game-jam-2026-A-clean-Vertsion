@@ -6,6 +6,8 @@
 #include "Engine/World.h"
 #include "Engine/GameViewportClient.h"
 #include "Widgets/SWindow.h"
+#include "Framework/Docking/TabManager.h"
+#include "Widgets/Docking/SDockTab.h"
 #include "Engine/DamageEvents.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerInput.h"
@@ -90,10 +92,11 @@ bool FEquipmentIntegration::RunTest(const FString&)
  TestNotNull(TEXT("Opening backpack creates item inspection"),E->ItemPreview.Get());
  if(E->ItemPreview){TestTrue(TEXT("Camera preview includes purchased body and display"),E->ItemPreview->PartCount()>=2);const FTransform Before=E->Camcorder->GetActorTransform();const float Focal=E->Camcorder->FocalLength;E->ItemPreview->Rotate(80,30);E->ItemPreview->Zoom(2);TestTrue(TEXT("Inspecting does not rotate equipped camera"),Before.Equals(E->Camcorder->GetActorTransform()));TestEqual(TEXT("Inspection zoom does not change shooting focal length"),E->Camcorder->FocalLength,Focal);E->ItemPreview->ResetView();TestEqual(TEXT("Inspection reset restores zoom"),E->ItemPreview->ZoomAmount,1.f);}
  E->SelectInventoryItem(UBackpackInventory::BatteryId);if(E->ItemPreview){TestEqual(TEXT("Selection updates inspected item"),E->ItemPreview->ItemId,UBackpackInventory::BatteryId);TestTrue(TEXT("Battery includes terminals and label"),E->ItemPreview->PartCount()>3);}TestEqual(TEXT("Inspection does not consume battery"),E->GetBatteryCount(),1);
- E->HandleBackpackKey(EKeys::Five);TestEqual(TEXT("Quick registration"),E->Inventory->Slots[4],UBackpackInventory::BatteryId);E->SetBackpackOpen(false);TestNull(TEXT("Closing backpack releases inspection actor"),E->ItemPreview.Get());
+ E->HandleBackpackKey(EKeys::Two);TestEqual(TEXT("Only four quick slots"),E->Inventory->Slots.Num(),4);TestEqual(TEXT("Battery cannot register"),E->Inventory->SlotIndex(UBackpackInventory::BatteryId),INDEX_NONE);E->SetBackpackOpen(false);TestNull(TEXT("Closing backpack releases inspection actor"),E->ItemPreview.Get());
  auto* C=Cast<AGame_Jam_Clean_VersCharacter>(Cast<APlayerController>(E->GetOwner())->GetPawn());FDamageEvent D;TestEqual(TEXT("First damage"),C->TakeDamage(20,D,nullptr,nullptr),20.f);TestEqual(TEXT("Protection ignores repeated damage"),C->TakeDamage(20,D,nullptr,nullptr),0.f);TestEqual(TEXT("Health 80"),C->Health,80.f);
- // Independent test weapons avoid relying on level pickup positions.
- for(int32 I=0;I<3;++I){FActorSpawnParameters P;P.SpawnCollisionHandlingOverride=ESpawnActorCollisionHandlingMethod::AlwaysSpawn;auto* Gun=E->GetWorld()->SpawnActorDeferred<ATacticalWeapon>(ATacticalWeapon::StaticClass(),FTransform(FVector(0,0,500)),nullptr,nullptr,ESpawnActorCollisionHandlingMethod::AlwaysSpawn);Gun->Kind=ETacticalWeaponKind(I);Gun->FinishSpawning(FTransform(FVector(0,0,500)));Gun->Magazine=Gun->Spec().Capacity;Gun->bChambered=true;E->Combat->Weapons.Add(Gun->InventoryId,Gun);E->Inventory->Add(Gun->InventoryId,Gun->Spec().Name,TEXT("Test"));Gun->Stow();E->Inventory->Add(Gun->Spec().Ammo,TEXT("Ammo"),TEXT("Test"),50);if(I==0)E->Combat->EquipWeapon(Gun->InventoryId);}
+ // Exercise the actual starting loadout and its registered quick slots.
+ for(auto& Pair:E->Combat->Weapons){auto* Gun=Pair.Value.Get();Gun->Magazine=Gun->Spec().Capacity;Gun->bChambered=true;E->Inventory->Add(Gun->Spec().Ammo,TEXT("Ammo"),TEXT("Test"),50);}
+ E->ActivateQuickSlot(1);
  TestEqual(TEXT("Carry three guns"),E->Combat->Weapons.Num(),3);TestTrue(TEXT("Camera stored for weapon"),E->Camcorder->bInBackpack);TestFalse(TEXT("Equip delay blocks firing"),E->Combat->Fire());
 
  });AddCommand(new FEquipmentWeaponWait(E->Combat,ETacticalWeaponKind::Pistol,this));
@@ -125,7 +128,11 @@ bool FEquipmentIntegration::RunTest(const FString&)
  Step([this,Weak,Key]{if(auto* E=Weak.Get()){auto* C=Cast<AGame_Jam_Clean_VersCharacter>(Cast<APlayerController>(E->GetOwner())->GetPawn());TestTrue(TEXT("Releasing aim restores held sprint"),C->bSprinting);}Key(EKeys::W,IE_Released);Key(EKeys::LeftControl,IE_Pressed);});Wait(.2f);
  Step([this,Weak,Key]{if(auto* E=Weak.Get()){auto* C=Cast<AGame_Jam_Clean_VersCharacter>(Cast<APlayerController>(E->GetOwner())->GetPawn());TestTrue(TEXT("Ctrl crouches despite held Shift"),C->bIsCrouched);TestFalse(TEXT("Crouch cancels sprint"),C->bSprinting);C->ProcessEvent(C->FindFunctionChecked(TEXT("DoJumpStart")),nullptr);}Key(EKeys::LeftControl,IE_Released);Key(EKeys::LeftShift,IE_Released);});Wait(.15f);
  Step([this,Weak,Key]{if(auto* E=Weak.Get()){auto* C=Cast<AGame_Jam_Clean_VersCharacter>(Cast<APlayerController>(E->GetOwner())->GetPawn());TestFalse(TEXT("Jump uncrouches with clear ceiling"),C->bIsCrouched);TestTrue(TEXT("Jump leaves ground"),C->GetCharacterMovement()->IsFalling());TestEqual(TEXT("Single jump only"),C->JumpMaxCount,1);C->ProcessEvent(C->FindFunctionChecked(TEXT("DoJumpEnd")),nullptr);}});
- Step([Weak]{if(auto* E=Weak.Get()){E->SetBackpackOpen(true);E->SelectInventoryItem(UBackpackInventory::CameraId);}});Wait(.2f);
+ Step([Weak]{
+    // Automation opens MessageLog during PIE. It can occlude the viewport and intercept synthetic pointer input.
+    if(auto LogTab=FGlobalTabmanager::Get()->FindExistingLiveTab(FTabId(TEXT("MessageLog"))))LogTab->RequestCloseTab();
+    if(auto* E=Weak.Get()){E->SetBackpackOpen(true);E->SelectInventoryItem(UBackpackInventory::CameraId);}
+ });Wait(.2f);
  Step([this,Weak]{
     auto* E=Weak.Get();if(!E||!E->ItemPreview){AddError(TEXT("Inspection unavailable for UI test"));return;}
     auto Window=E->GetWorld()->GetGameViewport()->GetWindow();
@@ -139,6 +146,7 @@ bool FEquipmentIntegration::RunTest(const FString&)
     const FRotator Look=Cast<APlayerController>(E->GetOwner())->GetControlRotation();
     // Position the real Slate cursor before injecting a drag; previous tests may leave it elsewhere.
     Slate.SetCursorPos(P);
+    {const auto Path=Slate.LocateWindowUnderMouse(P,Slate.GetInteractiveTopLevelWindows());FString Names;for(int32 Index=0;Index<Path.Widgets.Num();++Index)Names+=Path.Widgets[Index].Widget->GetTypeAsString()+TEXT("/");AddInfo(FString::Printf(TEXT("Inspection pointer (%s), target window %s, route %s"),*P.ToString(),*Window->GetTitle().ToString(),*Names));}
     Slate.ProcessMouseButtonDownEvent(Window->GetNativeWindow(),FPointerEvent(0,P,P,Down,EKeys::LeftMouseButton,0,FModifierKeysState()));
     Slate.ProcessMouseMoveEvent(FPointerEvent(0,End,P,Down,EKeys::Invalid,0,FModifierKeysState()));
     Slate.ProcessMouseButtonUpEvent(FPointerEvent(0,End,End,Up,EKeys::LeftMouseButton,0,FModifierKeysState()));

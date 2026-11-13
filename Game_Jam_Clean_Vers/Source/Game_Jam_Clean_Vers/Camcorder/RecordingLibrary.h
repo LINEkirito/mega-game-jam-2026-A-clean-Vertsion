@@ -1,8 +1,20 @@
 #pragma once
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "RecordingScoreRules.h"
 #include "RecordingLibrary.generated.h"
 class AShoulderCamcorder;
+USTRUCT(BlueprintType)
+struct FRecordedScoreMoment {
+ GENERATED_BODY()
+ UPROPERTY(VisibleAnywhere,BlueprintReadOnly) float Seconds=0;
+ UPROPERTY(VisibleAnywhere,BlueprintReadOnly) int32 Points=0;
+ UPROPERTY(VisibleAnywhere,BlueprintReadOnly) FString Subject;
+ UPROPERTY(VisibleAnywhere,BlueprintReadOnly) FString Category;
+ UPROPERTY(VisibleAnywhere,BlueprintReadOnly) FString Explanation;
+ UPROPERTY(VisibleAnywhere,BlueprintReadOnly) FVector4 ScreenRect=FVector4(0,0,0,0);
+ UPROPERTY(VisibleAnywhere,BlueprintReadOnly) bool bHasScreenRect=false;
+};
 USTRUCT(BlueprintType)
 struct FRecordedEvent {
  GENERATED_BODY()
@@ -25,6 +37,10 @@ struct FRecordedClip {
  UPROPERTY(VisibleAnywhere,BlueprintReadOnly) FString Path;
  UPROPERTY(VisibleAnywhere,BlueprintReadOnly) float Seconds=0;
  UPROPERTY(VisibleAnywhere,BlueprintReadOnly) int32 Score=0;
+ UPROPERTY(VisibleAnywhere,BlueprintReadOnly) FString ScoreRecordPath;
+ UPROPERTY(VisibleAnywhere,BlueprintReadOnly) TArray<FString> ScoreDetails;
+ UPROPERTY(VisibleAnywhere,BlueprintReadOnly) TArray<FString> RecordingEvidence;
+ UPROPERTY(VisibleAnywhere,BlueprintReadOnly) TArray<FRecordedScoreMoment> ScoreMoments;
  UPROPERTY(VisibleAnywhere,BlueprintReadOnly) TArray<FRecordedPerson> People;
  UPROPERTY(VisibleAnywhere,BlueprintReadOnly) TArray<FRecordedEvent> Events;
 };
@@ -33,16 +49,23 @@ UCLASS(ClassGroup=(Camera),meta=(BlueprintSpawnableComponent))
 class GAME_JAM_CLEAN_VERS_API URecordingLibrary : public UActorComponent {
  GENERATED_BODY()
 public:
+ URecordingLibrary();
+ virtual void TickComponent(float DeltaTime,ELevelTick TickType,FActorComponentTickFunction* TickFunction) override;
+ virtual void EndPlay(const EEndPlayReason::Type Reason) override;
  UPROPERTY(VisibleAnywhere,BlueprintReadOnly) TArray<FRecordedClip> Clips;
+ UPROPERTY(VisibleAnywhere,BlueprintReadOnly) bool bRoundEnded=false;
+ UPROPERTY(VisibleAnywhere,BlueprintReadOnly) bool bEndedByDeath=false;
+ UPROPERTY(VisibleAnywhere,BlueprintReadOnly) int32 RoundScore=0;
+ UPROPERTY(VisibleAnywhere,BlueprintReadOnly) FString RoundRecordPath;
+ UFUNCTION(BlueprintCallable) void EndRound(bool bDeath=false);
  void BeginClip(AShoulderCamcorder* Camera);
  void Sample(AShoulderCamcorder* Camera);
  void FinishClip(AShoulderCamcorder* Camera,bool bSaved);
 private:
+ friend class FRecordingSettlementCheck;
  TWeakObjectPtr<AShoulderCamcorder> RecordingCamera;
- TMap<TWeakObjectPtr<AActor>,FRecordedPerson> PersonValues;
- TSet<TWeakObjectPtr<AActor>> Seen;
- TArray<TWeakObjectPtr<AActor>> PendingSubjects;
  FRecordedClip Pending;
- float NextSample=0;
- TMap<int32,float> EventExposure;
+ FRecordingScoreRules Scoring;
+ TMap<TWeakObjectPtr<AActor>,int32> SubjectNumbers;
+ TSharedPtr<class SWidget> SettlementUI;
 };

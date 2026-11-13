@@ -47,6 +47,8 @@ bool URecordingTabletComponent::HandleKey(FKey Key){
  return true;
 }
 void URecordingTabletComponent::SetOpen(bool Open){
+ // Recording review is retained but temporarily unavailable from every entry point.
+ if(Open)return;
  if(bOpen==Open)return;
  auto* PC=Cast<APlayerController>(GetOwner());auto* E=Equipment();
  if(!PC||!E||!GetWorld()->GetGameViewport())return;
@@ -120,9 +122,11 @@ void URecordingTabletComponent::BuildUI(){
     +SVerticalBox::Slot().AutoHeight().Padding(0,5)[SNew(STextBlock).Font(Small).Text(FText::FromString(FString::Printf(TEXT("评分 %d   ·   %d 人"),Clip.Score,Clip.People.Num())))]]];
  }
  FString Score=TEXT("尚未选择录像"),People=TEXT("举起摄像机开始拍摄，保存的视频会出现在这里。");
- if(L->Clips.IsValidIndex(SelectedClip)){const auto& Clip=L->Clips[SelectedClip];Score=FString::Printf(TEXT("本段评分  %d 分     |     拍到 %d 人"),Clip.Score,Clip.People.Num());People=Clip.People.IsEmpty()?TEXT("没有拍到可见人物，本段 0 分。"):TEXT("");for(const auto& P:Clip.People)People+=P.bAlreadyRecorded?FString::Printf(TEXT("%s  已拍摄 · 不重复计分\n"),*P.Name):FString::Printf(TEXT("%s  首次拍摄 +%d 分\n"),*P.Name,P.Points);}
- if(L->Clips.IsValidIndex(SelectedClip))for(const auto& E:L->Clips[SelectedClip].Events)
-  People+=E.bAlreadyRecorded?FString::Printf(TEXT("事件 · %s · 已计分\n"),*E.Name):FString::Printf(TEXT("事件 · %s · Level %d · +%d 分\n"),*E.Name,E.Tier,E.Points);
+ if(L->Clips.IsValidIndex(SelectedClip)){
+  const auto& Clip=L->Clips[SelectedClip];Score=FString::Printf(TEXT("本段评分  %d 分     |     拍到 %d 人"),Clip.Score,Clip.People.Num());
+  People=TEXT("");for(const auto& Line:Clip.ScoreDetails)People+=Line+TEXT("\n");
+ }
+
  auto Detail=SNew(SVerticalBox);
  Detail->AddSlot().AutoHeight()[SNew(SBox).HeightOverride(345)[SNew(SScaleBox).Stretch(EStretch::ScaleToFit)[SNew(SBox).WidthOverride(640).HeightOverride(360)[SNew(SImage).Image(&VideoBrush).ColorAndOpacity_Lambda([W]{auto* T=W.Get();return T&&T->LastFrame>=0?FLinearColor::White:FLinearColor::Black;})]]]];
  Detail->AddSlot().AutoHeight().Padding(0,6)[SNew(SSlider).Value_Lambda([W]{auto* T=W.Get();return T?T->PlaybackSeconds/FMath::Max(.01f,T->Playback.NumFrames()/15.f):0.f;}).OnValueChanged_Lambda([W](float V){if(auto* T=W.Get())T->Seek(V);})];
@@ -140,7 +144,7 @@ void URecordingTabletComponent::BuildUI(){
  Header->AddSlot().AutoWidth()[SNew(SButton).OnClicked_Lambda([W]{if(auto* T=W.Get())T->SetOpen(false);return FReply::Handled();})[SNew(STextBlock).Text(FText::FromString(TEXT("关闭  Esc")))]];
  auto Screen=SNew(SVerticalBox);
  Screen->AddSlot().AutoHeight()[Header];
- Screen->AddSlot().AutoHeight().Padding(0,10)[SNew(STextBlock).Font(Small).Text(FText::FromString(FString::Printf(TEXT("已保存 %d 段  ·  每人本场仅首次成功保存计分，跨视频不重复加分"),L->Clips.Num())))];
+ Screen->AddSlot().AutoHeight().Padding(0,10)[SNew(STextBlock).Font(Small).Text(FText::FromString(FString::Printf(TEXT("已保存 %d 段  ·  按策划案累计计分 · 事件 Level 1/2/3＝1/2/3 倍"),L->Clips.Num())))];
  Screen->AddSlot().FillHeight(1)[Columns];
  Screen->AddSlot().AutoHeight().Padding(0,10,0,0)[SNew(STextBlock).Font(Small).Text(FText::FromString(TEXT("空格 播放/暂停  ·  ← → 跳转 5 秒  ·  Tab / Esc 收起平板")))];
  auto Shell=SNew(SOverlay);

@@ -5,7 +5,7 @@
 
 class APatrolEnemy;
 UENUM(BlueprintType)
-enum class EStreetEvent : uint8 { CivilianEscape, GangMeeting, SecretTransaction, PoliceChase, GangShootout, MassiveGangWar };
+enum class EStreetEvent : uint8 { CivilianEscape, GangMeeting, SecretTransaction, PoliceChase, GangShootout, MassiveGangWar, GangMassacre };
 
 USTRUCT(BlueprintType)
 struct FStreetEventRecord {
@@ -34,6 +34,7 @@ public:
  UPROPERTY(EditAnywhere,BlueprintReadWrite) bool bAutomatic=true;
  UFUNCTION(BlueprintCallable) bool TryStartEvent(EStreetEvent Kind);
  UFUNCTION(BlueprintPure) static FString EventName(EStreetEvent Kind);
+ static EStreetEvent SelectScheduledEvent(float RareChance,float Roll,int32 Choice);
  int32 BeginEvent(EStreetEvent Kind,const TArray<APatrolEnemy*>& Participants);
  void EndEvent(int32 Id);
  void ObserveEscape(APatrolEnemy* NPC);
@@ -43,6 +44,6 @@ public:
 private:
  int32 NextId=1;
  float NextAttempt=12;
- bool bWarStarted=false;
+ bool bWarStarted=false,bMassacreStarted=false;
  TMap<TWeakObjectPtr<APatrolEnemy>,float> EscapeCooldown;
 };

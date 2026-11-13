@@ -11,12 +11,13 @@ bool UWorldEvents::DoesSupportWorldType(EWorldType::Type Type) const {return Typ
 TStatId UWorldEvents::GetStatId() const {RETURN_QUICK_DECLARE_CYCLE_STAT(UWorldEvents,STATGROUP_Tickables);}
 FString UWorldEvents::EventName(EStreetEvent Kind) {
  switch(Kind){
- case EStreetEvent::CivilianEscape:return TEXT("市民逃跑");
- case EStreetEvent::GangMeeting:return TEXT("帮派聚会");
- case EStreetEvent::SecretTransaction:return TEXT("秘密交易");
- case EStreetEvent::PoliceChase:return TEXT("警察追击");
- case EStreetEvent::GangShootout:return TEXT("警匪枪战");
- default:return TEXT("大规模帮派战争");}
+ case EStreetEvent::CivilianEscape:return TEXT("市民逃跑 / Civilian Escape");
+ case EStreetEvent::GangMeeting:return TEXT("帮派聚会 / Gang Meeting");
+ case EStreetEvent::SecretTransaction:return TEXT("秘密交易 / Secret Transaction");
+ case EStreetEvent::PoliceChase:return TEXT("警察追击（旧版，不计事件分）");
+ case EStreetEvent::GangShootout:return TEXT("警匪枪战 / Gang Shootout");
+ case EStreetEvent::GangMassacre:
+ default:return TEXT("大规模帮派战争 / Massive Gang War");}
 }
 const FStreetEventRecord* UWorldEvents::Find(int32 Id) const {return Events.FindByPredicate([Id](const FStreetEventRecord& E){return E.Id==Id;});}
 bool UWorldEvents::Claim(int32 Id) {
@@ -27,7 +28,7 @@ int32 UWorldEvents::BeginEvent(EStreetEvent Kind,const TArray<APatrolEnemy*>& Pe
  if(People.IsEmpty())return 0;
  for(auto* N:People)if(!IsValid(N)||N->Health<=0||N->NPCRole==ENPCRole::Injured||N->StreetEventId)return 0;
  FStreetEventRecord E;E.Id=NextId++;E.Kind=Kind;E.Started=GetWorld()->GetTimeSeconds();
- E.Tier=Kind==EStreetEvent::MassiveGangWar?3:(Kind==EStreetEvent::CivilianEscape||Kind==EStreetEvent::GangMeeting)?1:2;
+ E.Tier=(Kind==EStreetEvent::MassiveGangWar||Kind==EStreetEvent::GangMassacre)?3:(Kind==EStreetEvent::CivilianEscape||Kind==EStreetEvent::GangMeeting)?1:2;
  const auto* C=GetDefault<UGlobalData>();E.Points=FMath::Max(0,E.Tier==1?C->CommonEventPoints:E.Tier==2?C->RareEventPoints:C->LegendaryEventPoints);
  for(auto* N:People){E.Participants.Add(N);E.Location+=N->GetActorLocation();N->StreetEventId=E.Id;}
  E.Location/=People.Num();Events.Add(E);
@@ -59,24 +60,28 @@ void UWorldEvents::ObserveCombat(APatrolEnemy* N,APatrolEnemy* Target) {
 bool UWorldEvents::TryStartEvent(EStreetEvent Kind) {
  if(Kind==EStreetEvent::CivilianEscape)return false; // Only actual danger creates an escape.
  const auto* Config=GetDefault<UGlobalData>();
- if(Kind==EStreetEvent::MassiveGangWar&&(bWarStarted||GetWorld()->GetTimeSeconds()<Config->LegendaryEarliestSeconds))return false;
- TArray<APatrolEnemy*> Gang,Police;
+ if(Kind==EStreetEvent::MassiveGangWar&&(bWarStarted||GetWorld()->GetTimeSeconds()<Config->LargeEventEarliestSeconds))return false;
+ if(Kind==EStreetEvent::GangMassacre&&(bMassacreStarted||GetWorld()->GetTimeSeconds()<Config->LargeEventEarliestSeconds))return false;
+ TArray<APatrolEnemy*> Gang,Police,Civilians;
  for(TActorIterator<APatrolEnemy> It(GetWorld());It;++It){auto* N=*It;
-  if(N->Health<=0||N->StreetEventId||N->SocialCooldown>0||N->Partner.IsValid()||N->IsProtectedPerson()||N->Activity==ENPCActivity::WarnPlayer||N->bCombat||N->CameraReactionTime>0)continue;
-  if(N->IsGang())Gang.Add(N);else if(N->NPCRole==ENPCRole::Police)Police.Add(N);
+  if(N->Health<=0||N->StreetEventId||N->SocialCooldown>0||N->Partner.IsValid()||N->AssaultTarget.IsValid()||N->RetaliationTarget.IsValid()||N->NPCRole==ENPCRole::Injured||N->Activity==ENPCActivity::WarnPlayer||N->bCombat||N->CameraReactionTime>0)continue;
+  if(N->IsGang())Gang.Add(N);else if(N->NPCRole==ENPCRole::Police)Police.Add(N);else if(N->NPCRole==ENPCRole::Civilian||N->NPCRole==ENPCRole::Merchant)Civilians.Add(N);
  }
  if(Gang.IsEmpty())return false;
  // Randomize the anchor, then use a local cluster rather than teleporting actors.
  APatrolEnemy* Anchor=Gang[FMath::RandHelper(Gang.Num())];const FVector Center=Anchor->GetActorLocation();
  Gang.Sort([Center](const APatrolEnemy& A,const APatrolEnemy& B){return FVector::DistSquared(A.GetActorLocation(),Center)<FVector::DistSquared(B.GetActorLocation(),Center);});
  Police.Sort([Center](const APatrolEnemy& A,const APatrolEnemy& B){return FVector::DistSquared(A.GetActorLocation(),Center)<FVector::DistSquared(B.GetActorLocation(),Center);});
+ Civilians.Sort([Center](const APatrolEnemy& A,const APatrolEnemy& B){return FVector::DistSquared(A.GetActorLocation(),Center)<FVector::DistSquared(B.GetActorLocation(),Center);});
+ const bool Massacre=Kind==EStreetEvent::GangMassacre;
  const bool Meeting=Kind==EStreetEvent::GangMeeting,Trade=Kind==EStreetEvent::SecretTransaction,War=Kind==EStreetEvent::MassiveGangWar;
- const int32 GangCount=Meeting||War?3:Trade?2:1,PoliceCount=Meeting||Trade?0:War?2:1;
- if(Gang.Num()<GangCount||Police.Num()<PoliceCount)return false;
- const float Radius=War?5000.f:Meeting?1800.f:Trade?1000.f:2200.f;
+ const int32 GangCount=Meeting||War||Massacre?3:Trade?2:1,PoliceCount=Meeting||Trade||Massacre?0:War?2:1;
+ if(Gang.Num()<GangCount||Police.Num()<PoliceCount||(Massacre&&Civilians.Num()<3))return false;
+ const float Radius=War||Massacre?5000.f:Meeting?1800.f:Trade?1000.f:2200.f;
  TArray<APatrolEnemy*> People;
  for(int32 I=0;I<GangCount;++I){if(FVector::Dist2D(Center,Gang[I]->GetActorLocation())>Radius)return false;People.Add(Gang[I]);}
  for(int32 I=0;I<PoliceCount;++I){if(FVector::Dist2D(Center,Police[I]->GetActorLocation())>Radius)return false;People.Add(Police[I]);}
+ if(Massacre)for(int32 I=0;I<3;++I){if(FVector::Dist2D(Center,Civilians[I]->GetActorLocation())>Radius)return false;People.Add(Civilians[I]);}
  if(Kind==EStreetEvent::PoliceChase&&!Police[0]->CanSeeActor(Anchor))return false;
  auto* Nav=FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld());
  TArray<FVector> Destinations;
@@ -91,6 +96,7 @@ bool UWorldEvents::TryStartEvent(EStreetEvent Kind) {
  for(auto* N:People){N->ReleasePartner();N->MoveRetry=0;N->bMoving=false;}
  if(Meeting){for(int32 I=0;I<GangCount;++I){auto* N=Gang[I];N->EventDestination=Destinations[I];N->EventFocus=Center;N->SetActivity(ENPCActivity::Meeting);}}
  else if(Trade){Gang[0]->Partner=Gang[1];Gang[1]->Partner=Gang[0];Gang[0]->SetActivity(ENPCActivity::Trade);Gang[1]->SetActivity(ENPCActivity::Trade);}
+ else if(Massacre){for(int32 I=0;I<3;++I){Gang[I]->EscalationTarget=Civilians[I];Gang[I]->SetTarget(Civilians[I]);}bMassacreStarted=true;}
  else {
   for(int32 I=0;I<PoliceCount;++I)Police[I]->SetTarget(Gang[I%GangCount]);
   if(Kind!=EStreetEvent::PoliceChase)for(int32 I=0;I<GangCount;++I)Gang[I]->SetTarget(Police[I%PoliceCount]);
@@ -102,37 +108,42 @@ void UWorldEvents::Tick(float DT) {
  if(!GetWorld()||!GetWorld()->HasBegunPlay())return;
  const float Now=GetWorld()->GetTimeSeconds();int32 Active=0;
  for(auto& E:Events){if(!E.bActive)continue;if(E.Kind!=EStreetEvent::CivilianEscape)++Active;
-  int32 Living=0,Ready=0,Gang=0,Police=0;bool Interrupted=false;
-  for(auto Weak:E.Participants){auto* N=Weak.Get();if(!N||N->Health<=0||N->NPCRole==ENPCRole::Injured)continue;++Living;
+  int32 Living=0,Ready=0,Gang=0,Police=0,Civilian=0;bool Interrupted=false;
+  for(auto Weak:E.Participants){auto* N=Weak.Get();if(!N||N->Health<=0)continue;++Living;
    if(E.Kind==EStreetEvent::MassiveGangWar&&!N->IsLiving(N->CombatTarget)){
     for(auto Other:E.Participants)if(auto* Target=Other.Get();Target&&N->IsLiving(Target)&&N->IsGang()!=Target->IsGang()){N->SetTarget(Target);break;}
    }
-   Gang+=N->IsGang();Police+=N->NPCRole==ENPCRole::Police;
+   Gang+=N->IsGang();Police+=N->NPCRole==ENPCRole::Police;Civilian+=N->IsLawProtected();
+   if(E.Kind==EStreetEvent::GangMassacre&&N->IsGang()&&!N->IsCombatTargetAlive(N->CombatTarget)){for(auto Other:E.Participants)if(auto* Victim=Other.Get();Victim&&Victim->Health>0&&Victim->IsLawProtected()){N->EscalationTarget=Victim;N->SetTarget(Victim);break;}}
    switch(E.Kind){
    case EStreetEvent::GangMeeting:Interrupted|=N->Activity!=ENPCActivity::Meeting;Ready+=N->Activity==ENPCActivity::Meeting&&FVector::Dist2D(N->GetActorLocation(),N->EventDestination)<95;break;
    case EStreetEvent::SecretTransaction:Interrupted|=N->Activity!=ENPCActivity::Trade;Ready+=N->Activity==ENPCActivity::Trade&&N->bSocialArrived;break;
    case EStreetEvent::CivilianEscape:Ready+=N->Activity==ENPCActivity::Flee;break;
-   default:Ready+=N->bCombat&&N->IsLiving(N->CombatTarget)&&N->CanSeeActor(N->CombatTarget,false);break;
+   default:Ready+=N->bCombat&&N->IsCombatTargetAlive(N->CombatTarget)&&N->CanSeeActor(N->CombatTarget,false);break;
    }
   }
   const bool Social=E.Kind==EStreetEvent::GangMeeting||E.Kind==EStreetEvent::SecretTransaction;
-  const int32 Required=Social?E.Participants.Num():E.Kind==EStreetEvent::MassiveGangWar?3:1;
+  const int32 Required=Social?E.Participants.Num():(E.Kind==EStreetEvent::MassiveGangWar||E.Kind==EStreetEvent::GangMassacre)?3:1;
   if(Ready>=Required&&!E.bPerforming){E.bPerforming=true;E.PerformingSince=Now;}
   // Preparation never scores. Stop social scenes when interrupted; never override self-defense.
   const bool End=Living==0||Interrupted||(Social&&Living<E.Participants.Num())||
    (E.Kind==EStreetEvent::CivilianEscape&&Ready==0)||
-   (!Social&&E.Kind!=EStreetEvent::CivilianEscape&&(Gang==0||Police==0))||
+   (!Social&&E.Kind!=EStreetEvent::CivilianEscape&&(Gang==0||(E.Kind==EStreetEvent::GangMassacre?Civilian==0:Police==0)))||
    (Social&&!E.bPerforming&&Now-E.Started>30)||
    (E.Kind==EStreetEvent::GangMeeting&&E.bPerforming&&Now-E.PerformingSince>16)||
-   Now-E.Started>(E.Kind==EStreetEvent::MassiveGangWar?90.f:60.f);
+   Now-E.Started>((E.Kind==EStreetEvent::MassiveGangWar||E.Kind==EStreetEvent::GangMassacre)?90.f:60.f);
   if(End)EndEvent(E.Id);
   else if(!Social&&Ready<Required)E.bPerforming=false;
  }
  const auto* C=GetDefault<UGlobalData>();if(!bAutomatic||!C->bEnableStreetEvents)return;
  NextAttempt-=DT;if(NextAttempt>0||Active>=3)return;NextAttempt=FMath::Max(1.f,C->EventAttemptSeconds);
- const float CW=FMath::Max(0.f,C->CommonEventWeight),RW=FMath::Max(0.f,C->RareEventWeight),LW=FMath::Max(0.f,C->LegendaryEventWeight);
- if(CW+RW+LW<=0)return;const float Roll=FMath::FRand()*(CW+RW+LW);
- if(Roll<CW)TryStartEvent(EStreetEvent::GangMeeting);
- else if(Roll<CW+RW){const EStreetEvent Kinds[]={EStreetEvent::SecretTransaction,EStreetEvent::PoliceChase,EStreetEvent::GangShootout};TryStartEvent(Kinds[FMath::RandHelper(3)]);}
- else TryStartEvent(EStreetEvent::MassiveGangWar);
+ // One categorical draw: the entire rare pool is 20%, shared by its three types.
+ TryStartEvent(SelectScheduledEvent(C->RareEventChance,FMath::FRand(),FMath::RandHelper(3)));
+}
+EStreetEvent UWorldEvents::SelectScheduledEvent(float RareChance,float Roll,int32 Choice)
+{
+ const EStreetEvent Rare[]={EStreetEvent::SecretTransaction,EStreetEvent::GangMassacre,EStreetEvent::MassiveGangWar};
+ // Legacy chase is not in the approved five-event design. Keep its enum for asset compatibility only.
+ const EStreetEvent Common[]={EStreetEvent::GangMeeting,EStreetEvent::GangShootout,EStreetEvent::GangShootout};
+ return Roll<FMath::Clamp(RareChance,0.f,1.f)?Rare[FMath::Clamp(Choice,0,2)]:Common[FMath::Clamp(Choice,0,2)];
 }

@@ -48,7 +48,7 @@ bool UCombatEquipmentComponent::TryInteract()
     if(!Equipment||!Equipment->Inventory)return false;
     if(auto* A=NearbyPickup())
     {
-        if(auto* W=Cast<ATacticalWeapon>(A)){if(W->InventoryId.IsNone())W->InventoryId=W->GetFName();Weapons.Add(W->InventoryId,W);Equipment->Inventory->Add(W->InventoryId,W->Spec().Name,TEXT("可放入背包并登记快捷槽。左键射击，按住右键瞄准，R 换弹；G 丢下，保留弹匣。"));W->Stow();EquipWeapon(W->InventoryId);Equipment->Camcorder->SetNotice(TEXT("武器已拿到手上，正在准备上膛"));}
+        if(auto* W=Cast<ATacticalWeapon>(A)){if(W->InventoryId.IsNone())W->InventoryId=W->GetFName();Weapons.Add(W->InventoryId,W);Equipment->Inventory->Add(W->InventoryId,W->Spec().Name,TEXT("可放入背包并登记快捷槽。左键射击，按住右键瞄准，R 换弹；G 丢下，保留弹匣。"),1,true);W->Stow();EquipWeapon(W->InventoryId);Equipment->Camcorder->SetNotice(TEXT("武器已拿到手上，正在准备上膛"));}
         else if(auto* Ammo=Cast<ACombatAmmoPickup>(A)){Equipment->Inventory->Add(Ammo->AmmoId(),Ammo->AmmoName(),TEXT("对应枪械的备用弹药；装备枪械后按 R 换弹。"),Ammo->Amount);if(auto* C=Cast<AGame_Jam_Clean_VersCharacter>(Player()->GetPawn()))if(C->ItemInteraction)C->ItemInteraction->Play(Ammo->Mesh);CharacterAudio::Attached(LoadObject<USoundBase>(nullptr,TEXT("/Game/Combat/Audio/Handling/ItemPickup")),Player()->GetPawn()->GetRootComponent(),ECharacterSound::Handling,.5f);Ammo->Destroy();Equipment->Camcorder->SetNotice(TEXT("弹药已收入背包"));}
         Equipment->RefreshBackpack();return true;
     }return false;
@@ -104,7 +104,7 @@ bool UCombatEquipmentComponent::Fire()
         const FVector Dir=FMath::VRandCone(View.Vector(),FMath::DegreesToRadians(Spread));FVector End=Eye+Dir*S.Range;
         FHitResult AimHit,Hit;if(GetWorld()->LineTraceSingleByChannel(AimHit,Eye,End,ECC_Visibility,Q))End=AimHit.ImpactPoint;
         const bool Blocked=GetWorld()->LineTraceSingleByChannel(Hit,Muzzle,End+(End-Muzzle).GetSafeNormal()*3,ECC_Visibility,Q);
-        bool Flesh=false;if(Blocked){End=Hit.ImpactPoint;float Damage=S.Damage*FMath::GetMappedRangeValueClamped(FVector2D(S.Range*.3f,S.Range),FVector2D(1,.35f),FVector::Distance(Eye,End));
+        bool Flesh=false;if(Blocked){End=Hit.ImpactPoint;float Damage=S.DamageAtDistance(FVector::Distance(Eye,End));
             auto* Statue=Hit.GetActor()?Hit.GetActor()->FindComponentByClass<UStatueTargetComponent>():nullptr;
             const float Applied=GetWorld()->GetSubsystem<UDataTransmitter>()->TransmitHit(Hit,Damage,Dir,PC,ActiveWeapon);
             Flesh=Applied>0&&(Cast<APawn>(Hit.GetActor())||Cast<ACombatTarget>(Hit.GetActor())||Statue);
@@ -141,6 +141,21 @@ void UCombatEquipmentComponent::TickComponent(float DT,ELevelTick Type,FActorCom
     if(ActiveWeapon){ActiveWeapon->AdvanceHandling(DT);bReloading=ActiveWeapon->IsReloading();}
     if(ActiveWeapon)ActiveWeapon->UpdatePose(DT,bADS,VisualKick);
     const float TargetFOV=ActiveWeapon&&bADS&&!bReloading?ActiveWeapon->AimFOV():90.f;auto* Camera=C->GetFirstPersonCameraComponent();Camera->SetFieldOfView(FMath::FInterpTo(Camera->FieldOfView,TargetFOV,DT,12));
+}
+void UCombatEquipmentComponent::InitializeStartingWeapons()
+{
+    if(!Equipment||!Equipment->Inventory||!Weapons.IsEmpty())return;
+    const ETacticalWeaponKind Kinds[]={ETacticalWeaponKind::Pistol,ETacticalWeaponKind::Shotgun,ETacticalWeaponKind::Rifle};
+    for(int32 I=0;I<3;++I){
+        const FTransform Transform(Player()->GetPawn()->GetActorLocation());
+        auto* Gun=GetWorld()->SpawnActorDeferred<ATacticalWeapon>(ATacticalWeapon::StaticClass(),Transform,Player(),nullptr,ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+        if(!Gun)continue;
+        Gun->Kind=Kinds[I];Gun->FinishSpawning(Transform);Gun->Stow();
+        Weapons.Add(Gun->InventoryId,Gun);
+        Equipment->Inventory->Add(Gun->InventoryId,Gun->Spec().Name,TEXT("左键射击，右键瞄准，R 换弹；G 丢下。"),1,true);
+        Equipment->Inventory->Assign(I+1,Gun->InventoryId);
+    }
+    Equipment->RefreshBackpack();
 }
 void UCombatEquipmentComponent::InitializeHUD(){HUD=SNew(SCombatHUD).Combat(this);GetWorld()->GetGameViewport()->AddViewportWidgetContent(HUD.ToSharedRef(),11);}
 void UCombatEquipmentComponent::EndPlay(const EEndPlayReason::Type R){if(HUD&&GetWorld()->GetGameViewport())GetWorld()->GetGameViewport()->RemoveViewportWidgetContent(HUD.ToSharedRef());HUD.Reset();for(auto& P:Weapons)if(IsValid(P.Value))P.Value->Destroy();Super::EndPlay(R);}

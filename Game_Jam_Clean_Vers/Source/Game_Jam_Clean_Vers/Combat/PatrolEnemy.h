@@ -1,13 +1,14 @@
-﻿#pragma once
+#pragma once
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "TacticalWeapon.h"
+#include "CharacterSecondaryMotion.h"
 #include "PatrolEnemy.generated.h"
 
 UENUM(BlueprintType)
 enum class ENPCRole : uint8 { GangMember, GangBoss, Civilian, Merchant, Police, Injured };
 UENUM(BlueprintType)
-enum class ENPCActivity : uint8 { Idle, Patrol, Investigate, Combat, Threaten, Beat, Trade, Command, Flee, Injured, Dead, WarnPlayer, Meeting, CameraLook, CameraDismiss, CameraAvoid };
+enum class ENPCActivity : uint8 { Idle, Patrol, Investigate, Combat, Threaten, Beat, Trade, Command, Flee, Injured, Dead, WarnPlayer, Meeting, CameraLook, CameraDismiss, CameraAvoid, PursueMelee, Counterattack };
 
 UCLASS()
 class GAME_JAM_CLEAN_VERS_API APatrolEnemy : public ACharacter
@@ -19,8 +20,10 @@ public:
  virtual void BeginPlay() override;
  virtual void EndPlay(const EEndPlayReason::Type Reason) override;
  virtual void Tick(float DT) override;
+ float ShotHitChance(const AActor* Target) const;
  virtual float TakeDamage(float Damage,const FDamageEvent& Event,AController* Instigator,AActor* Causer) override;
  UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="NPC") ENPCRole NPCRole=ENPCRole::GangMember;
+ UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="NPC") ENPCRole IdentityRole=ENPCRole::GangMember;
  UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="NPC") float Health=150;
  UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="NPC") float SightRange=2200;
  UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="NPC") float SightAngle=80;
@@ -50,12 +53,23 @@ public:
  UFUNCTION(BlueprintPure) bool CanSeeActor(AActor* Target,bool CheckAngle=true) const;
  UFUNCTION(BlueprintPure) bool IsGang() const {return NPCRole==ENPCRole::GangMember||NPCRole==ENPCRole::GangBoss;}
  UFUNCTION(BlueprintPure) bool IsProtectedPerson() const {return NPCRole==ENPCRole::Civilian||NPCRole==ENPCRole::Merchant||NPCRole==ENPCRole::Injured;}
+ UFUNCTION(BlueprintPure) bool IsLawProtected() const {return IdentityRole==ENPCRole::Civilian||IdentityRole==ENPCRole::Merchant||IdentityRole==ENPCRole::Injured;}
  UFUNCTION(BlueprintCallable) void BecomeInjured();
  UFUNCTION() void HearGunshot(AActor* Shooter,FVector Location,float Range);
  UFUNCTION() void WitnessViolence(AActor* Victim,APawn* Attacker,bool ProtectedVictim);
  UFUNCTION(BlueprintImplementableEvent,Category="NPC") void OnActivityChanged(ENPCActivity NewActivity);
 private:
  friend class UWorldEvents;
+ friend class FNPCStreetConflictCheck;
+ friend class FFilmingEventMatrixCheck;
+ TWeakObjectPtr<APatrolEnemy> AssaultTarget,RetaliationTarget,EscalationTarget,CivilianAggressor;
+ float AssaultLostTime=0,CivilianResponseCooldown=0;
+ bool bCivilianWillFight=false;
+ void BeginAssault(APatrolEnemy* Target);
+ void TickAssault(float DT);
+ void TickCounterattack(float DT);
+ void RespondToAssault(APatrolEnemy* Gang);
+ bool IsCombatTargetAlive(AActor* Target) const;
  FVector EventDestination=FVector::ZeroVector,EventFocus=FVector::ZeroVector;
  float CameraReactionTime=0,CameraReactionCooldown=0;
  bool IsBeingFilmed() const;
@@ -91,8 +105,10 @@ private:
  bool bPreviousArmed=false;
  float PresentationBlendTime=1.f;
  TArray<FTransform> LastPresentedPose,PresentationBlendFrom;
+ FCharacterSecondaryMotion SecondaryMotion;
  bool IsPlayerAimingAtMe() const;
  float TurnDelta=0,ScanYaw=0,NextLookTime=0,WeaponReadyAlpha=0;
+ float CombatAimPitch=0;
  int32 RouteIndex=0;
  bool bTurning=false;
  float TurnTime=0,TurnStartYaw=0,TurnAngle=0,TurnNominalAngle=90,TurnRate=1.75f;

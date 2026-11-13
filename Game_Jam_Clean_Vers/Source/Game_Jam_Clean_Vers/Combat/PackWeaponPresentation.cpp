@@ -125,11 +125,36 @@ void ATacticalWeapon::UpdatePackPose(float DT,bool ADS,float Kick)
     const FTransform ViewMotion(FRotator(Kick*.6f-15*SprintAlpha,4*SprintAlpha,-12*SprintAlpha),Bob+FVector(-3,0,-3)*SprintAlpha);
     const FTransform View(C->GetControlRotation(),C->GetFirstPersonCameraComponent()->GetComponentLocation());
     Frame=Frame*ViewMotion*View;
+    // Move along the sight line to keep both authored wrists within anatomical
+    // reach. This preserves the optic alignment and the weapon/hand animation.
+    const FVector Forward=C->GetControlRotation().Vector();
+    float PullBack=0.f;
+    // Preserve the solved crouch torso, transformed into the current body frame
+    // so a yaw change cannot leave the reach calculation in last frame's world pose.
+    auto* FullBody=C->GetFirstPersonMesh();
+    const FTransform BodyFrame=C->GetMesh()->GetComponentTransform();
+    auto BodyBone=[&](FName Bone){return BodyFrame.TransformPosition(FullBody->GetSocketTransform(Bone,RTS_Component).GetLocation());};
+    for(int32 Side=0;Side<2;++Side)
+    {
+        const FName Upper=Side==0?TEXT("upperarm_l"):TEXT("upperarm_r");
+        const FName Lower=Side==0?TEXT("lowerarm_l"):TEXT("lowerarm_r");
+        const FName Hand=Side==0?TEXT("hand_l"):TEXT("hand_r");
+        const FVector Shoulder=BodyBone(Upper);
+        const float Reach=FVector::Distance(Shoulder,BodyBone(Lower))+FVector::Distance(BodyBone(Lower),BodyBone(Hand))-.5f;
+        const FVector Target=Frame.TransformPosition(Hands->GetSocketTransform(Hand,RTS_Component).GetLocation());
+        const FVector D=Target-Shoulder;
+        const float Along=FVector::DotProduct(D,Forward);
+        const float PerpendicularSquared=FMath::Max(0.f,D.SizeSquared()-Along*Along);
+        if(Reach>1.f && PerpendicularSquared<Reach*Reach)
+            PullBack=FMath::Max(PullBack,Along-FMath::Sqrt(Reach*Reach-PerpendicularSquared));
+    }
+    Frame.AddToTranslation(-Forward*PullBack);
     Hands->SetWorldTransform(Frame);
     const FTransform GunWorld=GunLocal*Frame;
     SetActorTransform(FTransform(FRotator(0,90,0))*GunWorld,false,nullptr,ETeleportType::TeleportPhysics);
     RenderArms->SetWorldTransform(Frame);RenderArms->CopyPoseFromSkeletalComponent(Hands);
-    C->GetFirstPersonMesh()->SetWorldTransform(Frame);
+    // The full body remains rooted to the capsule; only the authored weapon rig follows aim.
+    C->GetFirstPersonMesh()->SetWorldTransform(C->GetMesh()->GetComponentTransform());
     C->GetFirstPersonMesh()->TickAnimation(0,false);C->GetFirstPersonMesh()->RefreshBoneTransforms();
     Hands->SetVisibility(false);RenderArms->SetVisibility(false);
     WeaponLight->SetRelativeLocation(FVector(R?50:P?14:60,0,-2));WeaponLight->SetIntensity(bLightOn?20000:0);

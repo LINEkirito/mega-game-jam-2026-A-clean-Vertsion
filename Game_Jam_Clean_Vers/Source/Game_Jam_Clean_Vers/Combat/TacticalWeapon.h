@@ -32,6 +32,10 @@ struct FTacticalWeaponSpec
     // Tuning baseline: project-authored values, NOT extracted Ready or Not numeric curves.
     float Damage=30, Range=5000, Interval=.22f, Reload=3.f, Recoil=1.4f, HipSpread=2, ADSSpread=.25f, HeadMultiplier=2;
     bool bAutomatic=false, bShellReload=false;
+    float DamageAtDistance(float Distance) const
+    {
+        return Damage*FMath::GetMappedRangeValueClamped(FVector2D(Range*.3f,Range),FVector2D(1,.35f),Distance);
+    }
 };
 
 UCLASS()

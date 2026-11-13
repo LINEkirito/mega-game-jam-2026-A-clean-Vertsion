@@ -48,7 +48,7 @@ public:
         Box(CX-100*S+194*S*(C->FocalLength-18.f)/82.f,ZoomY-3*S,6*S,13*S,White);
         Text(Margin,ZoomY-7*S,FString::Printf(TEXT("%.0f mm"),C->FocalLength),22,White);
         Text(W-Margin-220*S,ZoomY-7*S,TEXT("640×360  /  15 FPS"),19,White);
-        Text(CX-270*S,H-Margin-18*S,TEXT("按住右键取景  ·  左键录像  ·  滚轮变焦  ·  Esc 退出"),17,White);
+        Text(CX-270*S,H-Margin-18*S,TEXT("按住右键取景  ·  左键录像  ·  滚轮变焦  ·  退格键结束并结算"),17,White);
         return Layer+2;
     }
 private:

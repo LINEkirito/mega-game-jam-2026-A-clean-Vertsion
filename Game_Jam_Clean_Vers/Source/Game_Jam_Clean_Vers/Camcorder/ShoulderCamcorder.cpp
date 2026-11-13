@@ -268,7 +268,7 @@ void AShoulderCamcorder::SetViewfinderRaised(bool bRaised)
     { SetNotice(TEXT("请先装备并开启摄像机，再按右键举机取景")); return; }
     bViewfinderRaised=bRaised;
     CameraMesh->SetVisibility(!bRaised); DisplayScreen->SetVisibility(!bRaised);
-    if(bRaised) { Holder->SetViewTargetWithBlend(this,.43f); SetNotice(TEXT("移动鼠标调整镜头，滚轮变焦；左键开始/停止录像，Esc 退出")); }
+    if(bRaised) { Holder->SetViewTargetWithBlend(this,.43f); SetNotice(TEXT("移动鼠标调整镜头，滚轮变焦；左键开始/停止录像，Esc 放下取景；Backspace 结束并结算")); }
     else
     {
         StopRecording();
@@ -307,6 +307,7 @@ void AShoulderCamcorder::AdjustFocalLength(float DeltaMM)
 }
 bool AShoulderCamcorder::StartRecording()
 {
+    if(GetOwner())if(auto* Library=GetOwner()->FindComponentByClass<URecordingLibrary>();Library&&Library->bRoundEnded)return false;
     if(!bViewfinderRaised || !bHeld) { SetNotice(TEXT("只能在取景状态录像：先按鼠标右键举机")); return false; }
     if(bInBackpack) { SetNotice(TEXT("请先从背包装备摄像机再录像")); return false; }
     if(bRecording) return true;
@@ -338,6 +339,8 @@ void AShoulderCamcorder::SampleRecording()
 void AShoulderCamcorder::StopRecording()
 {
     if(!bRecording || !Writer) return;
+    // Include the final captured frame before committing exposure and finalizing the video.
+    if(Capture){Capture->CaptureScene();SampleRecording();}
     bRecording=false;
     Writer->Finish(FMath::Max(1,FMath::CeilToInt(RecordingSeconds*15.f)));
     const bool bOK=!Writer->HasFailed() && Writer->GetFrameCount()>0 && !bCaptureReadFailed;

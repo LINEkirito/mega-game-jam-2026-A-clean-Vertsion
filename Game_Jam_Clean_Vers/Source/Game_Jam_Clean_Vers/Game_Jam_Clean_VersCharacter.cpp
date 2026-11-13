@@ -6,7 +6,9 @@
 
 #include "Animation/AnimInstance.h"
 #include "Combat/UnifiedBodyAnimInstance.h"
+#include "Combat/CharacterSecondaryMotionComponent.h"
 #include "Engine/SkeletalMesh.h"
+#include "Materials/MaterialInterface.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -65,14 +67,48 @@ AGame_Jam_Clean_VersCharacter::AGame_Jam_Clean_VersCharacter()
     for(int32 I=1;I<=4;++I) FootstepSounds.Add(LoadObject<USoundBase>(nullptr,*FString::Printf(TEXT("/Game/Combat/Audio/Handling/Footstep%d"),I)));
     HurtSound=LoadObject<USoundBase>(nullptr,TEXT("/Game/Combat/Effects/Blood/S_BloodHit"));
 }
+FVector AGame_Jam_Clean_VersCharacter::BodyCameraOffset() const
+{
+    const float LookingDown=FMath::Clamp((-FMath::UnwindDegrees(GetControlRotation().Pitch)-25.f)/40.f,0.f,1.f);
+    // Follow the crouched head; give the near view clearance from the elbows when looking down.
+    return FVector(22-20*CrouchViewAlpha*(1-LookingDown),0,72-12*CrouchViewAlpha+CrouchCameraOffset);
+}
 void AGame_Jam_Clean_VersCharacter::BeginPlay(){Super::BeginPlay();
-FirstPersonCameraComponent->AttachToComponent(GetCapsuleComponent(),FAttachmentTransformRules::KeepWorldTransform);FirstPersonCameraComponent->SetRelativeLocation(FVector(0,0,64));FirstPersonCameraComponent->SetRelativeRotation(FRotator::ZeroRotator);
-GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Visibility,ECR_Block);if(auto* Arms=LoadObject<USkeletalMesh>(nullptr,TEXT("/Game/Combat/Viewmodel/BeachGirls/SK_PlayerBeachHands")))FirstPersonMesh->SetSkeletalMeshAsset(Arms);GetMesh()->SetOwnerNoSee(true);GetMesh()->SetCastShadow(true);GetMesh()->bCastHiddenShadow=true;FirstPersonMesh->SetCastShadow(false);GetMesh()->VisibilityBasedAnimTickOption=EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;FirstPersonMesh->VisibilityBasedAnimTickOption=EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;FirstPersonMesh->SetAnimInstanceClass(UUnifiedBodyAnimInstance::StaticClass());FirstPersonMesh->SetDisablePostProcessBlueprint(true);FirstPersonMesh->AddTickPrerequisiteComponent(GetMesh());FirstPersonMesh->FirstPersonPrimitiveType=EFirstPersonPrimitiveType::None;FirstPersonMesh->SetVisibility(true,false);LastFootstepLocation=GetActorLocation();GetCharacterMovement()->MaxWalkSpeed=360;GetCharacterMovement()->AirControl=.2f;FirstPersonCameraComponent->PostProcessSettings.bOverride_MotionBlurAmount=true;FirstPersonCameraComponent->PostProcessSettings.MotionBlurAmount=0;}
+FirstPersonCameraComponent->AttachToComponent(GetCapsuleComponent(),FAttachmentTransformRules::KeepWorldTransform);FirstPersonCameraComponent->SetRelativeLocation(FVector(22,0,72));FirstPersonCameraComponent->SetRelativeRotation(FRotator::ZeroRotator);
+GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Visibility,ECR_Block);if(auto* Body=LoadObject<USkeletalMesh>(nullptr,TEXT("/Game/Characters/MechanicGirl/SK_MechanicGirl_PackRig")))
+{
+    FirstPersonMesh->SetSkeletalMeshAsset(LoadObject<USkeletalMesh>(nullptr,TEXT("/Game/Characters/MechanicGirl/SK_MechanicGirl_FirstPerson")));
+    FirstPersonMesh->EmptyOverrideMaterials();
+    // Hide head/hair only in the owner's view, without shrinking any bones.
+    // A second owner-hidden representation retains the complete head and shadow.
+    auto* WorldBody=NewObject<USkeletalMeshComponent>(this,TEXT("MechanicWorldBody"));
+    WorldBody->SetupAttachment(FirstPersonMesh);
+    WorldBody->SetSkeletalMeshAsset(Body);
+    WorldBody->SetOwnerNoSee(true);
+    WorldBody->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    WorldBody->SetCanEverAffectNavigation(false);
+    WorldBody->SetCastShadow(true);WorldBody->bCastHiddenShadow=true;
+    WorldBody->RegisterComponent();
+    WorldBody->SetLeaderPoseComponent(FirstPersonMesh);
+    if(auto* Hidden=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Characters/MechanicGirl/Materials/M_OwnerHidden")))
+    {
+        for(int32 Slot=3;Slot<FirstPersonMesh->GetNumMaterials();++Slot)FirstPersonMesh->SetMaterial(Slot,Hidden);
+        WorldBody->SetMaterial(3,Hidden);
+    }
+}
+// The template offsets its hidden body 20 cm backwards; a visible body must stay centred.
+GetMesh()->SetRelativeLocation(FVector(0,0,-GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight()));
+FirstPersonMesh->SetRelativeTransform(FTransform::Identity);
+GetMesh()->SetOwnerNoSee(true);GetMesh()->SetVisibility(false,false);GetMesh()->SetCastShadow(false);GetMesh()->bCastHiddenShadow=false;FirstPersonMesh->SetCastShadow(false);GetMesh()->VisibilityBasedAnimTickOption=EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;FirstPersonMesh->VisibilityBasedAnimTickOption=EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;FirstPersonMesh->SetAnimInstanceClass(UUnifiedBodyAnimInstance::StaticClass());FirstPersonMesh->SetDisablePostProcessBlueprint(true);FirstPersonMesh->AddTickPrerequisiteComponent(GetMesh());FirstPersonMesh->FirstPersonPrimitiveType=EFirstPersonPrimitiveType::None;FirstPersonMesh->SetVisibility(true,false);
+auto* Secondary=NewObject<UCharacterSecondaryMotionComponent>(this,TEXT("CharacterSecondaryMotion"));
+AddInstanceComponent(Secondary);Secondary->RegisterComponent();Secondary->Initialize(FirstPersonMesh);
+LastFootstepLocation=GetActorLocation();GetCharacterMovement()->MaxWalkSpeed=360;GetCharacterMovement()->AirControl=.2f;FirstPersonCameraComponent->PostProcessSettings.bOverride_MotionBlurAmount=true;FirstPersonCameraComponent->PostProcessSettings.MotionBlurAmount=0;}
 void AGame_Jam_Clean_VersCharacter::Tick(float DT)
 {
     Super::Tick(DT);
+    CrouchViewAlpha=FMath::FInterpTo(CrouchViewAlpha,bIsCrouched?1.f:0.f,DT,12.f);
     CrouchCameraOffset=FMath::FInterpTo(CrouchCameraOffset,0.f,DT,10.f);
-    FirstPersonCameraComponent->SetRelativeLocation(FVector(0,0,64+CrouchCameraOffset));
+    FirstPersonCameraComponent->SetRelativeLocation(BodyCameraOffset());
     const float Travel=FVector::Dist2D(LastFootstepLocation,GetActorLocation());LastFootstepLocation=GetActorLocation();
     if(Health>0 && GetCharacterMovement()->IsMovingOnGround() && GetVelocity().Size2D()>20 && Travel<150)
     {
@@ -92,13 +128,13 @@ void AGame_Jam_Clean_VersCharacter::OnStartCrouch(float H,float S)
 {
     Super::OnStartCrouch(H,S);
     CrouchCameraOffset+=H;
-    FirstPersonCameraComponent->SetRelativeLocation(FVector(0,0,64+CrouchCameraOffset));
+    FirstPersonCameraComponent->SetRelativeLocation(BodyCameraOffset());
 }
 void AGame_Jam_Clean_VersCharacter::OnEndCrouch(float H,float S)
 {
     Super::OnEndCrouch(H,S);
     CrouchCameraOffset-=H;
-    FirstPersonCameraComponent->SetRelativeLocation(FVector(0,0,64+CrouchCameraOffset));
+    FirstPersonCameraComponent->SetRelativeLocation(BodyCameraOffset());
 }
 float AGame_Jam_Clean_VersCharacter::TakeDamage(float D,const FDamageEvent&,AController*,AActor*)
 {

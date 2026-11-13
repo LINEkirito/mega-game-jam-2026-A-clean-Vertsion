@@ -40,6 +40,12 @@ public:
     virtual void Tick(const float,FSlateApplication&,TSharedRef<ICursor>) override {}
     virtual bool HandleKeyDownEvent(FSlateApplication&,const FKeyEvent& Event) override
     {
+        if(Event.GetKey()==EKeys::BackSpace){
+            if(auto* E=Owner.Get();E&&E->RecordingLibrary){
+                if(!Event.IsRepeat())E->RecordingLibrary->EndRound(false);
+                return true;
+            }
+        }
         if(Event.GetKey()!=EKeys::Escape) return false;
         if(bCapturedEscape) return true;
         if(auto* E=Owner.Get())
@@ -130,11 +136,10 @@ void UCamcorderEquipmentComponent::TickComponent(float DT,ELevelTick Type,FActor
         Inventory->Add(UBackpackInventory::BatteryId,TEXT("摄像机电池"),TEXT("消耗一块，将摄像机电量恢复到 100% 并开机。可在背包中使用，或按 R 快速换电池。"),2);
         RecordingLibrary=NewObject<URecordingLibrary>(PC,TEXT("RecordingLibrary"));RecordingLibrary->RegisterComponent();
         Tablet=NewObject<URecordingTabletComponent>(PC,TEXT("RecordingTablet"));Tablet->RegisterComponent();
-        Inventory->Add(UBackpackInventory::TabletId,TEXT("影像平板"),TEXT("查看本次进场拍摄的视频与人物评分。Tab 快速打开；空格暂停，方向键跳转。"));
         SelectedItem=UBackpackInventory::CameraId;
         Camcorder->PickUp(PC); CreateHUD(); CreateBackpackHUD(); bInitialized=true;
         for(TActorIterator<AActor> It(GetWorld());It;++It)if(It->ActorHasTag(TEXT("JieGeCombatTarget"))&&!It->FindComponentByClass<UStatueTargetComponent>()){auto* Target=NewObject<UStatueTargetComponent>(*It);Target->RegisterComponent();}
-        Combat=NewObject<UCombatEquipmentComponent>(PC,TEXT("CombatEquipment"));Combat->Equipment=this;Combat->RegisterComponent();Combat->InitializeHUD();
+        Combat=NewObject<UCombatEquipmentComponent>(PC,TEXT("CombatEquipment"));Combat->Equipment=this;Combat->RegisterComponent();Combat->InitializeStartingWeapons();Combat->InitializeHUD();
         GetWorld()->GetSubsystem<UDataTransmitter>()->OnDataChanged.AddUniqueDynamic(this,&UCamcorderEquipmentComponent::OnGameplayDataChanged);
         CameraInputGate=MakeShared<FCamcorderInputGate>(this);
         FSlateApplication::Get().RegisterInputPreProcessor(CameraInputGate,0);
@@ -142,14 +147,14 @@ void UCamcorderEquipmentComponent::TickComponent(float DT,ELevelTick Type,FActor
         Camcorder->AddTickPrerequisiteActor(PC);
     }
     if(!IsValid(Camcorder)) return;
+    if(RecordingLibrary && RecordingLibrary->bRoundEnded)return;
     if(auto* C=Cast<AGame_Jam_Clean_VersCharacter>(PC->GetPawn()))if(C->Health<=0)return;
     if(Tablet && Tablet->bOpen)return;
-    if(PC->WasInputKeyJustPressed(EKeys::Tab)){if(Tablet)Tablet->SetOpen(true);return;}
     if(bBackpackOpen) return;
     if(PC->WasInputKeyJustPressed(EKeys::I)) { ToggleBackpack(); return; }
-    const FKey Digits[]={EKeys::One,EKeys::Two,EKeys::Three,EKeys::Four,EKeys::Five};
-    const FKey NumPad[]={EKeys::NumPadOne,EKeys::NumPadTwo,EKeys::NumPadThree,EKeys::NumPadFour,EKeys::NumPadFive};
-    for(int32 Index=0;Index<5;++Index) if(PC->WasInputKeyJustPressed(Digits[Index]) || PC->WasInputKeyJustPressed(NumPad[Index])) ActivateQuickSlot(Index);
+    const FKey Digits[]={EKeys::One,EKeys::Two,EKeys::Three,EKeys::Four};
+    const FKey NumPad[]={EKeys::NumPadOne,EKeys::NumPadTwo,EKeys::NumPadThree,EKeys::NumPadFour};
+    for(int32 Index=0;Index<UBackpackInventory::QuickSlotCount;++Index) if(PC->WasInputKeyJustPressed(Digits[Index]) || PC->WasInputKeyJustPressed(NumPad[Index])) ActivateQuickSlot(Index);
     if((PC->WasInputKeyJustPressed(EKeys::E)||PC->WasInputKeyJustPressed(EKeys::F)) && Combat->TryInteract())return;
     if(!Camcorder->bViewfinderRaised){if(PC->WasInputKeyJustPressed(EKeys::MouseScrollUp))Combat->Cycle(1);if(PC->WasInputKeyJustPressed(EKeys::MouseScrollDown))Combat->Cycle(-1);}
     if(Combat->ActiveWeapon){Combat->HandleInput();return;}
@@ -218,10 +223,10 @@ void UCamcorderEquipmentComponent::CreateHUD()
     [ SNew(SBorder).Visibility_Lambda([WeakThis]{auto* E=WeakThis.Get();return E && ((E->Camcorder && E->Camcorder->bViewfinderRaised) || (E->Combat && E->Combat->ActiveWeapon))?EVisibility::Collapsed:EVisibility::HitTestInvisible;}).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(FLinearColor(.01f,.015f,.02f,.88f)).Padding(12)
       [SNew(SVerticalBox)
        +SVerticalBox::Slot().AutoHeight().Padding(0,2)[SNew(STextBlock).Font(Font).ColorAndOpacity(FLinearColor(.4f,.9f,1)).Text_Lambda([Text]{return Text(3);})]
-       +SVerticalBox::Slot().AutoHeight().Padding(0,2)[SNew(STextBlock).Font(Font).Text(FText::FromString(TEXT("取景中：左键开始/停止录像  |  鼠标转向 / 滚轮变焦  |  Esc 退出")))]
+       +SVerticalBox::Slot().AutoHeight().Padding(0,2)[SNew(STextBlock).Font(Font).Text(FText::FromString(TEXT("取景中：左键开始/停止录像  |  鼠标转向 / 滚轮变焦  |  Esc 放下取景")))]
        +SVerticalBox::Slot().AutoHeight().Padding(0,2)[SNew(STextBlock).Font(Font).Text(FText::FromString(TEXT("R 更换电池  |  P 开关机  |  WASD 移动  |  鼠标环顾  |  Space 跳跃")))]
        +SVerticalBox::Slot().AutoHeight().Padding(0,2)[SNew(STextBlock).Font(Font).Text_Lambda([Text]{return Text(5);})]
-       +SVerticalBox::Slot().AutoHeight().Padding(0,2)[SNew(STextBlock).Font(Font).Text(FText::FromString(TEXT("I 背包  |  Tab 影像平板  |  1–5 快捷槽")))]
+       +SVerticalBox::Slot().AutoHeight().Padding(0,2)[SNew(STextBlock).Font(Font).Text(FText::FromString(TEXT("I 背包  |  1–4 快捷槽  |  Backspace 结束并结算")))]
        +SVerticalBox::Slot().AutoHeight()[SNew(STextBlock).Font(Font).WrapTextAt(700).ColorAndOpacity(FLinearColor(1,.8f,.25f)).Text_Lambda([Text]{return Text(4);})]
       ] ]
     +SOverlay::Slot()[SNew(SCamcorderViewfinder).Equipment(WeakThis)];

@@ -15,7 +15,7 @@ bool UDataTransmitter::IsHeadHit(const FHitResult& Hit){
 }
 float UDataTransmitter::TransmitHit(const FHitResult& Hit,float Base,const FVector& Dir,AController* Instigator,AActor* Source){
  auto* Target=Hit.GetActor();if(!IsValid(Target)||Base<=0)return 0;bool Head=IsHeadHit(Hit);float D=Base*(Head?GetDefault<UGlobalData>()->HeadMultiplier:1.f);
- const auto* NPC=Cast<APatrolEnemy>(Target);const bool Protected=NPC&&NPC->IsProtectedPerson();
+ const auto* NPC=Cast<APatrolEnemy>(Target);const bool Protected=NPC&&NPC->IsLawProtected();
  auto* Statue=Target->FindComponentByClass<UStatueTargetComponent>();float Applied=Statue?Statue->ApplyHit(D):UGameplayStatics::ApplyPointDamage(Target,D,Dir,Hit,Instigator,Source,nullptr);
  bool Killed=false;if(Statue)Killed=Statue->Health<=0;if(auto* E=Cast<APatrolEnemy>(Target))Killed=E->Health<=0;if(auto* P=Cast<AGame_Jam_Clean_VersCharacter>(Target))Killed=P->Health<=0;
  if(Applied>0 && Cast<APatrolEnemy>(Target))AImpactBloodEffect::SpawnForHit(GetWorld(),Hit,Dir);

@@ -122,7 +122,7 @@ void ATacticalWeapon::SetBasePose()
 }
 void ATacticalWeapon::Equip(AGame_Jam_Clean_VersCharacter* C)
 {
-    if(!C)return;Holder=C;C->GetFirstPersonMesh()->SetAbsolute(true,true,true);bOriginalVisible=C->GetFirstPersonMesh()->IsVisible();C->GetFirstPersonMesh()->SetVisibility(true,false);Body->SetSimulatePhysics(false);Body->SetCollisionEnabled(ECollisionEnabled::NoCollision);SetActorHiddenInGame(false);bEquipped=true;C->GetFirstPersonMesh()->PrimaryComponentTick.TickGroup=TG_PostUpdateWork;C->GetFirstPersonMesh()->AddTickPrerequisiteActor(this);if(auto* Controller=C->GetController())if(auto* Equipment=Controller->FindComponentByClass<UCombatEquipmentComponent>())C->GetFirstPersonMesh()->AddTickPrerequisiteComponent(Equipment);RenderArms->SetVisibility(false);Label->SetVisibility(false);SetBasePose();BeginHandling(EWeaponHandling::Equip,bPackPresentation?1.4f:.5f);Sound(TEXT("Equip"),.45f);
+    if(!C)return;Holder=C;C->GetFirstPersonMesh()->SetAbsolute(false,false,false);bOriginalVisible=C->GetFirstPersonMesh()->IsVisible();C->GetFirstPersonMesh()->SetVisibility(true,false);Body->SetSimulatePhysics(false);Body->SetCollisionEnabled(ECollisionEnabled::NoCollision);SetActorHiddenInGame(false);bEquipped=true;C->GetFirstPersonMesh()->PrimaryComponentTick.TickGroup=TG_PostUpdateWork;C->GetFirstPersonMesh()->AddTickPrerequisiteActor(this);if(auto* Controller=C->GetController())if(auto* Equipment=Controller->FindComponentByClass<UCombatEquipmentComponent>())C->GetFirstPersonMesh()->AddTickPrerequisiteComponent(Equipment);RenderArms->SetVisibility(false);Label->SetVisibility(false);SetBasePose();BeginHandling(EWeaponHandling::Equip,bPackPresentation?1.4f:.5f);Sound(TEXT("Equip"),.45f);
 }
 void ATacticalWeapon::CancelHandling()
 {

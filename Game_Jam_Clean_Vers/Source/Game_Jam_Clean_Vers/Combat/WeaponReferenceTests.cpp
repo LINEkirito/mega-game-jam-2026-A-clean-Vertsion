@@ -9,6 +9,8 @@
 #include "TacticalWeapon.h"
 #include "CombatEquipmentComponent.h"
 #include "Camcorder/BackpackInventory.h"
+#include "Camcorder/CamcorderEquipmentComponent.h"
+#include "Camcorder/RecordingTabletComponent.h"
 #include "Camera/CameraComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/BoxComponent.h"
@@ -20,6 +22,34 @@ bool FWeaponReferenceCheck::Update()
     UWorld* W=nullptr;for(const auto& Context:GEngine->GetWorldContexts())if(Context.WorldType==EWorldType::PIE){W=Context.World();break;}
     auto* C=W&&W->GetFirstPlayerController()?Cast<AGame_Jam_Clean_VersCharacter>(W->GetFirstPlayerController()->GetPawn()):nullptr;
     if(!C){Test->AddError(TEXT("No PIE character"));return true;}
+    auto* StartingCombat=W->GetFirstPlayerController()->FindComponentByClass<UCombatEquipmentComponent>();
+    auto* Equipment=StartingCombat?StartingCombat->Equipment.Get():nullptr;
+    if(!Equipment||!Equipment->Inventory){Test->AddError(TEXT("No starting inventory"));return true;}
+    auto* Inventory=Equipment->Inventory.Get();
+    Test->TestEqual(TEXT("Four quick slots"),Inventory->Slots.Num(),4);
+    Test->TestEqual(TEXT("Camera starts in slot one"),Inventory->Slots[0],UBackpackInventory::CameraId);
+    Test->TestEqual(TEXT("Three starting guns"),StartingCombat->Weapons.Num(),3);
+    const ETacticalWeaponKind StartingKinds[]={ETacticalWeaponKind::Pistol,ETacticalWeaponKind::Shotgun,ETacticalWeaponKind::Rifle};
+    for(int32 I=0;I<3;++I){
+        const auto Id=Inventory->Slots[I+1];const auto* Gun=StartingCombat->Weapons.Find(Id);
+        if(Test->TestTrue(TEXT("Quick slot resolves to owned gun"),Gun&&IsValid(*Gun))){
+            Test->TestEqual(TEXT("Starting gun order"),(*Gun)->Kind,StartingKinds[I]);
+            Test->TestEqual(TEXT("One gun per inventory entry"),Inventory->Count(Id),1);
+            Test->TestTrue(TEXT("Starting guns are stowed"),(*Gun)->IsHidden()&&!(*Gun)->bEquipped);
+        }
+    }
+    const auto SlotsBefore=Inventory->Slots;
+    Test->TestFalse(TEXT("Battery registration is rejected"),Inventory->Assign(1,UBackpackInventory::BatteryId));
+    Inventory->Add(TEXT("Ammo9mm"),TEXT("Ammo"),TEXT("Test"),1);
+    Test->TestFalse(TEXT("Ammo registration is rejected"),Inventory->Assign(1,TEXT("Ammo9mm")));
+    Inventory->Remove(TEXT("Ammo9mm"));
+    Test->TestTrue(TEXT("Rejected registration preserves slots"),Inventory->Slots==SlotsBefore);
+    Test->TestFalse(TEXT("No fifth slot"),Inventory->Assign(4,UBackpackInventory::CameraId));
+    Test->TestEqual(TEXT("Tablet is not a starting item"),Inventory->Count(UBackpackInventory::TabletId),0);
+    Equipment->Tablet->SetOpen(true);
+    Test->TestFalse(TEXT("Recording review cannot open"),Equipment->Tablet->bOpen);
+    StartingCombat->InitializeStartingWeapons();
+    Test->TestEqual(TEXT("Starting loadout cannot duplicate"),StartingCombat->Weapons.Num(),3);
     for(int32 Kind=0;Kind<3;++Kind)
     {
         const FTransform Spawn(FVector(0,0,700));auto* G=W->SpawnActorDeferred<ATacticalWeapon>(ATacticalWeapon::StaticClass(),Spawn,nullptr,nullptr,ESpawnActorCollisionHandlingMethod::AlwaysSpawn);G->Kind=ETacticalWeaponKind(Kind);G->FinishSpawning(Spawn);

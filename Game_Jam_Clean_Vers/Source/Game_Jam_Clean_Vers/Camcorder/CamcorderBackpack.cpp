@@ -91,7 +91,7 @@ private:
 void UCamcorderEquipmentComponent::AddCameraToInventory()
 {
     if(Inventory && Inventory->Count(UBackpackInventory::CameraId)==0)
-        Inventory->Add(UBackpackInventory::CameraId,TEXT("手持摄像机"),TEXT("可手持、放在场景中或收入背包。收入背包会保存并结束当前录像，保留电量、开关机状态与焦距；装备后可继续拍摄。"));
+        Inventory->Add(UBackpackInventory::CameraId,TEXT("手持摄像机"),TEXT("可手持、放在场景中或收入背包。收入背包会保存并结束当前录像，保留电量、开关机状态与焦距；装备后可继续拍摄。"),1,true);
 }
 void UCamcorderEquipmentComponent::StoreCamera()
 {
@@ -153,10 +153,11 @@ void UCamcorderEquipmentComponent::RefreshItemPreview()
 }
 void UCamcorderEquipmentComponent::ShowAssignmentMenu(FName Id)
 {
-    SelectInventoryItem(Id); bAssignmentMenu=Inventory && Inventory->Count(Id)>0;
+    SelectInventoryItem(Id); bAssignmentMenu=Inventory && Inventory->CanAssign(Id);
 }
 void UCamcorderEquipmentComponent::AssignQuickSlot(int32 Index)
 {
+    if(Inventory && !Inventory->CanAssign(SelectedItem)) { if(Camcorder) Camcorder->SetNotice(TEXT("只有能拿在手上的物品可以登记快捷栏")); return; }
     if(Inventory && Inventory->Assign(Index,SelectedItem))
     {
         bAssignmentMenu=false;
@@ -185,9 +186,9 @@ bool UCamcorderEquipmentComponent::HandleBackpackKey(const FKey& Key)
     if(!bBackpackOpen) return false;
     if(Key==EKeys::Escape && bAssignmentMenu) { bAssignmentMenu=false; return true; }
     if(Key==EKeys::I || Key==EKeys::Escape) { SetBackpackOpen(false); return true; }
-    const FKey Digits[]={EKeys::One,EKeys::Two,EKeys::Three,EKeys::Four,EKeys::Five};
-    const FKey NumPad[]={EKeys::NumPadOne,EKeys::NumPadTwo,EKeys::NumPadThree,EKeys::NumPadFour,EKeys::NumPadFive};
-    for(int32 I=0;I<5;++I) if(Key==Digits[I] || Key==NumPad[I]) { AssignQuickSlot(I); return true; }
+    const FKey Digits[]={EKeys::One,EKeys::Two,EKeys::Three,EKeys::Four};
+    const FKey NumPad[]={EKeys::NumPadOne,EKeys::NumPadTwo,EKeys::NumPadThree,EKeys::NumPadFour};
+    for(int32 I=0;I<UBackpackInventory::QuickSlotCount;++I) if(Key==Digits[I] || Key==NumPad[I]) { AssignQuickSlot(I); return true; }
     if(Key==EKeys::Enter) { UseSelectedItem(); return true; }
     if(Key==EKeys::Up || Key==EKeys::Down)
     {
@@ -213,7 +214,8 @@ FString UCamcorderEquipmentComponent::SelectedDescription() const
     const auto* E=Inventory?Inventory->Find(SelectedItem):nullptr; if(!E) return TEXT("背包为空。靠近绿色电池或摄像机，按 F 收入背包。");
     FString S=E->Description;
     const int32 Slot=Inventory->SlotIndex(SelectedItem);
-    S+=Slot>=0?FString::Printf(TEXT("\n\n已登记：快捷槽 %d"),Slot+1):TEXT("\n\n尚未登记：选中后按 1–5，或右键选择槽位。");
+    if(!Inventory->CanAssign(SelectedItem)) return S+TEXT("\n\n此物品不能登记快捷栏，请在背包中使用。");
+    S+=Slot>=0?FString::Printf(TEXT("\n\n已登记：快捷槽 %d"),Slot+1):TEXT("\n\n尚未登记：选中后按 1–4，或右键选择槽位。");
     if(SelectedItem==UBackpackInventory::CameraId && Camcorder)
         S+=FString::Printf(TEXT("\n\n状态：%s\n电量 %.0f%%    焦距 %.0f mm"),Camcorder->bInBackpack?TEXT("在背包中"):TEXT("已手持装备"),Camcorder->BatteryPercent,Camcorder->FocalLength);
     return S;
@@ -249,7 +251,7 @@ void UCamcorderEquipmentComponent::CreateBackpackHUD()
     auto Bar=SNew(SHorizontalBox);
     auto Slots=SNew(SHorizontalBox);
     auto Assignments=SNew(SVerticalBox);
-    for(int32 I=0;I<5;++I)
+    for(int32 I=0;I<UBackpackInventory::QuickSlotCount;++I)
     {
         Bar->AddSlot().AutoWidth().Padding(3)[SNew(SBorder).Padding(10).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
             .BorderBackgroundColor_Lambda([Weak,I]{auto* E=Weak.Get();return E && E->Inventory->ActiveSlot==I?FLinearColor(.07f,.35f,.42f,.95f):FLinearColor(.02f,.03f,.05f,.95f);})
@@ -286,9 +288,9 @@ void UCamcorderEquipmentComponent::CreateBackpackHUD()
             +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[Button(TEXT("使用 / 装备  [Enter]"),[Weak]{if(auto* E=Weak.Get())E->UseSelectedItem();})]
             +SVerticalBox::Slot().AutoHeight()[Button(TEXT("摄像机收入背包"),[Weak]{if(auto* E=Weak.Get())E->StoreCamera();})]]]]
       +SVerticalBox::Slot().AutoHeight().Padding(0,10)[SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",15)).ColorAndOpacity(FLinearColor(1,.8f,.3f)).AutoWrapText(true).Text_Lambda([Weak]{auto* E=Weak.Get();return FText::FromString(E && E->Camcorder?E->Camcorder->Notice:TEXT(""));})]
-      +SVerticalBox::Slot().AutoHeight()[Label(TEXT("快捷栏登记：选中物品后按 1–5 / 点击槽位，也可右键物品"))]
+      +SVerticalBox::Slot().AutoHeight()[Label(TEXT("快捷栏登记：选中物品后按 1–4 / 点击槽位，也可右键物品"))]
       +SVerticalBox::Slot().AutoHeight().Padding(0,10)[Slots]
-      +SVerticalBox::Slot().AutoHeight()[SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",14)).Text(FText::FromString(TEXT("游戏中 1–5 使用快捷物品 · 电池会消耗一块 · 打开背包不暂停录像")))]];
+      +SVerticalBox::Slot().AutoHeight()[SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",14)).Text(FText::FromString(TEXT("游戏中 1–4 切换手持物品 · 电池在背包中使用 · 打开背包不暂停录像")))]];
     BackpackHUD=SNew(SCamcorderBackpackRoot).Equipment(Weak)
       .Visibility_Lambda([Weak]{auto* E=Weak.Get();return E && E->bBackpackOpen?EVisibility::Visible:EVisibility::SelfHitTestInvisible;})
       [SNew(SOverlay)

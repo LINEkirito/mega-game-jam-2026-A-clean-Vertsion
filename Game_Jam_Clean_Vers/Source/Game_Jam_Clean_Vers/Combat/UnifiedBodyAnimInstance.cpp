@@ -28,6 +28,10 @@ struct FProxy : FAnimInstanceProxy
     bool Active=false;
     bool ApplyHand[2]={false,false};
     float Time=0;
+    float LowAimAlpha=0;
+    float CrouchAlpha=0,CrouchPhase=0,CrouchMoveAlpha=0,CrouchDirectionAlpha=0;
+    TWeakObjectPtr<UAnimSequence> CrouchIdle,CrouchMoveA,CrouchMoveB;
+    FVector BodyRight,BodyForward;
     explicit FProxy(UAnimInstance* Instance):FAnimInstanceProxy(Instance){}
     virtual void PreUpdate(UAnimInstance* Instance,float DT) override
     {
@@ -44,8 +48,33 @@ struct FProxy : FAnimInstanceProxy
         }
         if(!PC)return;
         MeshWorld=Instance->GetSkelMeshComponent()->GetComponentTransform();
+        BodyRight=MeshWorld.InverseTransformVectorNoScale(Character->GetActorRightVector());
+        BodyForward=MeshWorld.InverseTransformVectorNoScale(Character->GetActorForwardVector());
+        LowAimAlpha=FMath::Clamp((-FMath::UnwindDegrees(PC->GetControlRotation().Pitch)-25.f)/40.f,0.f,1.f);
         auto* Combat=PC->FindComponentByClass<UCombatEquipmentComponent>();
         auto* Gun=Combat?Combat->GetPresentationWeapon():nullptr;
+        CrouchAlpha=FMath::FInterpTo(CrouchAlpha,Character->bIsCrouched?1.f:0.f,DT,12.f);
+        if(CrouchAlpha>.001f)
+        {
+            auto* BodyInstance=CastChecked<UUnifiedBodyAnimInstance>(Instance);
+            auto GetCrouch=[&](const FString& Suffix)
+            {
+                const FString Path=TEXT("/Game/Characters/MechanicGirl/Animations/Body_A_Rifle_Crouch_")+Suffix;
+                auto& Cached=BodyInstance->CachedAnimations.FindOrAdd(Path);
+                if(!Cached)Cached=LoadObject<UAnimSequence>(nullptr,*Path);
+                return Cached.Get();
+            };
+            const FVector Velocity=Character->GetActorTransform().InverseTransformVectorNoScale(Character->GetVelocity());
+            const float Speed=Velocity.Size2D();
+            CrouchMoveAlpha=FMath::Clamp(Speed/60.f,0.f,1.f);
+            CrouchPhase+=DT*FMath::Max(.1f,Speed/180.f);
+            const float Direction=FMath::Fmod(FMath::RadiansToDegrees(FMath::Atan2(Velocity.Y,Velocity.X))+360.f,360.f)/45.f;
+            const int32 Sector=FMath::FloorToInt(Direction)%8;CrouchDirectionAlpha=FMath::Frac(Direction);
+            static const TCHAR* Directions[]={TEXT("Forward"),TEXT("Forward_Right"),TEXT("Right"),TEXT("Backward_Right"),TEXT("Backward"),TEXT("Backward_Left"),TEXT("Left"),TEXT("Forward_Left")};
+            CrouchIdle=GetCrouch(TEXT("Idle"));
+            CrouchMoveA=GetCrouch(FString(TEXT("Walk_"))+Directions[Sector]);
+            CrouchMoveB=GetCrouch(FString(TEXT("Walk_"))+Directions[(Sector+1)%8]);
+        }
         USkinnedMeshComponent* Source=nullptr;
         if(Gun&&Gun->bEquipped)
         {
@@ -53,16 +82,16 @@ struct FProxy : FAnimInstanceProxy
             {
                 auto* Pack=Gun->Hands.Get();
                 for(int32 B=0;B<Pack->GetNumBones();++B){const FName Name=Pack->GetBoneName(B);AuthoredComponentPose.Add(Name,Pack->GetSocketTransform(Name,RTS_Component));}
-                return;
+                Source=Pack;
             }
-            Source=Gun->RenderArms;
+            else Source=Gun->RenderArms;
             const FString Type=Gun->Kind==ETacticalWeaponKind::Pistol?TEXT("Pistol"):Gun->Kind==ETacticalWeaponKind::Shotgun?TEXT("Shotgun"):TEXT("Rifle");
             FString Clip=TEXT("/Game/Combat/BodyAnimations/Body_A_")+Type+TEXT("_Reload");
             if(!Gun->IsReloading()||Gun->Handling==EWeaponHandling::Charge)Clip=TEXT("/Game/Characters/Mannequins/Anims/")+(Gun->Kind==ETacticalWeaponKind::Pistol?FString(TEXT("Pistol/MF_Pistol_Idle_ADS")):FString(TEXT("Rifle/MF_Rifle_Idle_ADS")));
             auto* BodyInstance=CastChecked<UUnifiedBodyAnimInstance>(Instance);
             auto& Cached=BodyInstance->CachedAnimations.FindOrAdd(Clip);
             if(!Cached)Cached=LoadObject<UAnimSequence>(nullptr,*Clip);
-            Sequence=Cached.Get();
+            Sequence=Gun->bPackPresentation?nullptr:Cached.Get();
             const float Progress=Gun->ReloadProgress();
             Time=Sequence.IsValid()?Progress*Sequence->GetPlayLength():0;
         }
@@ -92,19 +121,43 @@ struct FProxy : FAnimInstanceProxy
         const auto& Ref=Bones.GetReferenceSkeleton();
         for(FCompactPoseBoneIndex B:Output.Pose.ForEachBoneIndex())
             if(const auto* Local=BodyLocalPose.Find(Ref.GetBoneName(Bones.MakeMeshPoseIndex(B).GetInt())))Output.Pose[B]=*Local;
+        if(CrouchAlpha>.001f && CrouchIdle.IsValid() && CrouchMoveA.IsValid() && CrouchMoveB.IsValid())
+        {
+            FPoseContext Idle(Output),MoveA(Output),MoveB(Output);
+            auto Sample=[&](UAnimSequence* Clip,FPoseContext& Pose)
+            {
+                Pose.ResetToRefPose();FAnimationPoseData Data(Pose);
+                Clip->GetAnimationPose(Data,FAnimExtractContext(FMath::Fmod(CrouchPhase,Clip->GetPlayLength()),true));
+                auto& Root=Pose.Pose[FCompactPoseBoneIndex(0)];
+                Root.SetTranslation(FVector(0,0,Root.GetTranslation().Z));
+            };
+            Sample(CrouchIdle.Get(),Idle);Sample(CrouchMoveA.Get(),MoveA);Sample(CrouchMoveB.Get(),MoveB);
+            for(FCompactPoseBoneIndex B:Output.Pose.ForEachBoneIndex())
+            {
+                FTransform Moving,Target,Blended;
+                Moving.Blend(MoveA.Pose[B],MoveB.Pose[B],CrouchDirectionAlpha);
+                Target.Blend(Idle.Pose[B],Moving,CrouchMoveAlpha);
+                Blended.Blend(Output.Pose[B],Target,CrouchAlpha);Output.Pose[B]=Blended;
+            }
+        }
         if(!AuthoredComponentPose.IsEmpty())
         {
+            // Keep locomotion on pelvis, spine and legs. Preserve the pack's authored
+            // arm and finger rotations, then solve wrists to the same weapon stream.
             for(FCompactPoseBoneIndex B:Output.Pose.ForEachBoneIndex())
             {
                 const int32 MeshIndex=Bones.MakeMeshPoseIndex(B).GetInt();
-                if(const FTransform* T=AuthoredComponentPose.Find(Ref.GetBoneName(MeshIndex)))
+                const FName BoneName=Ref.GetBoneName(MeshIndex);
+                const FString Name=BoneName.ToString();
+                const bool Arm=Name.StartsWith(TEXT("upperarm"))||Name.StartsWith(TEXT("lowerarm"))||Name.StartsWith(TEXT("hand_"))||Name.StartsWith(TEXT("index_"))||Name.StartsWith(TEXT("middle_"))||Name.StartsWith(TEXT("ring_"))||Name.StartsWith(TEXT("pinky_"))||Name.StartsWith(TEXT("thumb_"));
+                if(!Arm)continue;
+                if(const FTransform* T=AuthoredComponentPose.Find(BoneName))
                 {
                     const int32 Parent=Ref.GetParentIndex(MeshIndex);
                     const FTransform* P=Parent>=0?AuthoredComponentPose.Find(Ref.GetBoneName(Parent)):nullptr;
-                    Output.Pose[B]=P?T->GetRelativeTransform(*P):*T;
+                    Output.Pose[B].SetRotation((P?T->GetRelativeTransform(*P):*T).GetRotation());
                 }
             }
-            return true;
         }
         if(!Active)return true;
         auto Index=[&](FName Name){return Bones.MakeCompactPoseIndex(FMeshPoseBoneIndex(Ref.FindBoneIndex(Name)));};
@@ -143,6 +196,14 @@ struct FProxy : FAnimInstanceProxy
             // Keep the shoulder attached to the real torso and preserve anatomical lengths.
             FVector Pole=B-A;Pole-=Direction*FVector::DotProduct(Pole,Direction);
             if(!Pole.Normalize())Pole=FVector::CrossProduct(Direction,FVector::UpVector).GetSafeNormal();
+            if(!AuthoredComponentPose.IsEmpty() && LowAimAlpha>0.f)
+            {
+                // Lower the elbows beside the torso when aiming down; the camera-oriented
+                // recording otherwise bends them forward into the owner's face.
+                FVector LowPole=BodyRight*(Side==0?-.7f:.7f)-BodyForward*.3f+FVector(0,0,-1);
+                LowPole-=Direction*FVector::DotProduct(LowPole,Direction);
+                if(LowPole.Normalize())Pole=FMath::Lerp(Pole,LowPole,LowAimAlpha).GetSafeNormal();
+            }
             const FVector Elbow=A+Direction*Along+Pole*FMath::Sqrt(FMath::Max(0.f,L1*L1-Along*Along));
             const FVector End=A+Direction*Distance;
             SetRotation(Upper,FQuat::FindBetweenNormals((B-A).GetSafeNormal(),(Elbow-A).GetSafeNormal())*CS[Upper.GetInt()].GetRotation());
