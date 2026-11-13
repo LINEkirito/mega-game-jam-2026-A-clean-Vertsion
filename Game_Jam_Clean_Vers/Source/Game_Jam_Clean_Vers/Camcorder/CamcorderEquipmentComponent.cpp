@@ -1,4 +1,5 @@
-﻿#include "CamcorderEquipmentComponent.h"
+#include "CamcorderEquipmentComponent.h"
+#include "Audio/CharacterAudio.h"
 #include "RecordingLibrary.h"
 #include "RecordingTabletComponent.h"
 #include "ItemInteractionComponent.h"
@@ -109,7 +110,7 @@ void UCamcorderEquipmentComponent::CollectBattery()
     if(auto* Battery=NearbyBattery())
     {
         if(Inventory && Inventory->Add(UBackpackInventory::BatteryId,TEXT("摄像机电池"),TEXT("消耗一块，将摄像机电量恢复到 100% 并开机。可在背包中使用，或按 R 快速换电池。")))
-        { if(auto* C=Cast<AGame_Jam_Clean_VersCharacter>(Player()->GetPawn()))if(C->ItemInteraction)C->ItemInteraction->Play(Battery->Mesh); UGameplayStatics::PlaySound2D(this,LoadObject<USoundBase>(nullptr,TEXT("/Game/Combat/Audio/Handling/ItemPickup")),.45f); Battery->Destroy(); if(Camcorder) Camcorder->SetNotice(TEXT("已拾取电池并放入背包")); RefreshBackpack(); }
+        { if(auto* C=Cast<AGame_Jam_Clean_VersCharacter>(Player()->GetPawn()))if(C->ItemInteraction)C->ItemInteraction->Play(Battery->Mesh); CharacterAudio::Attached(LoadObject<USoundBase>(nullptr,TEXT("/Game/Combat/Audio/Handling/ItemPickup")),Player()->GetPawn()->GetRootComponent(),ECharacterSound::Handling,.45f); Battery->Destroy(); if(Camcorder) Camcorder->SetNotice(TEXT("已拾取电池并放入背包")); RefreshBackpack(); }
     }
     else if(Camcorder && !Camcorder->bHeld && !Camcorder->bInBackpack && CanUse()) { Camcorder->PickUp(Player()); if(Camcorder->bHeld) AddCameraToInventory(); }
     else if(Camcorder) Camcorder->SetNotice(TEXT("附近没有可拾取电池；靠近绿色电池后按 F"));

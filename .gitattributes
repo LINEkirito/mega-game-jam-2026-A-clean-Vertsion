@@ -1,0 +1,5 @@
+Game_Jam_Clean_Vers/Content/Combat/NPC/FullBody/** filter=lfs diff=lfs merge=lfs -text
+Game_Jam_Clean_Vers/Content/Combat/VFX/** filter=lfs diff=lfs merge=lfs -text
+Game_Jam_Clean_Vers/Content/Combat/Viewmodel/BeachGirls/** filter=lfs diff=lfs merge=lfs -text
+Game_Jam_Clean_Vers/Content/Downtown_West/** filter=lfs diff=lfs merge=lfs -text
+Game_Jam_Clean_Vers/Content/Maps/** filter=lfs diff=lfs merge=lfs -text

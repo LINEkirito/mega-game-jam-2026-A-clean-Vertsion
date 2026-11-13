@@ -1,8 +1,11 @@
 #include "PatrolEnemy.h"
+#include "Audio/CharacterAudio.h"
+#include "WorldEvents.h"
 #include "Data/GlobalData.h"
 #include "Data/DataTransmitter.h"
 #include "TacticalWeapon.h"
 #include "CombatEquipmentComponent.h"
+#include "Camcorder/BackpackInventory.h"
 #include "NPCMotionAnimInstance.h"
 #include "Camera/CameraComponent.h"
 #include "Game_Jam_Clean_VersCharacter.h"
@@ -40,7 +43,7 @@ APatrolEnemy::APatrolEnemy()
  Rifle->SetSkeletalMeshAsset(LoadObject<USkeletalMesh>(nullptr,TEXT("/Game/Weapons/Rifle/Meshes/SKM_Rifle")));
  TradeParcel=CreateDefaultSubobject<UStaticMeshComponent>(TEXT("TradeParcel"));TradeParcel->SetupAttachment(GetMesh(),TEXT("hand_r"));TradeParcel->SetStaticMesh(LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Cube")));TradeParcel->SetRelativeScale3D(FVector(.12f,.08f,.04f));TradeParcel->SetRelativeLocation(FVector(-6,0,0));TradeParcel->SetMaterial(0,LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Camcorder/Materials/M_CamcorderColor")));TradeParcel->SetDefaultCustomPrimitiveDataVector4(0,FVector4(.25f,.12f,.04f,1));TradeParcel->SetCollisionEnabled(ECollisionEnabled::NoCollision);TradeParcel->SetVisibility(false);
  Speech=CreateDefaultSubobject<UTextRenderComponent>(TEXT("NPCSpeech"));Speech->SetupAttachment(GetRootComponent());Speech->SetRelativeLocation(FVector(0,0,125));Speech->SetWorldSize(22);Speech->SetHorizontalAlignment(EHTA_Center);Speech->SetVisibility(false);
- Voice=CreateDefaultSubobject<UAudioComponent>(TEXT("NPCVoice"));Voice->SetupAttachment(GetRootComponent());Voice->SetAutoActivate(false);Voice->bOverrideAttenuation=true;Voice->AttenuationOverrides.bAttenuate=true;Voice->AttenuationOverrides.bSpatialize=true;Voice->AttenuationOverrides.AttenuationShapeExtents=FVector(150,0,0);Voice->AttenuationOverrides.FalloffDistance=2200;
+ Voice=CreateDefaultSubobject<UAudioComponent>(TEXT("NPCVoice"));Voice->SetupAttachment(GetRootComponent());Voice->SetAutoActivate(false);Voice->bOverrideAttenuation=true;Voice->AttenuationOverrides=CharacterAudio::Settings(ECharacterSound::Voice);Voice->SetRelativeLocation(FVector(0,0,65));
  Idle=LoadObject<UAnimSequence>(nullptr,TEXT("/Game/Characters/Mannequins/Anims/Rifle/MF_Rifle_Idle_ADS"));
  Walk=LoadObject<UAnimSequence>(nullptr,TEXT("/Game/Characters/Mannequins/Anims/Rifle/Walk/MF_Rifle_Walk_Fwd"));
  const TCHAR* AppearanceNames[]={TEXT("GangMember"),TEXT("GangBoss"),TEXT("Civilian"),TEXT("Merchant"),TEXT("Police"),TEXT("Injured")};
@@ -80,12 +83,13 @@ void APatrolEnemy::BeginPlay()
  if(!IsProtectedPerson())
  {
   const FString Type=WeaponKind==ETacticalWeaponKind::Pistol?TEXT("Pistol"):TEXT("Rifle");
-  const FString Root=TEXT("/Game/Combat/NPC/RogueBox/NPC_A_")+Type;
+  const FString Root=TEXT("/Game/Combat/NPC/FullBody/NPC_A_")+Type;
+  if(auto* Clip=LoadObject<UAnimSequence>(nullptr,*(Root+TEXT("_Aim_Idle"))))Idle=Clip;
   if(auto* Clip=LoadObject<UAnimSequence>(nullptr,*(Root+TEXT("_Walk_Forward"))))Walk=Clip;
   AimWalk=LoadObject<UAnimSequence>(nullptr,*(Root+TEXT("_Aim_Walk_Forward")));
   const TCHAR* Directions[]={TEXT("Forward"),TEXT("Forward_Right"),TEXT("Right"),TEXT("Backward_Right"),TEXT("Backward"),TEXT("Backward_Left"),TEXT("Left"),TEXT("Forward_Left")};
-  // Use the verified rifle lower-body set for directional steps; arms retain each weapon's own pose.
-  for(const TCHAR* Direction:Directions)AimWalkDirections.Add(LoadObject<UAnimSequence>(nullptr,*(FString(TEXT("/Game/Combat/NPC/RogueBox/NPC_A_Rifle_Aim_Walk_"))+Direction)));
+  // Keep each weapon's complete authored pose, including the torso and both arms.
+  for(const TCHAR* Direction:Directions)AimWalkDirections.Add(LoadObject<UAnimSequence>(nullptr,*(Root+TEXT("_Aim_Walk_")+Direction)));
   Run=LoadObject<UAnimSequence>(nullptr,*(Root+TEXT("_Sprint")));
 
  }
@@ -97,11 +101,16 @@ void APatrolEnemy::BeginPlay()
  Rifle->SetVisibility(false);NPCBody->SetSkinnedAssetAndUpdate(GetMesh()->GetSkeletalMeshAsset());
  if(!IsProtectedPerson()){
   SetMotion();const FTransform Transform=GetActorTransform();HeldWeapon=GetWorld()->SpawnActorDeferred<ATacticalWeapon>(ATacticalWeapon::StaticClass(),Transform,this,nullptr,ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
-  if(HeldWeapon){HeldWeapon->Kind=WeaponKind;HeldWeapon->FinishSpawning(Transform);HeldWeapon->EquipForNPC(GetMesh());}
+  if(HeldWeapon){HeldWeapon->Kind=WeaponKind;HeldWeapon->FinishSpawning(Transform);HeldWeapon->EquipForNPC(GetMesh());
+   const FString ReloadType=WeaponKind==ETacticalWeaponKind::Pistol?TEXT("Pistol"):WeaponKind==ETacticalWeaponKind::Shotgun?TEXT("Shotgun"):TEXT("Rifle");
+   ReloadAnimation=LoadObject<UAnimSequence>(nullptr,*(TEXT("/Game/Combat/NPC/FullBody/NPC_A_")+ReloadType+TEXT("_Reload")));
+   HeldWeapon->NPCReloadDuration=ReloadAnimation?ReloadAnimation->GetPlayLength():0;
+   AmmoReserve=NewObject<UBackpackInventory>(this);
+   AmmoReserve->Add(HeldWeapon->Spec().Ammo,TEXT("NPC ammunition"),TEXT("Personal reserve"),FMath::Max(0,GetDefault<UGlobalData>()->NPCSpareMagazines)*HeldWeapon->Spec().Capacity);}
  }
  const TPair<ENPCActivity,const TCHAR*> Defaults[]={
   {ENPCActivity::Threaten,TEXT("AS_Taunt_Fist_01")},{ENPCActivity::Beat,TEXT("Manny_A_Melee")},{ENPCActivity::Trade,TEXT("AS_Greetings_FormalHandShake")},
-  {ENPCActivity::Command,TEXT("AS_Gestures_Pointing_Forward")},{ENPCActivity::Injured,TEXT("Manny_SK_Martial_Anim")},{ENPCActivity::Flee,TEXT("Manny_A_UnarmedSprint")}};
+  {ENPCActivity::Meeting,TEXT("AS_Standing_Talking_01")},{ENPCActivity::CameraDismiss,TEXT("AS_Gestures_Pointing_Forward")},{ENPCActivity::Command,TEXT("AS_Gestures_Pointing_Forward")},{ENPCActivity::Injured,TEXT("Manny_SK_Martial_Anim")},{ENPCActivity::Flee,TEXT("Manny_A_UnarmedSprint")}};
  for(const auto& Pair:Defaults)if(!ActivityAnimations.Contains(Pair.Key))if(auto* Anim=LoadObject<UAnimSequence>(nullptr,*(FString(TEXT("/Game/Combat/NPC/Authored/"))+Pair.Value)))ActivityAnimations.Add(Pair.Key,Anim);
  if(IsProtectedPerson())if(auto* Cower=LoadObject<UAnimSequence>(nullptr,TEXT("/Game/Combat/NPC/Authored/AS_Defeat_Beg_01")))ActivityAnimations.Add(ENPCActivity::Threaten,Cower);
  if(!ScreamSound)ScreamSound=LoadObject<USoundBase>(nullptr,TEXT("/Game/Combat/NPC/Audio/Scream"));
@@ -125,7 +134,8 @@ bool APatrolEnemy::CanSeeActor(AActor* Target,bool CheckAngle)const
  if(!IsValid(Target)||Health<=0)return false;
  const FVector Eye=GetActorLocation()+FVector(0,0,65),Aim=Target->GetActorLocation()+FVector(0,0,35),Delta=Aim-Eye;
  if(Delta.SizeSquared()>FMath::Square(SightRange))return false;
- if(CheckAngle&&FVector::DotProduct(GetActorForwardVector(),Delta.GetSafeNormal())<FMath::Cos(FMath::DegreesToRadians(SightAngle*.5f)))return false;
+ const float ViewAngle=IsGang()?GetDefault<UGlobalData>()->GangSightAngle:SightAngle;
+ if(CheckAngle&&FVector::DotProduct(GetActorForwardVector().GetSafeNormal2D(),Delta.GetSafeNormal2D())<FMath::Cos(FMath::DegreesToRadians(ViewAngle*.5f))-KINDA_SMALL_NUMBER)return false;
  FHitResult Hit;FCollisionQueryParams Query(SCENE_QUERY_STAT(NPCSight),true,this);
  return !GetWorld()->LineTraceSingleByChannel(Hit,Eye,Aim,ECC_Visibility,Query)||Hit.GetActor()==Target;
 }
@@ -144,7 +154,7 @@ float APatrolEnemy::PlayerWarningRange()const
 void APatrolEnemy::Say(const FString& Text,USoundBase* Sound)
 {
  Speech->SetText(FText::FromString(Text));Speech->SetVisibility(true);SpeechTime=2.5f;
- if(Sound){Voice->SetSound(Sound);Voice->SetVolumeMultiplier(.7f);Voice->Play();}
+ if(Sound){Voice->bAllowSpatialization=true;Voice->bOverrideAttenuation=true;Voice->AdjustAttenuation(CharacterAudio::Settings(ECharacterSound::Voice));Voice->SetSound(Sound);Voice->SetVolumeMultiplier(.7f);Voice->Play();}
 }
 void APatrolEnemy::SetActivity(ENPCActivity Next)
 {
@@ -165,6 +175,7 @@ void APatrolEnemy::SetTarget(AActor* Target)
  if(!IsLiving(Target)||IsProtectedPerson())return;
  if(CombatTarget!=Target){ReleasePartner();ShotTime=.7f;LostTime=0;}
  CombatTarget=Target;LastKnown=Target->GetActorLocation();SetActivity(ENPCActivity::Combat);
+ if(auto* Events=GetWorld()->GetSubsystem<UWorldEvents>())Events->ObserveCombat(this,Cast<APatrolEnemy>(Target));
 }
 void APatrolEnemy::FleeFrom(FVector Location)
 {
@@ -172,7 +183,7 @@ void APatrolEnemy::FleeFrom(FVector Location)
  const bool NewPanic=Activity!=ENPCActivity::Flee;const bool ChangedDanger=FVector::DistSquared(Location,DangerLocation)>FMath::Square(400.f);
  ReleasePartner();DangerLocation=Location;PanicTime=GetDefault<UGlobalData>()->NPCPanicSeconds;
  SetActivity(ENPCActivity::Flee);GetCharacterMovement()->MaxWalkSpeed=430;
- if(NewPanic)Say(TEXT("AAAH!"),ScreamSound);
+ if(NewPanic){Say(TEXT("AAAH!"),ScreamSound);if(auto* Events=GetWorld()->GetSubsystem<UWorldEvents>())Events->ObserveEscape(this);}
  if(NewPanic||ChangedDanger){if(auto* AI=Cast<AAIController>(GetController()))AI->StopMovement();bMoving=false;MoveRetry=0;}
 }
 void APatrolEnemy::HearGunshot(AActor* Shooter,FVector Location,float Range)
@@ -215,7 +226,7 @@ float APatrolEnemy::TakeDamage(float Damage,const FDamageEvent&,AController* Eve
  auto* Attacker=EventInstigator?EventInstigator->GetPawn().Get():Cast<APawn>(Causer);
 
  const float Applied=FMath::Min(Damage,Health);Health-=Applied;
- if(Health<=0){ReleasePartner();CombatTarget=nullptr;SetActivity(ENPCActivity::Dead);Speech->SetVisibility(false);Voice->Stop();if(auto* AI=Cast<AAIController>(GetController()))AI->StopMovement();GetCharacterMovement()->DisableMovement();GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);NPCBody->SetVisibility(false);GetMesh()->SetVisibility(true);if(HeldWeapon)HeldWeapon->SetActorHiddenInGame(true);GetMesh()->SetCollisionProfileName(TEXT("Ragdoll"));GetMesh()->SetSimulatePhysics(true);Rifle->SetVisibility(false);SetLifeSpan(30);}
+ if(Health<=0){ReleasePartner();CombatTarget=nullptr;SetActivity(ENPCActivity::Dead);Speech->SetVisibility(false);Voice->Stop();if(auto* AI=Cast<AAIController>(GetController()))AI->StopMovement();GetCharacterMovement()->DisableMovement();GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);NPCBody->SetVisibility(false);GetMesh()->SetVisibility(true);if(HeldWeapon){HeldWeapon->CancelHandling();HeldWeapon->SetActorHiddenInGame(true);}GetMesh()->SetCollisionProfileName(TEXT("Ragdoll"));GetMesh()->SetSimulatePhysics(true);Rifle->SetVisibility(false);SetLifeSpan(30);}
  else if(NPCRole!=ENPCRole::Injured&&Health<=GetDefault<UGlobalData>()->NPCInjuryHealth)BecomeInjured();
  else if(IsGang()&&Attacker){
   // Police support must not repeatedly reset an already-expired player warning.
@@ -279,6 +290,7 @@ bool APatrolEnemy::ChooseDestination(bool Flee)
 }
 void APatrolEnemy::Think()
 {
+ if(StreetEventId&&Activity==ENPCActivity::Meeting)return;
  if(IsGang()){
   auto* Player=UGameplayStatics::GetPlayerPawn(this,0);
   if(Activity==ENPCActivity::WarnPlayer)return;
@@ -292,6 +304,7 @@ void APatrolEnemy::Think()
  if(NPCRole==ENPCRole::Police&&IsLiving(PriorityOffender.Get())){if(CombatTarget!=PriorityOffender.Get())SetTarget(PriorityOffender.Get());return;}
  if(IsLiving(CombatTarget)||Activity==ENPCActivity::Flee||Activity==ENPCActivity::Investigate||Partner.IsValid()||SocialCooldown>0||!IsGang())return;
  if(NPCRole==ENPCRole::GangBoss){if(auto* AI=Cast<AAIController>(GetController()))AI->StopMovement();SetActivity(ENPCActivity::Command);SocialCooldown=14;Say(TEXT("MOVE!"));return;}
+ if(GetDefault<UGlobalData>()->bEnableStreetEvents)return; // Paired scenes are selected by the world director.
  APatrolEnemy* Best=nullptr;float Dist=FMath::Square(650.f);
  for(TActorIterator<APatrolEnemy> It(GetWorld());It;++It){auto* Other=*It;
   if(Other==this||!IsLiving(Other)||Other->Partner.IsValid()||Other->bCombat||Other->Activity==ENPCActivity::Flee||Other->NPCRole==ENPCRole::Police||Other->SocialCooldown>0)continue;
@@ -340,9 +353,14 @@ void APatrolEnemy::TickSocial(float DT)
  if(Distance>110){
   if(!IsGang())return;
   if(MoveRetry<=0){MoveRetry=1;MoveTo(Other->GetActorLocation(),45);}
-  if(StateTime>10){ReleasePartner();SocialCooldown=6;SetActivity(ENPCActivity::Idle);}return;
+  if(StateTime>(StreetEventId?30.f:10.f)){ReleasePartner();SocialCooldown=6;SetActivity(ENPCActivity::Idle);}return;
  }
  if(auto* AI=Cast<AAIController>(GetController()))AI->StopMovement();
+ // Start the paired clip only once both characters face each other.
+ if(Activity==ENPCActivity::Trade&&!bSocialArrived){
+  const FVector Toward=(Other->GetActorLocation()-GetActorLocation()).GetSafeNormal2D();
+  if(FVector::DotProduct(GetActorForwardVector(),Toward)<.966f||FVector::DotProduct(Other->GetActorForwardVector(),-Toward)<.966f)return;
+ }
  if(!bSocialArrived){bSocialArrived=true;StateTime=0;}
  if(Activity==ENPCActivity::Trade){
   if(StateTime>FMath::Max(3.f,CurrentAnimation?CurrentAnimation->GetPlayLength():0.f)){++CompletedTrades;++Other->CompletedTrades;Say(TEXT("DEAL."));Other->Say(TEXT("DEAL."));GetWorld()->GetSubsystem<UDataTransmitter>()->NotifyChange(this,TEXT("Trades"),CompletedTrades);ReleasePartner();SocialCooldown=12;SetActivity(ENPCActivity::Idle);}
@@ -369,26 +387,52 @@ void APatrolEnemy::TickCombat(float DT)
   else {if(auto* AI=Cast<AAIController>(GetController()))AI->StopMovement();bMoving=false;}
  }
  else {GetCharacterMovement()->MaxWalkSpeed=GetDefault<UGlobalData>()->NPCSearchSpeed;LostTime+=DT;if(MoveRetry<=0){MoveRetry=1;MoveTo(LastKnown);}if(LostTime>8){CombatTarget=nullptr;PriorityOffender.Reset();SetActivity(ENPCActivity::Idle);return;}}
- Face(LastKnown,DT);
- if(!Seen||ShotTime>0||FMath::Abs(FMath::FindDeltaAngleDegrees(GetActorRotation().Yaw,(LastKnown-GetActorLocation()).Rotation().Yaw))>8)return;
+ // Keep the authored holding pose during combat turns. Its barrel may be
+ // offset from the capsule's forward axis, especially for one-handed pistols.
+ bTurning=false;
+ if(HeldWeapon){
+  UpdateWeaponPose();
+  const float BarrelOffset=FMath::FindDeltaAngleDegrees(GetActorRotation().Yaw,HeldWeapon->MuzzleDirection().Rotation().Yaw);
+  const float TargetYaw=(LastKnown-HeldWeapon->MuzzleLocation()).Rotation().Yaw;
+  const float Delta=FMath::FindDeltaAngleDegrees(GetActorRotation().Yaw,TargetYaw-BarrelOffset);
+  SetActorRotation(FRotator(0,GetActorRotation().Yaw+FMath::Clamp(Delta,-130.f*DT,130.f*DT),0));
+ }
+ if(!Seen||ShotTime>0)return;
  const auto* Config=GetDefault<UGlobalData>();const bool Police=NPCRole==ENPCRole::Police;
- const bool Shotgun=WeaponKind==ETacticalWeaponKind::Shotgun;ShotTime=Police?FMath::Max(.5f,Config->PoliceShotInterval):Shotgun?1.3f:WeaponKind==ETacticalWeaponKind::Pistol?.9f:.65f;
- FVector Start=HeldWeapon?HeldWeapon->MuzzleLocation():GetActorLocation()+FVector(0,0,50)+GetActorForwardVector()*45;
- FVector Aim=CombatTarget->GetActorLocation()+FVector(0,0,25);
- const auto* TargetNPC=Cast<APatrolEnemy>(CombatTarget);const bool FightingPolice=IsGang()&&TargetNPC&&TargetNPC->NPCRole==ENPCRole::Police;
+ // Refresh the prop after this frame's actor turn before inspecting its barrel.
+ UpdateWeaponPose();
+ if(!HeldWeapon)return;
+ const FVector Start=HeldWeapon->MuzzleLocation();
+ const FVector Aim=CombatTarget->GetActorLocation()+FVector(0,0,25);
+ const FVector Barrel=HeldWeapon->MuzzleDirection();
+ if(FVector::DotProduct(Barrel,(Aim-Start).GetSafeNormal())<FMath::Cos(FMath::DegreesToRadians(12.f)))return;
+ if(!HeldWeapon->ConsumeShot())return;
+ const bool Shotgun=WeaponKind==ETacticalWeaponKind::Shotgun;ShotTime=HeldWeapon->Spec().Interval;
+ // Roll once per trigger pull, including shotguns. Police always aim directly at the target.
+ const bool AccurateShot=Police||FMath::FRand()<FMath::Clamp(Config->GangHitChance,0.f,1.f);
+ const FVector AimDirection=(Aim-Start).GetSafeNormal();
+ FVector ShotAim=Aim;
+ if(!AccurateShot){
+  FVector Side=FVector::CrossProduct(AimDirection,FVector::UpVector).GetSafeNormal();
+  if(Side.IsNearlyZero())Side=FVector::RightVector;
+  const auto* TargetCharacter=Cast<ACharacter>(CombatTarget);
+  const float Radius=TargetCharacter?TargetCharacter->GetCapsuleComponent()->GetScaledCapsuleRadius():60.f;
+  ShotAim+=Side*(Radius+100.f)*(FMath::RandBool()?1.f:-1.f);
+ }
  const int32 Pellets=Shotgun?8:1;
  auto* Bus=GetWorld()->GetSubsystem<UDataTransmitter>();Bus->ReportGunshot(this,Start);
  for(int32 Pellet=0;Pellet<Pellets;++Pellet){
-  const float Spread=Police?Config->PoliceSpreadDegrees:FightingPolice?7.f:Shotgun?5.f:2.f;
-  const FVector Dir=FMath::VRandCone((Aim-Start).GetSafeNormal(),FMath::DegreesToRadians(Spread));
+  const FVector Dir=(ShotAim-Start).GetSafeNormal();
   FHitResult Hit;FCollisionQueryParams Query(SCENE_QUERY_STAT(NPCFire),true,this);if(HeldWeapon)Query.AddIgnoredActor(HeldWeapon);
+  // A deliberate miss cannot clip a moving limb; walls and other actors still block it.
+  if(!AccurateShot)Query.AddIgnoredActor(CombatTarget);
   const bool Blocked=GetWorld()->LineTraceSingleByChannel(Hit,Start,Start+Dir*SightRange,ECC_Visibility,Query);bool Hurt=false;
   if(Blocked){auto* HitNPC=Cast<APatrolEnemy>(Hit.GetActor());
    const bool Allowed=Police?Hit.GetActor()==CombatTarget:(Hit.GetActor()==CombatTarget||(HitNPC&&!HitNPC->IsGang()));
    const float Damage=Police?Config->PoliceShotDamage:(HitNPC&&HitNPC->NPCRole==ENPCRole::Police?Config->GangVsPoliceDamage:Shotgun?16.f:WeaponKind==ETacticalWeaponKind::Pistol?6.f:8.f);
    if(Allowed)Hurt=Bus->TransmitHit(Hit,Damage/Pellets,Dir,GetController(),this)>0;
   }
-  if(auto* FX=GetWorld()->SpawnActor<ACombatShotEffect>())FX->Setup(Start,Blocked?Hit.ImpactPoint:Start+Dir*SightRange,Blocked,Hurt);
+  if(auto* FX=GetWorld()->SpawnActor<ACombatShotEffect>())FX->Setup(Start,Blocked?Hit.ImpactPoint:Start+Dir*SightRange,Blocked,Hurt || (Blocked && Cast<APawn>(Hit.GetActor())),Blocked?Hit.ImpactNormal:FVector::ZeroVector);
  }
  if(HeldWeapon)HeldWeapon->Flash();
  // NPC firing deliberately keeps the aim pose; Flash supplies audio/VFX only.
@@ -479,9 +523,11 @@ void APatrolEnemy::SetMotion()
 {
  auto* Motion=Cast<UNPCMotionAnimInstance>(GetMesh()->GetAnimInstance());if(!Motion)return;
  const float Speed=GetVelocity().Size2D();const bool Moving=Speed>5;
- const bool Armed=!IsProtectedPerson()&&Activity!=ENPCActivity::Threaten&&Activity!=ENPCActivity::Beat&&Activity!=ENPCActivity::Trade&&Activity!=ENPCActivity::Command;
+ const bool Armed=!IsProtectedPerson()&&Activity!=ENPCActivity::Threaten&&Activity!=ENPCActivity::Beat&&Activity!=ENPCActivity::Trade&&Activity!=ENPCActivity::Command&&Activity!=ENPCActivity::Meeting&&Activity!=ENPCActivity::CameraDismiss;
  UAnimSequence* Anim=nullptr;float ReferenceSpeed=300.f;bool Loop=true;
- if(bTurning&&!Moving){Anim=ActiveTurn;Loop=false;}
+ const bool Reloading=HeldWeapon&&HeldWeapon->IsReloading()&&ReloadAnimation;
+ if(Reloading){Anim=ReloadAnimation;Loop=WeaponKind==ETacticalWeaponKind::Shotgun;}
+ else if(bTurning&&!Moving){Anim=ActiveTurn;Loop=false;}
  else if(Activity==ENPCActivity::Flee){if(Moving){if(auto* Found=ActivityAnimations.Find(Activity))Anim=*Found;ReferenceSpeed=461.07f;}else Anim=UnarmedIdle;}
  else if(!Moving)
  {
@@ -492,36 +538,52 @@ void APatrolEnemy::SetMotion()
  {
   if(Armed)
   {
-   if(Moving&&Speed>180&&Run){Anim=Run;ReferenceSpeed=428.6f;}
+   if(Moving&&Speed>180&&Run){Anim=Run;ReferenceSpeed=687.48f;}
    else if(Moving&&Activity==ENPCActivity::Combat&&AimWalk)
    {
     const float Angle=FMath::RadiansToDegrees(FMath::Atan2(FVector::DotProduct(GetVelocity(),GetActorRightVector()),FVector::DotProduct(GetVelocity(),GetActorForwardVector())));
     const int32 Direction=(FMath::RoundToInt(Angle/45.f)+8)%8;
-    static const float Speeds[]={110.2f,168.28f,157.91f,178.43f,173.67f,186.36f,161.37f,177.5f};
-    Anim=AimWalkDirections.IsValidIndex(Direction)&&AimWalkDirections[Direction]?AimWalkDirections[Direction].Get():AimWalk.Get();ReferenceSpeed=Speeds[Direction];
+    static const float Speeds[]={183.33f,183.33f,183.33f,183.33f,183.33f,183.33f,183.33f,183.33f};
+    static const float PistolSpeeds[]={183.33f,183.33f,147.66f,183.33f,183.33f,183.33f,183.33f,183.33f};
+    Anim=AimWalkDirections.IsValidIndex(Direction)&&AimWalkDirections[Direction]?AimWalkDirections[Direction].Get():AimWalk.Get();ReferenceSpeed=WeaponKind==ETacticalWeaponKind::Pistol?PistolSpeeds[Direction]:Speeds[Direction];
    }
-   else {Anim=Moving?Walk.Get():Idle.Get();ReferenceSpeed=WeaponKind==ETacticalWeaponKind::Pistol?110.2f:111.4f;}
+   else {Anim=Moving?(AimWalk?AimWalk.Get():Walk.Get()):Idle.Get();ReferenceSpeed=183.33f;}
   }
   else Anim=Moving?UnarmedWalk.Get():UnarmedIdle.Get();
  }
- CurrentAnimation=Anim;Motion->Sequence=Anim;Motion->UpperBodyPose=Armed?Idle.Get():nullptr;
+ CurrentAnimation=Anim;Motion->Sequence=Anim;Motion->UpperBodyPose=nullptr;
  Motion->ExplicitTime=bTurning&&!Moving?TurnTime:-1.f;
- Motion->bLoop=Loop;Motion->bLocomotion=Moving;Motion->PlaybackRate=Moving?FMath::Clamp(Speed/ReferenceSpeed,.05f,2.f):1.f;
+ Motion->bLoop=Loop;Motion->bLocomotion=Moving&&!Reloading;Motion->PlaybackRate=Reloading?1.f:Moving?FMath::Clamp(Speed/ReferenceSpeed,.05f,2.f):1.f;
 }
 void APatrolEnemy::Tick(float DT)
 {
  Super::Tick(DT);if(Health<=0)return;TurnDelta=0;StateTime+=DT;DecisionTime-=DT;MoveRetry-=DT;MoveTimeout-=DT;ShotTime-=DT;SocialCooldown-=DT;SpeechTime-=DT;
  if(SpeechTime<=0)Speech->SetVisibility(false);
+ if(HeldWeapon){
+  HeldWeapon->AdvanceHandling(DT);
+  if(!HeldWeapon->bChambered&&HeldWeapon->Handling==EWeaponHandling::Idle&&ReloadAnimation)HeldWeapon->StartReload(AmmoReserve);
+  if(HeldWeapon->IsReloading()){
+   bTurning=false;bMoving=false;if(auto* AI=Cast<AAIController>(GetController()))AI->StopMovement();
+   GetCharacterMovement()->StopMovementImmediately();SetMotion();UpdateWeaponPose(DT);return;
+  }
+ }
  if(auto* P=UGameplayStatics::GetPlayerPawn(this,0))Speech->SetWorldRotation((P->GetActorLocation()-Speech->GetComponentLocation()).Rotation());
  if(NPCRole==ENPCRole::Injured){if(StateTime>7){StateTime=0;Say(TEXT("HELP!"),HelpSound);}SetMotion();UpdateWeaponPose(DT);return;}
  if(!IsProtectedPerson() && !bAimWarning && CombatTarget!=UGameplayStatics::GetPlayerPawn(this,0) && IsPlayerAimingAtMe())
  {
   ReleasePartner();if(auto* AI=Cast<AAIController>(GetController()))AI->StopMovement();bMoving=false;
-  bAimWarning=true;WarningRemaining=GetDefault<UGlobalData>()->AimedThreatSeconds;
-  SetActivity(ENPCActivity::WarnPlayer);Say(TEXT("LOWER YOUR WEAPON!"));
+  if(IsGang()){
+   bAimWarning=false;WarningRemaining=0;Speech->SetVisibility(false);
+   SetTarget(UGameplayStatics::GetPlayerPawn(this,0));ShotTime=0;
+  }else{
+   bAimWarning=true;WarningRemaining=GetDefault<UGlobalData>()->AimedThreatSeconds;
+   SetActivity(ENPCActivity::WarnPlayer);Say(TEXT("LOWER YOUR WEAPON!"));
+  }
  }
+ if(TickCameraReaction(DT)){SetMotion();UpdateWeaponPose(DT);return;}
  if(DecisionTime<=0){DecisionTime=.25f;Think();}
- if(Activity==ENPCActivity::WarnPlayer)TickWarning(DT);
+ if(Activity==ENPCActivity::Meeting)TickMeeting(DT);
+ else if(Activity==ENPCActivity::WarnPlayer)TickWarning(DT);
  else if(Activity==ENPCActivity::Combat)TickCombat(DT);
  else if(Activity==ENPCActivity::Threaten||Activity==ENPCActivity::Beat||Activity==ENPCActivity::Trade||Activity==ENPCActivity::Command)TickSocial(DT);
  else TickPatrol(DT);
@@ -534,6 +596,7 @@ bool APatrolEnemy::IsPlayerAimingAtMe() const
  auto* PC=Player?Cast<APlayerController>(Player->GetController()):nullptr;
  auto* Equipment=PC?PC->FindComponentByClass<UCombatEquipmentComponent>():nullptr;
  if(!Player||Player->Health<=0||!Equipment||!Equipment->ActiveWeapon||!Equipment->bADS)return false;
+ if(IsGang()&&!CanSeeActor(Player,true))return false;
  const FVector Start=Player->GetFirstPersonCameraComponent()->GetComponentLocation();
  FCollisionQueryParams Query(SCENE_QUERY_STAT(AimedThreat),true,Player);Query.AddIgnoredActor(Equipment->ActiveWeapon);
  FHitResult Hit;
@@ -546,12 +609,13 @@ bool APatrolEnemy::IsPlayerAimingAtMe() const
 
 void APatrolEnemy::UpdateWeaponPose(float DT)
 {
- const bool Armed=Health>0&&!IsProtectedPerson()&&HeldWeapon&&Activity!=ENPCActivity::Threaten&&Activity!=ENPCActivity::Beat&&Activity!=ENPCActivity::Trade&&Activity!=ENPCActivity::Command;
+ const bool Armed=Health>0&&!IsProtectedPerson()&&HeldWeapon&&Activity!=ENPCActivity::Threaten&&Activity!=ENPCActivity::Beat&&Activity!=ENPCActivity::Trade&&Activity!=ENPCActivity::Command&&Activity!=ENPCActivity::Meeting&&Activity!=ENPCActivity::CameraDismiss;
  if(Armed!=bPreviousArmed&&!LastPresentedPose.IsEmpty()){PresentationBlendFrom=LastPresentedPose;PresentationBlendTime=0;}
  bPreviousArmed=Armed;PresentationBlendTime+=DT;
  if(HeldWeapon)HeldWeapon->SetActorHiddenInGame(!Armed||PresentationBlendTime<.18f);
  Rifle->SetVisibility(false);NPCBody->SetVisibility(true);GetMesh()->SetVisibility(false,false);
- WeaponReadyAlpha=FMath::FInterpConstantTo(WeaponReadyAlpha,Activity==ENPCActivity::WarnPlayer||Activity==ENPCActivity::Combat?1.f:0.f,DT,4.f);
+ // Moving clips already contain their own carry/aim posture; do not lower that arm twice.
+ WeaponReadyAlpha=FMath::FInterpConstantTo(WeaponReadyAlpha,GetVelocity().Size2D()>5||Activity==ENPCActivity::WarnPlayer||Activity==ENPCActivity::Combat?1.f:0.f,DT,4.f);
  if(Armed)HeldWeapon->UpdateNPCGripPose(GetMesh(),NPCBody,WeaponReadyAlpha);
  else NPCBody->CopyPoseFromSkeletalComponent(GetMesh());
  // Blend the actually rendered grip pose when entering/leaving social states.
@@ -563,3 +627,50 @@ void APatrolEnemy::UpdateWeaponPose(float DT)
  NPCBody->MarkRefreshTransformDirty();NPCBody->RefreshBoneTransforms();
 }
 
+
+void APatrolEnemy::TickMeeting(float DT)
+{
+ GetCharacterMovement()->MaxWalkSpeed=GetDefault<UGlobalData>()->NPCWalkSpeed;
+ if(FVector::Dist2D(GetActorLocation(),EventDestination)>85){
+  if(MoveRetry<=0){MoveRetry=1;MoveTo(EventDestination,45);}
+  if(GetVelocity().Size2D()>5)Face(GetActorLocation()+GetVelocity(),DT);
+ }else{
+  if(auto* AI=Cast<AAIController>(GetController()))AI->StopMovement();
+  Face(EventFocus,DT);if(SpeechTime<=0)Say(TEXT("LET'S TALK."));
+ }
+}
+bool APatrolEnemy::IsBeingFilmed() const
+{
+ auto* PC=UGameplayStatics::GetPlayerController(this,0);
+ auto* Equipment=PC?PC->FindComponentByClass<UCamcorderEquipmentComponent>():nullptr;
+ auto* Camera=Equipment?Equipment->Camcorder.Get():nullptr;
+ auto* Player=PC?PC->GetPawn().Get():nullptr;
+ if(!Camera||!Player||!Camera->bHeld||!Camera->bPowered||(!Camera->bViewfinderRaised&&!Camera->bRecording)||!CanSeeActor(Player,true))return false;
+ FVector Eye;FRotator View;PC->GetPlayerViewPoint(Eye,View);
+ const FVector Delta=GetActorLocation()+FVector(0,0,40)-Eye;
+ return Delta.SizeSquared()<FMath::Square(1000.f)&&FVector::DotProduct(View.Vector(),Delta.GetSafeNormal())>.9f;
+}
+bool APatrolEnemy::TickCameraReaction(float DT)
+{
+ CameraReactionCooldown=FMath::Max(0.f,CameraReactionCooldown-DT);
+ // Danger always interrupts camera etiquette, including police intervention.
+ if(bCombat||Activity==ENPCActivity::Flee||Activity==ENPCActivity::WarnPlayer){CameraReactionTime=0;return false;}
+ auto* Player=UGameplayStatics::GetPlayerPawn(this,0);if(!Player)return false;
+ if(CameraReactionTime<=0&&CameraReactionCooldown<=0&&!StreetEventId&&!Partner.IsValid()&&IsBeingFilmed()){
+  if(NPCRole==ENPCRole::Civilian||NPCRole==ENPCRole::Merchant){SetActivity(ENPCActivity::CameraLook);Say(TEXT("PLEASE, NO CAMERA."));}
+  else if(NPCRole==ENPCRole::Police){SetActivity(ENPCActivity::CameraDismiss);Say(TEXT("PLEASE LEAVE THE AREA."));}
+  else if(NPCRole==ENPCRole::GangBoss){
+   SetActivity(ENPCActivity::CameraAvoid);DangerLocation=Player->GetActorLocation();bMoving=false;MoveRetry=0;
+  }else return false;
+  if(auto* AI=Cast<AAIController>(GetController()))AI->StopMovement();CameraReactionTime=5;CameraReactionCooldown=12;
+ }
+ if(CameraReactionTime<=0)return false;
+ CameraReactionTime-=DT;
+ if(CameraReactionTime<=0){if(auto* AI=Cast<AAIController>(GetController()))AI->StopMovement();SetActivity(ENPCActivity::Idle);return false;}
+ if(Activity==ENPCActivity::CameraAvoid){
+  GetCharacterMovement()->MaxWalkSpeed=GetDefault<UGlobalData>()->NPCWalkSpeed;
+  if(!bMoving&&MoveRetry<=0){MoveRetry=1;ChooseDestination(true);}
+  Face(GetActorLocation()+(GetActorLocation()-Player->GetActorLocation()).GetSafeNormal2D()*200,DT);
+ }else {if(auto* AI=Cast<AAIController>(GetController()))AI->StopMovement();Face(Player->GetActorLocation(),DT);}
+ return true;
+}

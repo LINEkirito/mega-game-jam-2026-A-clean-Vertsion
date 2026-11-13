@@ -1,4 +1,5 @@
 #include "Data/DataTransmitter.h"
+#include "Audio/CharacterAudio.h"
 #include "TacticalWeapon.h"
 #include "CombatEquipmentComponent.h"
 #include "Data/GlobalData.h"
@@ -132,22 +133,24 @@ void ATacticalWeapon::CancelHandling()
 }
 void ATacticalWeapon::Stow()
 {
-    CancelHandling();if(auto* C=Holder.Get()){C->GetFirstPersonMesh()->SetVisibility(true,false);C->GetFirstPersonMesh()->SetAbsolute(false,false,false);C->GetFirstPersonMesh()->SetWorldTransform(C->GetMesh()->GetComponentTransform());}Holder.Reset();bEquipped=false;RenderArms->SetVisibility(false);WeaponLight->SetIntensity(0);SetActorHiddenInGame(true);Body->SetSimulatePhysics(false);Body->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    CancelHandling();if(auto* C=Holder.Get()){C->GetFirstPersonMesh()->SetVisibility(true,false);C->GetFirstPersonMesh()->SetAbsolute(false,false,false);C->GetFirstPersonMesh()->SetWorldTransform(C->GetMesh()->GetComponentTransform());}Holder.Reset();bEquipped=false;bNPCEquipped=false;RenderArms->SetVisibility(false);WeaponLight->SetIntensity(0);SetActorHiddenInGame(true);Body->SetSimulatePhysics(false);Body->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 }
 void ATacticalWeapon::Drop(FVector P,FRotator R){Stow();SetActorLocationAndRotation(P,R,false,nullptr,ETeleportType::TeleportPhysics);SetActorHiddenInGame(false);Label->SetVisibility(true);Body->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);Body->SetSimulatePhysics(true);}
 void ATacticalWeapon::BeginHandling(EWeaponHandling State,float Duration){Handling=State;HandlingTime=0;HandlingDuration=Duration;HandlingEvents=0;}
 bool ATacticalWeapon::IsReloading()const{return Handling==EWeaponHandling::ShellStart||Handling==EWeaponHandling::MagazineReload||Handling==EWeaponHandling::ShellInsert||Handling==EWeaponHandling::Charge;}
-bool ATacticalWeapon::CanFire()const{return bEquipped&&bMagazineSeated&&(Handling==EWeaponHandling::Idle||Handling==EWeaponHandling::FireCycle)&&bChambered;}
+bool ATacticalWeapon::CanFire()const{return (bEquipped||bNPCEquipped)&&bMagazineSeated&&(Handling==EWeaponHandling::Idle||Handling==EWeaponHandling::FireCycle)&&bChambered;}
 float ATacticalWeapon::ReloadProgress()const{return IsReloading()?FMath::Clamp(HandlingTime/FMath::Max(.01f,HandlingDuration),0.f,1.f):0.f;}
 bool ATacticalWeapon::StartReload(UBackpackInventory* Inventory)
 {
     if(!Inventory||IsReloading()||Handling==EWeaponHandling::Equip||Handling==EWeaponHandling::Holster)return false;
     if(Magazine>=Spec().Capacity&&bChambered)return false;
-    if(Inventory->Count(Spec().Ammo)<=0){if(!bChambered&&Magazine>0){ReloadInventory=Inventory;BeginHandling(EWeaponHandling::Charge,bPackPresentation?1.666667f:.8f);return true;}return false;}
-    ReloadInventory=Inventory;bReloadEnd=false;bPackEmptyReload=!bChambered;BeginHandling(Kind==ETacticalWeaponKind::Shotgun?EWeaponHandling::ShellStart:EWeaponHandling::MagazineReload,Kind==ETacticalWeaponKind::Shotgun?(bPackEmptyReload?2.666667f:.666667f):Spec().Reload);Sound(TEXT("Cloth"),.3f);return true;
+    if(Inventory->Count(Spec().Ammo)<=0){if(!bChambered&&Magazine>0){ReloadInventory=Inventory;BeginHandling(EWeaponHandling::Charge,PackChargeDuration());return true;}return false;}
+    ReloadInventory=Inventory;bReloadEnd=false;bPackEmptyReload=!bChambered;
+    if(bNPCEquipped&&NPCReloadDuration>0){BeginHandling(Kind==ETacticalWeaponKind::Shotgun?EWeaponHandling::ShellInsert:EWeaponHandling::MagazineReload,NPCReloadDuration);Sound(TEXT("Cloth"),.3f);return true;}
+    BeginHandling(Kind==ETacticalWeaponKind::Shotgun?EWeaponHandling::ShellStart:EWeaponHandling::MagazineReload,Kind==ETacticalWeaponKind::Shotgun?(bPackEmptyReload?2.666667f:.666667f):Spec().Reload);Sound(TEXT("Cloth"),.3f);return true;
 }
 void ATacticalWeapon::RequestReloadEnd(){if(Handling==EWeaponHandling::ShellInsert||Handling==EWeaponHandling::ShellStart)bReloadEnd=true;}
-void ATacticalWeapon::Sound(FName Name,float Volume){if(bPackPresentation&&(Name.ToString().Contains(TEXT("MagIn"))||Name.ToString().Contains(TEXT("MagOut"))||Name.ToString().Contains(TEXT("Charge"))||Name==TEXT("ShotgunShell")))return;if(auto* S=Sounds.FindRef(Name).Get())UGameplayStatics::PlaySoundAtLocation(this,S,GetActorLocation(),Volume,1);}
+void ATacticalWeapon::Sound(FName Name,float Volume){if(bPackPresentation&&!bNPCEquipped&&(Name.ToString().Contains(TEXT("MagIn"))||Name.ToString().Contains(TEXT("MagOut"))||Name.ToString().Contains(TEXT("Charge"))||Name==TEXT("ShotgunShell")))return;if(auto* S=Sounds.FindRef(Name).Get())CharacterAudio::Attached(S,WeaponVisual,Name.ToString().EndsWith(TEXT("Fire"))?ECharacterSound::Gunshot:ECharacterSound::Handling,Volume);}
 void ATacticalWeapon::EventAt(float Old,float Now,float At,int32 Bit,TFunctionRef<void()> Event){if(!(HandlingEvents&(1u<<Bit))&&Now>=At){HandlingEvents|=1u<<Bit;Event();}}
 void ATacticalWeapon::DropMagazine()
 {
@@ -168,7 +171,19 @@ void ATacticalWeapon::AdvanceHandling(float DT)
     {
         const auto State=Handling;const float Old=HandlingTime;const float Used=FMath::Min(DT,FMath::Max(0.f,HandlingDuration-HandlingTime));HandlingTime+=Used;DT-=Used;
         const float T=HandlingDuration>0?HandlingTime/HandlingDuration:1;
-        if(State==EWeaponHandling::MagazineReload)
+        const bool NPCAction=bNPCEquipped&&NPCReloadDuration>0&&(State==EWeaponHandling::MagazineReload||State==EWeaponHandling::ShellInsert);
+        if(NPCAction)
+        {
+            if(State==EWeaponHandling::MagazineReload){
+                EventAt(Old,T,.15f,0,[this]{bMagazineSeated=false;Sound(Kind==ETacticalWeaponKind::Rifle?TEXT("RifleMagOut"):TEXT("PistolMagOut"));});
+                EventAt(Old,T,.28f,1,[this]{DropMagazine();});
+                EventAt(Old,T,.68f,2,[this]{if(ReloadInventory){const int32 N=FMath::Min(Spec().Capacity,ReloadInventory->Count(Spec().Ammo));if(N>0){ReloadInventory->Remove(Spec().Ammo,N);Magazine=N;}}bMagazineSeated=true;Sound(Kind==ETacticalWeaponKind::Rifle?TEXT("RifleMagIn"):TEXT("PistolMagIn"));});
+                EventAt(Old,T,.9f,3,[this]{if(!bChambered&&Magazine>0){--Magazine;bChambered=true;}Sound(Kind==ETacticalWeaponKind::Rifle?TEXT("RifleCharge"):TEXT("PistolCharge"));});
+            }else{
+                EventAt(Old,T,.65f,0,[this]{if(ReloadInventory&&ReloadInventory->Count(Spec().Ammo)>0){ReloadInventory->Remove(Spec().Ammo,1);if(!bChambered)bChambered=true;else if(Magazine<Spec().Capacity)++Magazine;Sound(TEXT("ShotgunShell"));}});
+            }
+        }
+        else if(State==EWeaponHandling::MagazineReload)
         {
             EventAt(Old,T,(Kind==ETacticalWeaponKind::Rifle?.72f:.48f)/Spec().Reload,0,[this]{bMagazineSeated=false;Sound(Kind==ETacticalWeaponKind::Rifle?TEXT("RifleMagOut"):TEXT("PistolMagOut"));});
             EventAt(Old,T,(Kind==ETacticalWeaponKind::Rifle?.86f:.65f)/Spec().Reload,1,[this]{DropMagazine();});
@@ -179,7 +194,7 @@ void ATacticalWeapon::AdvanceHandling(float DT)
         {
             EventAt(Old,T,.62f,0,[this]{if(ReloadInventory&&ReloadInventory->Count(Spec().Ammo)>0){ReloadInventory->Remove(Spec().Ammo,1);bChambered=true;}});
         }
-        if(State==EWeaponHandling::ShellInsert)
+        if(State==EWeaponHandling::ShellInsert&&!NPCAction)
         {
             EventAt(Old,T,.70f,0,[this]{if(ReloadInventory&&Magazine<Spec().Capacity&&ReloadInventory->Count(Spec().Ammo)>0){ReloadInventory->Remove(Spec().Ammo,1);++Magazine;Sound(TEXT("ShotgunShell"));}});
         }
@@ -195,13 +210,17 @@ void ATacticalWeapon::AdvanceHandling(float DT)
             EventAt(Old,T,.8f,1,[this]{if(!bChambered&&Magazine>0){--Magazine;bChambered=true;}});
         }
         if(HandlingTime+KINDA_SMALL_NUMBER<HandlingDuration)break;
-        if(State==EWeaponHandling::Equip){Handling=EWeaponHandling::Idle;HandlingTime=0;HandlingDuration=0;}
-        else if(State==EWeaponHandling::MagazineReload)BeginHandling(EWeaponHandling::Charge,1.666667f);
-        else if(State==EWeaponHandling::ShellStart){if(!bReloadEnd&&ReloadInventory&&Magazine<Spec().Capacity&&ReloadInventory->Count(Spec().Ammo)>0)BeginHandling(EWeaponHandling::ShellInsert,Spec().Reload);else BeginHandling(EWeaponHandling::Charge,bPackPresentation?1.666667f:.85f);}
-        else if(State==EWeaponHandling::ShellInsert)
+        if(NPCAction){
+            if(State==EWeaponHandling::ShellInsert&&Magazine<Spec().Capacity&&ReloadInventory&&ReloadInventory->Count(Spec().Ammo)>0)BeginHandling(EWeaponHandling::ShellInsert,NPCReloadDuration);
+            else {Handling=EWeaponHandling::Idle;HandlingTime=0;HandlingDuration=0;ReloadInventory=nullptr;}
+        }
+        else if(State==EWeaponHandling::Equip){Handling=EWeaponHandling::Idle;HandlingTime=0;HandlingDuration=0;}
+        else if(State==EWeaponHandling::MagazineReload)BeginHandling(EWeaponHandling::Charge,PackChargeDuration());
+        else if(State==EWeaponHandling::ShellStart){if(!bReloadEnd&&ReloadInventory&&Magazine<Spec().Capacity&&ReloadInventory->Count(Spec().Ammo)>0)BeginHandling(EWeaponHandling::ShellInsert,Spec().Reload);else BeginHandling(EWeaponHandling::Charge,PackChargeDuration());}
+        else if(State==EWeaponHandling::ShellInsert&&!NPCAction)
         {
             if(!bReloadEnd&&ReloadInventory&&Magazine<Spec().Capacity&&ReloadInventory->Count(Spec().Ammo)>0)BeginHandling(EWeaponHandling::ShellInsert,Spec().Reload);
-            else BeginHandling(EWeaponHandling::Charge,bPackPresentation?1.666667f:.85f);
+            else BeginHandling(EWeaponHandling::Charge,PackChargeDuration());
         }
         else if(State==EWeaponHandling::Holster){Stow();break;}
         else {Handling=EWeaponHandling::Idle;HandlingTime=0;HandlingDuration=0;ReloadInventory=nullptr;}
@@ -456,6 +475,14 @@ void AWeaponDebris::Initialize(UStaticMesh* Mesh,const FTransform& T,FVector Vel
 void AWeaponDebris::OnContact(UPrimitiveComponent*,AActor* Other,UPrimitiveComponent*,FVector,const FHitResult& Hit)
 {
     if(bLanded||!Other||Cast<AWeaponDebris>(Other)||Hit.ImpactNormal.Z<.45f)return;bLanded=true;LandedAt=GetWorld()->GetTimeSeconds();SetLifeSpan(bMag?30:12);
-    if(auto* S=LoadObject<USoundBase>(nullptr,bMag?TEXT("/Game/Combat/Audio/Handling/MagImpact"):TEXT("/Game/Combat/Audio/Handling/ShellImpact")))UGameplayStatics::PlaySoundAtLocation(this,S,Hit.ImpactPoint,bMag?.55f:.2f);
+    if(auto* S=LoadObject<USoundBase>(nullptr,bMag?TEXT("/Game/Combat/Audio/Handling/MagImpact"):TEXT("/Game/Combat/Audio/Handling/ShellImpact")))CharacterAudio::At(this,S,Hit.ImpactPoint,ECharacterSound::Impact,bMag?.55f:.2f);
 }
 void AWeaponDebris::Tick(float DT){Super::Tick(DT);if(GetActorLocation().Z<-10000)Destroy();}
+
+FVector ATacticalWeapon::MuzzleDirection() const
+{
+ // Pack guns are authored along local +Y; the fallback gun uses local +X.
+ return bPackPresentation&&PackWeaponMesh
+  ?PackWeaponMesh->GetComponentTransform().TransformVectorNoScale(FVector::RightVector).GetSafeNormal()
+  :WeaponVisual->GetComponentTransform().TransformVectorNoScale(FVector::ForwardVector).GetSafeNormal();
+}

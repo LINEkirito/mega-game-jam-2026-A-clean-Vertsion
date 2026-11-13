@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "TacticalWeapon.generated.h"
@@ -50,6 +50,7 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Weapon") bool bPumpMode=false;
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly) bool bEquipped=false;
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly) bool bNPCEquipped=false;
+    UPROPERTY(Transient,BlueprintReadWrite,Category="NPC") float NPCReloadDuration=0;
     void EquipForNPC(USkeletalMeshComponent* CharacterMesh);
     void UpdateNPCGripPose(USkeletalMeshComponent* Source,UPoseableMeshComponent* BodyPose,float ReadyAlpha=1.f);
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly) bool bMagnified=false;
@@ -75,6 +76,7 @@ public:
     void Drop(FVector Position,FRotator Rotation);
     UFUNCTION(BlueprintCallable) void UpdatePose(float DT,bool bADS,float Kick);
     FVector MuzzleLocation() const;
+    FVector MuzzleDirection() const;
     void Flash();
     bool StartReload(UBackpackInventory* Inventory);
     UFUNCTION(BlueprintCallable) void AdvanceHandling(float DT);
@@ -97,6 +99,7 @@ private:
     void SetupModel();
     void SetupPackPresentation();
     void UpdatePackPose(float DT,bool bADS,float Kick);
+    float PackChargeDuration();
     UAnimSequence* PackAnimation(const FString& Group,const FString& Action);
     void SamplePackAnimation(USkeletalMeshComponent* Mesh,UAnimSequence* Animation,float Time);
     UPROPERTY(Transient) TMap<FString,TObjectPtr<UAnimSequence>> PackAnimations;
@@ -198,10 +201,20 @@ class GAME_JAM_CLEAN_VERS_API ACombatShotEffect : public AActor
     GENERATED_BODY()
 public:
     ACombatShotEffect();
-    void Setup(FVector Start,FVector End,bool bImpact,bool bFlesh);
+    UFUNCTION(BlueprintCallable,Category="Combat|VFX")
+    void Setup(FVector Start,FVector End,bool bImpact,bool bFlesh,FVector SurfaceNormal=FVector::ZeroVector);
     virtual void Tick(float DT) override;
 private:
     UPROPERTY() TObjectPtr<UStaticMeshComponent> Streak;
     UPROPERTY() TObjectPtr<UStaticMeshComponent> Impact;
+    UPROPERTY() TObjectPtr<UStaticMeshComponent> ImpactDust;
+    UPROPERTY() TArray<TObjectPtr<UStaticMeshComponent>> ImpactSparks;
+    TArray<FVector> SparkVelocities;
+    FVector ImpactNormal=FVector::UpVector;
+    float ImpactDuration=.32f,ImpactSize=12.f,ImpactSparkSpeed=180.f,ImpactRoll=0;
     float Age=0;
+    FVector TraceStart=FVector::ZeroVector,TraceEnd=FVector::ZeroVector,TraceDirection=FVector::ForwardVector;
+    float TraceDistance=0,VisualSpeed=45000,VisualLength=110,VisualWidth=1.8f,FadeSeconds=.025f;
+    bool bHasImpact=false,bFleshImpact=false;
+    void UpdateVisual();
 };

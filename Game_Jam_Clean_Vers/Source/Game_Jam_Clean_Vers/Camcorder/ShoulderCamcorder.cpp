@@ -1,4 +1,5 @@
-﻿#include "ShoulderCamcorder.h"
+#include "ShoulderCamcorder.h"
+#include "Audio/CharacterAudio.h"
 #include "RecordingLibrary.h"
 #include "Data/GlobalData.h"
 #include "Sound/SoundBase.h"
@@ -135,7 +136,7 @@ void AShoulderCamcorder::PickUp(APlayerController* Player)
     if(!bHeld && !bInBackpack && !CanInteract(Player)) return;
     bInBackpack=false; SetActorHiddenInGame(false);
     Body->SetSimulatePhysics(false); Body->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-    UGameplayStatics::PlaySound2D(this,LoadObject<USoundBase>(nullptr,TEXT("/Game/Combat/Audio/Handling/Equip")),.4f);
+    CharacterAudio::Attached(LoadObject<USoundBase>(nullptr,TEXT("/Game/Combat/Audio/Handling/Equip")),GetRootComponent(),ECharacterSound::Handling,.4f);
     bLowering=false;LoweringTime=0;EquipProgress=0;LookProgress=0;AnimationClock=0;Holder=Player; bHeld=true; AimOffset=FRotator::ZeroRotator;
     SetHoldingHandsVisible(true);
     AimPivot->SetRelativeRotation(AimOffset);
@@ -171,7 +172,7 @@ void AShoulderCamcorder::FinishLowering()
     Body->SetSimulatePhysics(!bStoreAfterLowering);
     if(!bStoreAfterLowering)Body->SetPhysicsLinearVelocity(Velocity);
     SetActorHiddenInGame(bStoreAfterLowering);
-    UGameplayStatics::PlaySound2D(this,LoadObject<USoundBase>(nullptr,bStoreAfterLowering?TEXT("/Game/Combat/Audio/Handling/Cloth"):TEXT("/Game/Combat/Audio/Handling/ItemDrop")),.4f);
+    CharacterAudio::Attached(LoadObject<USoundBase>(nullptr,bStoreAfterLowering?TEXT("/Game/Combat/Audio/Handling/Cloth"):TEXT("/Game/Combat/Audio/Handling/ItemDrop")),GetRootComponent(),ECharacterSound::Handling,.4f);
 }
 void AShoulderCamcorder::PutDown()
 {

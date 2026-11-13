@@ -1,4 +1,4 @@
-#include "TacticalWeapon.h"
+﻿#include "TacticalWeapon.h"
 #include "Components/BoxComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/PoseableMeshComponent.h"
@@ -34,51 +34,53 @@ void ATacticalWeapon::EquipForNPC(USkeletalMeshComponent* CharacterMesh)
 void ATacticalWeapon::UpdateNPCGripPose(USkeletalMeshComponent* Source,UPoseableMeshComponent* BodyPose,float ReadyAlpha)
 {
  if(!Source||!BodyPose)return;BodyPose->CopyPoseFromSkeletalComponent(Source);
- const FTransform Frame=BodyPose->GetComponentTransform();
- // Lower the complete right-arm chain for patrol; raise it smoothly for a warning/firefight.
- const FQuat Lowering(FVector::XAxisVector,FMath::DegreesToRadians(-35.f*(1.f-ReadyAlpha)));
- const FVector Pivot=Source->GetSocketTransform(TEXT("upperarm_r"),RTS_Component).GetLocation();
- for(const FName Bone:{FName(TEXT("upperarm_r")),FName(TEXT("lowerarm_r")),FName(TEXT("hand_r"))}){
-  FTransform T=Source->GetSocketTransform(Bone,RTS_Component);T.SetLocation(Pivot+Lowering.RotateVector(T.GetLocation()-Pivot));T.SetRotation(Lowering*T.GetRotation());BodyPose->SetBoneTransformByName(Bone,T,EBoneSpaces::ComponentSpace);
+ const bool Shell=Kind==ETacticalWeaponKind::Shotgun;
+ if(bPackPresentation){
+  const float Progress=NPCReloadDuration>0?HandlingTime/NPCReloadDuration:0;
+  const bool MagInHand=Handling==EWeaponHandling::MagazineReload&&Progress>=.15f&&Progress<.68f;
+  if(MagInHand){
+   if(PackMagazineMesh->GetAttachParent()!=Source)PackMagazineMesh->AttachToComponent(Source,FAttachmentTransformRules::KeepWorldTransform,TEXT("hand_l"));
+   // Place the prop's centre in the authored palm, rather than preserving the
+   // distance from the magazine well when the hand has already moved away.
+   const FVector Palm=(Source->GetSocketLocation(TEXT("hand_l"))+Source->GetSocketLocation(TEXT("middle_01_l")))*.5f;
+   const FQuat Rotation=Source->GetSocketQuaternion(TEXT("hand_l"));
+   const FVector Centre=PackMagazineMesh->GetSkeletalMeshAsset()?PackMagazineMesh->GetSkeletalMeshAsset()->GetBounds().Origin:FVector::ZeroVector;
+   PackMagazineMesh->SetWorldLocationAndRotation(Palm-Rotation.RotateVector(Centre*PackMagazineMesh->GetComponentScale()),Rotation);
+   PackMagazineMesh->SetVisibility(Progress<.28f||Progress>=.42f);
+  }else if(!Shell){
+   PackMagazineMesh->AttachToComponent(PackWeaponMesh,FAttachmentTransformRules::SnapToTargetNotIncludingScale,Kind==ETacticalWeaponKind::Rifle?TEXT("Magazine"):TEXT("MagazineSocket"));
+   PackMagazineMesh->SetRelativeRotation(Kind==ETacticalWeaponKind::Rifle?FRotator(0,0,90):FRotator::ZeroRotator);
+   PackMagazineMesh->SetVisibility(bMagazineSeated);
+  }
+  ShellInHand->SetVisibility(Handling==EWeaponHandling::ShellInsert&&Progress>=.25f&&Progress<.65f);
+  if(ShellInHand->IsVisible())ShellInHand->SetWorldTransform(Source->GetSocketTransform(TEXT("hand_l")));
  }
+ // The source reload owns both hands. Keep the prop's existing hand attachment;
+ // fitting it between the hands during a magazine reach would twist the gun.
+ if(IsReloading())return;
+
+ const FTransform Frame=BodyPose->GetComponentTransform();
  const FTransform Grip=Source->GetSocketTransform(TEXT("HandGrip_R"),RTS_Component);
- FQuat GunRotation=Frame.GetRotation()*Lowering*Grip.GetRotation()*FRotator(0,90,0).Quaternion();
+ FQuat GunRotation=Frame.GetRotation()*Grip.GetRotation()*FRotator(0,90,0).Quaternion();
  FVector RightPalm=(Source->GetSocketTransform(TEXT("hand_r"),RTS_Component).GetLocation()+Source->GetSocketTransform(TEXT("middle_01_r"),RTS_Component).GetLocation())*.5f;
- RightPalm=Frame.TransformPosition(Pivot+Lowering.RotateVector(RightPalm-Pivot));
+ RightPalm=Frame.TransformPosition(RightPalm);
  FVector RightContact(-3,1.7f,Kind==ETacticalWeaponKind::Pistol?-6.5f:Kind==ETacticalWeaponKind::Rifle?-8.5f:-7.f);
  const FTransform AuthoredGun=bPackPresentation?Hands->GetSocketTransform(TEXT("ik_hand_gun"),RTS_Component):FTransform::Identity;
  if(bPackPresentation){
   const FTransform AuthoredHand=Hands->GetSocketTransform(TEXT("hand_r"),RTS_Component);
   const FVector AuthoredPalm=(AuthoredHand.GetLocation()+Hands->GetSocketTransform(TEXT("middle_01_r"),RTS_Component).GetLocation())*.5f;
   RightContact=PackWeaponMesh->GetRelativeTransform().TransformPosition(AuthoredGun.InverseTransformPosition(AuthoredPalm));
-  GunRotation=Frame.GetRotation()*Lowering*Source->GetSocketTransform(TEXT("hand_r"),RTS_Component).GetRotation()*AuthoredHand.GetRotation().Inverse()*AuthoredGun.GetRotation()*FRotator(0,90,0).Quaternion();
+  GunRotation=Frame.GetRotation()*Source->GetSocketTransform(TEXT("hand_r"),RTS_Component).GetRotation()*AuthoredHand.GetRotation().Inverse()*AuthoredGun.GetRotation()*FRotator(0,90,0).Quaternion();
+  if(Kind!=ETacticalWeaponKind::Pistol){
+   // Fit the prop to the authored two-hand pose; never move a character bone.
+   const FVector AuthoredLeftPalm=(Hands->GetSocketTransform(TEXT("hand_l"),RTS_Component).GetLocation()+Hands->GetSocketTransform(TEXT("middle_01_l"),RTS_Component).GetLocation())*.5f;
+   const FVector LeftContact=PackWeaponMesh->GetRelativeTransform().TransformPosition(AuthoredGun.InverseTransformPosition(AuthoredLeftPalm));
+   const FVector LeftPalm=Frame.TransformPosition((Source->GetSocketTransform(TEXT("hand_l"),RTS_Component).GetLocation()+Source->GetSocketTransform(TEXT("middle_01_l"),RTS_Component).GetLocation())*.5f);
+   const FVector AuthoredSpan=GunRotation.RotateVector(LeftContact-RightContact);
+   const FVector PoseSpan=LeftPalm-RightPalm;
+   if(!AuthoredSpan.IsNearlyZero()&&!PoseSpan.IsNearlyZero())GunRotation=FQuat::FindBetweenNormals(AuthoredSpan.GetSafeNormal(),PoseSpan.GetSafeNormal())*GunRotation;
+  }
  }
  SetActorTransform(FTransform(GunRotation,RightPalm-GunRotation.RotateVector(RightContact)));
- const FTransform Upper=Source->GetSocketTransform(TEXT("upperarm_l"),RTS_Component);
- const FTransform Lower=Source->GetSocketTransform(TEXT("lowerarm_l"),RTS_Component);
- const FTransform Hand=Source->GetSocketTransform(TEXT("hand_l"),RTS_Component);
- const FVector Palm=(Hand.GetLocation()+Source->GetSocketTransform(TEXT("middle_01_l"),RTS_Component).GetLocation())*.5f;
- FVector Contact=Kind==ETacticalWeaponKind::Pistol?FVector(-3,-2.5f,-7):Kind==ETacticalWeaponKind::Rifle?FVector(24,-.5f,-4):FVector(27,0,-4);
- if(bPackPresentation){
-  const FVector AuthoredPalm=(Hands->GetSocketTransform(TEXT("hand_l"),RTS_Component).GetLocation()+Hands->GetSocketTransform(TEXT("middle_01_l"),RTS_Component).GetLocation())*.5f;
-  Contact=PackWeaponMesh->GetRelativeTransform().TransformPosition(AuthoredGun.InverseTransformPosition(AuthoredPalm));
- }
- const FVector TargetPalm=Frame.InverseTransformPosition(WeaponVisual->GetComponentTransform().TransformPosition(Contact));
- const FQuat HandRotation=bPackPresentation?Frame.GetRotation().Inverse()*PackWeaponMesh->GetComponentQuat()*AuthoredGun.GetRotation().Inverse()*Hands->GetSocketTransform(TEXT("hand_l"),RTS_Component).GetRotation():Lowering*Hand.GetRotation();
- const FVector Wrist=TargetPalm-HandRotation.RotateVector(Hand.InverseTransformPosition(Palm));
- const FVector Shoulder=Upper.GetLocation(),Axis=(Wrist-Shoulder).GetSafeNormal();
- const float L1=FVector::Distance(Shoulder,Lower.GetLocation()),L2=FVector::Distance(Lower.GetLocation(),Hand.GetLocation());
- if(L1<1||L2<1)return;
- const float Distance=FMath::Clamp(FVector::Distance(Shoulder,Wrist),FMath::Abs(L1-L2)+.1f,L1+L2-.1f);
- const FVector End=Shoulder+Axis*Distance;
- FVector Pole=(Lower.GetLocation()-Shoulder)-Axis*FVector::DotProduct(Lower.GetLocation()-Shoulder,Axis);
- if(!Pole.Normalize())Pole=FVector::CrossProduct(Axis,FVector::UpVector).GetSafeNormal();
- const float Along=(L1*L1-L2*L2+Distance*Distance)/(2*Distance);
- const FVector Elbow=Shoulder+Axis*Along+Pole*FMath::Sqrt(FMath::Max(0.f,L1*L1-Along*Along));
- const FQuat UpperRotation=FQuat::FindBetweenNormals((Lower.GetLocation()-Shoulder).GetSafeNormal(),(Elbow-Shoulder).GetSafeNormal())*Upper.GetRotation();
- const FQuat LowerRotation=FQuat::FindBetweenNormals((Hand.GetLocation()-Lower.GetLocation()).GetSafeNormal(),(End-Elbow).GetSafeNormal())*Lower.GetRotation();
- BodyPose->SetBoneTransformByName(TEXT("upperarm_l"),FTransform(UpperRotation,Shoulder),EBoneSpaces::ComponentSpace);
- BodyPose->SetBoneTransformByName(TEXT("lowerarm_l"),FTransform(LowerRotation,Elbow),EBoneSpaces::ComponentSpace);
- BodyPose->SetBoneTransformByName(TEXT("hand_l"),FTransform(HandRotation,End),EBoneSpaces::ComponentSpace);
- BodyPose->RefreshBoneTransforms();
+ // The full-body clip owns all bones. Only the weapon follows the authored hand.
 }

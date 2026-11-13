@@ -1,4 +1,5 @@
 #include "CombatEquipmentComponent.h"
+#include "Audio/CharacterAudio.h"
 #include "Camcorder/ItemInteractionComponent.h"
 #include "Data/GlobalData.h"
 #include "PatrolEnemy.h"
@@ -48,7 +49,7 @@ bool UCombatEquipmentComponent::TryInteract()
     if(auto* A=NearbyPickup())
     {
         if(auto* W=Cast<ATacticalWeapon>(A)){if(W->InventoryId.IsNone())W->InventoryId=W->GetFName();Weapons.Add(W->InventoryId,W);Equipment->Inventory->Add(W->InventoryId,W->Spec().Name,TEXT("可放入背包并登记快捷槽。左键射击，按住右键瞄准，R 换弹；G 丢下，保留弹匣。"));W->Stow();EquipWeapon(W->InventoryId);Equipment->Camcorder->SetNotice(TEXT("武器已拿到手上，正在准备上膛"));}
-        else if(auto* Ammo=Cast<ACombatAmmoPickup>(A)){Equipment->Inventory->Add(Ammo->AmmoId(),Ammo->AmmoName(),TEXT("对应枪械的备用弹药；装备枪械后按 R 换弹。"),Ammo->Amount);if(auto* C=Cast<AGame_Jam_Clean_VersCharacter>(Player()->GetPawn()))if(C->ItemInteraction)C->ItemInteraction->Play(Ammo->Mesh);UGameplayStatics::PlaySound2D(this,LoadObject<USoundBase>(nullptr,TEXT("/Game/Combat/Audio/Handling/ItemPickup")),.5f);Ammo->Destroy();Equipment->Camcorder->SetNotice(TEXT("弹药已收入背包"));}
+        else if(auto* Ammo=Cast<ACombatAmmoPickup>(A)){Equipment->Inventory->Add(Ammo->AmmoId(),Ammo->AmmoName(),TEXT("对应枪械的备用弹药；装备枪械后按 R 换弹。"),Ammo->Amount);if(auto* C=Cast<AGame_Jam_Clean_VersCharacter>(Player()->GetPawn()))if(C->ItemInteraction)C->ItemInteraction->Play(Ammo->Mesh);CharacterAudio::Attached(LoadObject<USoundBase>(nullptr,TEXT("/Game/Combat/Audio/Handling/ItemPickup")),Player()->GetPawn()->GetRootComponent(),ECharacterSound::Handling,.5f);Ammo->Destroy();Equipment->Camcorder->SetNotice(TEXT("弹药已收入背包"));}
         Equipment->RefreshBackpack();return true;
     }return false;
 }
@@ -72,7 +73,7 @@ void UCombatEquipmentComponent::DropWeapon(){
 void UCombatEquipmentComponent::FinishTransition(){
  auto* Old=TransitionWeapon.Get();if(!Old||Old->bEquipped)return;
  TransitionWeapon=nullptr;const FName Next=PendingEquip;PendingEquip=NAME_None;
- if(bPendingDrop){bPendingDrop=false;FVector Eye;FRotator R;Player()->GetPawn()->GetActorEyesViewPoint(Eye,R);Weapons.Remove(Old->InventoryId);Equipment->Inventory->Remove(Old->InventoryId);Old->Drop(Eye+R.Vector()*60-FVector(0,0,20),R);UGameplayStatics::PlaySound2D(this,LoadObject<USoundBase>(nullptr,TEXT("/Game/Combat/Audio/Handling/ItemDrop")),.45f);Equipment->RefreshBackpack();}
+ if(bPendingDrop){bPendingDrop=false;FVector Eye;FRotator R;Player()->GetPawn()->GetActorEyesViewPoint(Eye,R);Weapons.Remove(Old->InventoryId);Equipment->Inventory->Remove(Old->InventoryId);Old->Drop(Eye+R.Vector()*60-FVector(0,0,20),R);CharacterAudio::At(this,LoadObject<USoundBase>(nullptr,TEXT("/Game/Combat/Audio/Handling/ItemDrop")),Old->GetActorLocation(),ECharacterSound::Handling,.45f);Equipment->RefreshBackpack();}
  if(!Next.IsNone())EquipWeapon(Next);
 }
 
@@ -91,7 +92,7 @@ bool UCombatEquipmentComponent::Fire()
     auto* PC=Player();auto* C=PC?Cast<AGame_Jam_Clean_VersCharacter>(PC->GetPawn()):nullptr;
     if(!ActiveWeapon||!C||C->Health<=0||EquipRemaining>0||GetWorld()->GetTimeSeconds()<ActiveWeapon->NextFireTime)return false;
     const auto S=ActiveWeapon->Spec();if(bReloading){if(S.bShellReload)ActiveWeapon->RequestReloadEnd();return false;}
-    if(!ActiveWeapon->bChambered){ActiveWeapon->NextFireTime=GetWorld()->GetTimeSeconds()+.2f;if(EmptySound)UGameplayStatics::PlaySound2D(this,EmptySound,.4f);Equipment->Camcorder->SetNotice(TEXT("膛内无弹：按 R 装填 / 上膛"));return false;}
+    if(!ActiveWeapon->bChambered){ActiveWeapon->NextFireTime=GetWorld()->GetTimeSeconds()+.2f;if(EmptySound)CharacterAudio::Attached(EmptySound,ActiveWeapon->GetRootComponent(),ECharacterSound::Handling,.4f);Equipment->Camcorder->SetNotice(TEXT("膛内无弹：按 R 装填 / 上膛"));return false;}
     if(!ActiveWeapon->ConsumeShot())return false;++ShotsFired;ActiveWeapon->NextFireTime=GetWorld()->GetTimeSeconds()+S.Interval;Burst=FMath::Min(Burst+1,12.f);
     FVector Eye;FRotator View;PC->GetPlayerViewPoint(Eye,View);const FVector Muzzle=ActiveWeapon->MuzzleLocation();
     const float Movement=C->GetCharacterMovement()->IsFalling()?2.f:C->bSprinting?1.8f:C->bIsCrouched?.75f:1.f;
@@ -109,7 +110,7 @@ bool UCombatEquipmentComponent::Fire()
             Flesh=Applied>0&&(Cast<APawn>(Hit.GetActor())||Cast<ACombatTarget>(Hit.GetActor())||Statue);
             if(Flesh){bHitThisShot=true;HitMarker=.18f;bKillMarker=false;if(auto* T=Cast<ACombatTarget>(Hit.GetActor()))bKillMarker=T->Health<=0;if(Statue)bKillMarker=Statue->Health<=0;if(auto* Enemy=Cast<APatrolEnemy>(Hit.GetActor()))bKillMarker=Enemy->Health<=0;}
         }
-        if(auto* FX=GetWorld()->SpawnActor<ACombatShotEffect>())FX->Setup(Muzzle,End,Blocked,Flesh);
+        if(auto* FX=GetWorld()->SpawnActor<ACombatShotEffect>())FX->Setup(Muzzle,End,Blocked,Flesh || (Blocked && Cast<APawn>(Hit.GetActor())),Blocked?Hit.ImpactNormal:FVector::ZeroVector);
     }
     const float Kick=S.Recoil*RecoilScale*(bADS?.8f:1.f)*(S.bAutomatic?1.f+Burst*.035f:1.f);Recoil+=Kick;VisualKick+=Kick;auto R=PC->GetControlRotation();R.Pitch=FMath::Clamp(FRotator::NormalizeAxis(R.Pitch)+Kick,-70.f,80.f);R.Yaw+=FMath::FRandRange(-.2f,.2f)*Kick;PC->SetControlRotation(R);
     ActiveWeapon->Flash();UAISense_Hearing::ReportNoiseEvent(GetWorld(),Muzzle,1,C,6000,TEXT("Gunshot"));

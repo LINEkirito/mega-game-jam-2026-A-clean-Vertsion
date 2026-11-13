@@ -9,6 +9,8 @@
 #include "Game_Jam_Clean_VersCharacter.h"
 #include "Camcorder/CamcorderEquipmentComponent.h"
 #include "GameFramework/PlayerController.h"
+#include "HAL/PlatformTime.h"
+#include "CoreGlobals.h"
 class SCombatHUD : public SLeafWidget
 {
 public:
@@ -19,6 +21,24 @@ public:
         BloodBrush.SetResourceObject(BloodTexture.Get());BloodBrush.DrawAs=ESlateBrushDrawType::Image;
         SplatterBrush.SetResourceObject(SplatterTexture.Get());SplatterBrush.DrawAs=ESlateBrushDrawType::Image;
         SetVisibility(EVisibility::HitTestInvisible);}
+    virtual void Tick(const FGeometry& Geometry, const double CurrentTime, const float DeltaTime) override
+    {
+        SLeafWidget::Tick(Geometry, CurrentTime, DeltaTime);
+        const double Now = FPlatformTime::Seconds();
+        if (SampleStartSeconds == 0.0)
+        {
+            SampleStartSeconds = Now;
+            SampleStartFrame = GFrameCounter;
+        }
+        const double Elapsed = Now - SampleStartSeconds;
+        if (Elapsed >= 0.5)
+        {
+            // Wall-clock engine frames: unaffected by gameplay time dilation or recording FPS.
+            FrameRateText = FString::Printf(TEXT("FPS %.0f"), double(GFrameCounter - SampleStartFrame) / Elapsed);
+            SampleStartSeconds = Now;
+            SampleStartFrame = GFrameCounter;
+        }
+    }
     virtual FVector2D ComputeDesiredSize(float)const override{return FVector2D(1920,1080);}
     virtual int32 OnPaint(const FPaintArgs&,const FGeometry& G,const FSlateRect&,FSlateWindowElementList& Out,int32 L,const FWidgetStyle&,bool)const override
     {
@@ -35,6 +55,9 @@ public:
                 FSlateDrawElement::MakeBox(Out,L,G.ToPaintGeometry(FVector2D(260*S,260*S),FSlateLayoutTransform(P)),&SplatterBrush,ESlateDrawEffect::None,FLinearColor(1,1,1,BloodAlpha));
         }
         Text(25*S,18*S,FString::Printf(TEXT("HP %.0f / 100"),C->Health),18);Box(25*S,47*S,180*S,8*S,FLinearColor(.1f,.1f,.1f,.8f));Box(25*S,47*S,180*S*C->Health/100,8*S,C->Health<=30?FLinearColor(1,.15f,.1f):FLinearColor(.3f,.8f,.6f));
+        // Reserve the empty strip below health; weapon, viewfinder and shortcut UI live elsewhere.
+        Box(25*S,65*S,104*S,26*S,FLinearColor(.015f,.022f,.03f,.65f));
+        Text(33*S,68*S,FrameRateText,14,FLinearColor(.75f,.85f,.85f));
         if(C->Health<=0){Text(W*.5f-80*S,H*.45f,TEXT("你已死亡"),40,FLinearColor(1,.2f,.15f));return L+2;}
         if(E->Equipment->bBackpackOpen)return L+2;
         const FString Prompt=E->InteractionText();if(!Prompt.IsEmpty())Text(W*.5f-120*S,H*.65f,Prompt,20,FLinearColor(.5f,1,1));
@@ -65,6 +88,9 @@ public:
         return L+2;
     }
 private:TWeakObjectPtr<UCombatEquipmentComponent> Combat;
+ double SampleStartSeconds = 0.0;
+ uint64 SampleStartFrame = 0;
+ FString FrameRateText = TEXT("FPS --");
  TStrongObjectPtr<UTexture2D> BloodTexture,SplatterTexture;
  FSlateBrush BloodBrush,SplatterBrush;
 };

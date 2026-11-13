@@ -8,7 +8,6 @@ namespace NPCMotion
 struct FProxy : FAnimInstanceProxy
 {
  UAnimSequence* Sequence=nullptr;
- UAnimSequence* UpperBodyPose=nullptr;
  float Time=0,BlendTime=1;
  bool CaptureBlend=false;
  bool Turning=false;
@@ -19,7 +18,6 @@ struct FProxy : FAnimInstanceProxy
  {
   FAnimInstanceProxy::PreUpdate(Instance,DT);
   auto* Motion=CastChecked<UNPCMotionAnimInstance>(Instance);
-  UpperBodyPose=Motion->UpperBodyPose;
   Turning=Motion->ExplicitTime>=0;
   if(Sequence!=Motion->Sequence)
   {
@@ -40,37 +38,7 @@ struct FProxy : FAnimInstanceProxy
   FAnimationPoseData Data(Output);Sequence->GetAnimationPose(Data,FAnimExtractContext(Time,false));
   // Navigation owns world displacement and yaw. Never apply the authored root twice.
   if(Turning)Output.Pose[FCompactPoseBoneIndex(0)]=FTransform::Identity;
-  else Output.Pose[FCompactPoseBoneIndex(0)].SetTranslation(FVector::ZeroVector);
-  if(UpperBodyPose)
-  {
-   FPoseContext Upper(Output);Upper.ResetToRefPose();FAnimationPoseData UpperData(Upper);
-   UpperBodyPose->GetAnimationPose(UpperData,FAnimExtractContext(0,false));
-   const auto& Bones=Output.Pose.GetBoneContainer();const auto& Ref=Bones.GetReferenceSkeleton();
-   const int32 Spine=Ref.FindBoneIndex(TEXT("spine_01"));
-   TArray<FTransform> BodyCS,UpperCS;BodyCS.SetNum(Output.Pose.GetNumBones());UpperCS.SetNum(Output.Pose.GetNumBones());
-   for(FCompactPoseBoneIndex B:Output.Pose.ForEachBoneIndex())
-   {
-    const auto Parent=Output.Pose.GetParentBoneIndex(B);
-    BodyCS[B.GetInt()]=Parent.GetInt()<0?Output.Pose[B]:Output.Pose[B]*BodyCS[Parent.GetInt()];
-    UpperCS[B.GetInt()]=Parent.GetInt()<0?Upper.Pose[B]:Upper.Pose[B]*UpperCS[Parent.GetInt()];
-   }
-   for(FCompactPoseBoneIndex B:Output.Pose.ForEachBoneIndex())
-   {
-    int32 Index=Bones.MakeMeshPoseIndex(B).GetInt();bool IsUpper=false;
-    while(Index>=0){if(Index==Spine){IsUpper=true;break;}Index=Ref.GetParentIndex(Index);}
-    if(IsUpper)
-    {
-     if(Bones.MakeMeshPoseIndex(B).GetInt()==Spine)
-     {
-      const auto Parent=Output.Pose.GetParentBoneIndex(B);
-      FTransform Stable=UpperCS[B.GetInt()];
-      Stable.AddToTranslation(BodyCS[Parent.GetInt()].GetLocation()-UpperCS[Parent.GetInt()].GetLocation());
-      Output.Pose[B]=Stable.GetRelativeTransform(BodyCS[Parent.GetInt()]);
-     }
-     else Output.Pose[B]=Upper.Pose[B];
-    }
-   }
-  }
+  else {auto& Root=Output.Pose[FCompactPoseBoneIndex(0)];const float Height=Root.GetTranslation().Z;Root.SetTranslation(FVector(0,0,Height));}
   const float Alpha=FMath::SmoothStep(0.f,.18f,BlendTime);
   if(BlendFrom.Num()==Output.Pose.GetNumBones()&&Alpha<1)
    for(FCompactPoseBoneIndex B:Output.Pose.ForEachBoneIndex()){FTransform T;T.Blend(BlendFrom[B.GetInt()],Output.Pose[B],Alpha);Output.Pose[B]=T;}

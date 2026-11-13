@@ -1,4 +1,5 @@
 #include "Game_Jam_Clean_VersCharacter.h"
+#include "Audio/CharacterAudio.h"
 #include "Camcorder/ItemInteractionComponent.h"
 #include "Data/GlobalData.h"
 // Copyright Epic Games, Inc. All Rights Reserved.
@@ -66,7 +67,7 @@ AGame_Jam_Clean_VersCharacter::AGame_Jam_Clean_VersCharacter()
 }
 void AGame_Jam_Clean_VersCharacter::BeginPlay(){Super::BeginPlay();
 FirstPersonCameraComponent->AttachToComponent(GetCapsuleComponent(),FAttachmentTransformRules::KeepWorldTransform);FirstPersonCameraComponent->SetRelativeLocation(FVector(0,0,64));FirstPersonCameraComponent->SetRelativeRotation(FRotator::ZeroRotator);
-GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Visibility,ECR_Block);if(auto* Arms=LoadObject<USkeletalMesh>(nullptr,TEXT("/Game/Combat/Viewmodel/SK_PlayerBodyArms")))FirstPersonMesh->SetSkeletalMeshAsset(Arms);GetMesh()->SetOwnerNoSee(true);GetMesh()->SetCastShadow(true);GetMesh()->bCastHiddenShadow=true;FirstPersonMesh->SetCastShadow(false);GetMesh()->VisibilityBasedAnimTickOption=EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;FirstPersonMesh->VisibilityBasedAnimTickOption=EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;FirstPersonMesh->SetAnimInstanceClass(UUnifiedBodyAnimInstance::StaticClass());FirstPersonMesh->SetDisablePostProcessBlueprint(true);FirstPersonMesh->AddTickPrerequisiteComponent(GetMesh());FirstPersonMesh->FirstPersonPrimitiveType=EFirstPersonPrimitiveType::None;FirstPersonMesh->SetVisibility(true,false);LastFootstepLocation=GetActorLocation();GetCharacterMovement()->MaxWalkSpeed=360;GetCharacterMovement()->AirControl=.2f;FirstPersonCameraComponent->PostProcessSettings.bOverride_MotionBlurAmount=true;FirstPersonCameraComponent->PostProcessSettings.MotionBlurAmount=0;}
+GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Visibility,ECR_Block);if(auto* Arms=LoadObject<USkeletalMesh>(nullptr,TEXT("/Game/Combat/Viewmodel/BeachGirls/SK_PlayerBeachHands")))FirstPersonMesh->SetSkeletalMeshAsset(Arms);GetMesh()->SetOwnerNoSee(true);GetMesh()->SetCastShadow(true);GetMesh()->bCastHiddenShadow=true;FirstPersonMesh->SetCastShadow(false);GetMesh()->VisibilityBasedAnimTickOption=EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;FirstPersonMesh->VisibilityBasedAnimTickOption=EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;FirstPersonMesh->SetAnimInstanceClass(UUnifiedBodyAnimInstance::StaticClass());FirstPersonMesh->SetDisablePostProcessBlueprint(true);FirstPersonMesh->AddTickPrerequisiteComponent(GetMesh());FirstPersonMesh->FirstPersonPrimitiveType=EFirstPersonPrimitiveType::None;FirstPersonMesh->SetVisibility(true,false);LastFootstepLocation=GetActorLocation();GetCharacterMovement()->MaxWalkSpeed=360;GetCharacterMovement()->AirControl=.2f;FirstPersonCameraComponent->PostProcessSettings.bOverride_MotionBlurAmount=true;FirstPersonCameraComponent->PostProcessSettings.MotionBlurAmount=0;}
 void AGame_Jam_Clean_VersCharacter::Tick(float DT)
 {
     Super::Tick(DT);
@@ -76,7 +77,7 @@ void AGame_Jam_Clean_VersCharacter::Tick(float DT)
     if(Health>0 && GetCharacterMovement()->IsMovingOnGround() && GetVelocity().Size2D()>20 && Travel<150)
     {
         FootstepDistance+=Travel;const float Stride=bIsCrouched?95.f:bSprinting?190.f:145.f;
-        if(FootstepDistance>=Stride){FootstepDistance=FMath::Fmod(FootstepDistance,Stride);if(FootstepSounds.Num()){auto* S=FootstepSounds[FootstepIndex++%FootstepSounds.Num()].Get();if(S)UGameplayStatics::PlaySoundAtLocation(this,S,GetActorLocation()-FVector(0,0,80),bIsCrouched?.18f:bSprinting?.7f:.45f,FMath::FRandRange(.96f,1.04f));}}
+        if(FootstepDistance>=Stride){FootstepDistance=FMath::Fmod(FootstepDistance,Stride);if(FootstepSounds.Num()){auto* S=FootstepSounds[FootstepIndex++%FootstepSounds.Num()].Get();if(S)CharacterAudio::At(this,S,GetActorLocation()-FVector(0,0,80),ECharacterSound::Footstep,bIsCrouched?.18f:bSprinting?.7f:.45f,FMath::FRandRange(.96f,1.04f));}}
     }
     else FootstepDistance=0;
     DamageFlash=FMath::Max(0.f,DamageFlash-DT);auto* PC=Cast<APlayerController>(GetController());if(!PC||Health<=0)return;
@@ -104,7 +105,7 @@ float AGame_Jam_Clean_VersCharacter::TakeDamage(float D,const FDamageEvent&,ACon
     const float Now=GetWorld()->GetTimeSeconds();if(D<=0||Health<=0||Now<ProtectionUntil)return 0;
     const float Applied=FMath::Min(Health,D);Health-=Applied;ProtectionUntil=Health>0?Now+GetDefault<UGlobalData>()->DamageProtectionSeconds:-1;DamageFlash=1.2f;
     if(auto* Bus=GetWorld()->GetSubsystem<UDataTransmitter>()) Bus->NotifyChange(this,TEXT("Health"),Health);
-    if(HurtSound)UGameplayStatics::PlaySound2D(this,HurtSound,.6f);
+    if(HurtSound)CharacterAudio::Attached(HurtSound,GetRootComponent(),ECharacterSound::Voice,.6f);
     if(Health<=0){GetCharacterMovement()->DisableMovement();if(auto* PC=Cast<APlayerController>(GetController())){if(auto* E=PC->FindComponentByClass<UCamcorderEquipmentComponent>()){E->SetBackpackOpen(false);if(E->Camcorder){E->Camcorder->SetViewfinderRaised(false);E->Camcorder->StopRecording();}}}}
     return Applied;
 }

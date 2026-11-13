@@ -1,4 +1,5 @@
 #include "ImpactBloodEffect.h"
+#include "Audio/CharacterAudio.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/DecalComponent.h"
 #include "Engine/DecalActor.h"
@@ -43,7 +44,7 @@ void AImpactBloodEffect::Initialize(const FHitResult& Hit,const FVector& Incomin
   Velocities.Add(Outward*FMath::FRandRange(100.f,200.f)+FVector::UpVector*FMath::FRandRange(120.f,230.f)+FMath::VRand()*75.f);
  }
  // The old RogueBox material and physical-droplet approach are reused, in Unreal units.
- UGameplayStatics::PlaySoundAtLocation(this,LoadObject<USoundBase>(nullptr,TEXT("/Game/Combat/Effects/Blood/S_BloodHit")),Hit.ImpactPoint,.65f,FMath::FRandRange(.95f,1.05f));
+ CharacterAudio::At(this,LoadObject<USoundBase>(nullptr,TEXT("/Game/Combat/Effects/Blood/S_BloodHit")),Hit.ImpactPoint,ECharacterSound::Impact,.65f,FMath::FRandRange(.95f,1.05f));
  SetLifeSpan(3.f);
 }
 void AImpactBloodEffect::Stain(const FHitResult& Surface,float Size)

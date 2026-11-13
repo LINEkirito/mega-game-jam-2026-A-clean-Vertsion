@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "TacticalWeapon.h"
@@ -7,7 +7,7 @@
 UENUM(BlueprintType)
 enum class ENPCRole : uint8 { GangMember, GangBoss, Civilian, Merchant, Police, Injured };
 UENUM(BlueprintType)
-enum class ENPCActivity : uint8 { Idle, Patrol, Investigate, Combat, Threaten, Beat, Trade, Command, Flee, Injured, Dead, WarnPlayer };
+enum class ENPCActivity : uint8 { Idle, Patrol, Investigate, Combat, Threaten, Beat, Trade, Command, Flee, Injured, Dead, WarnPlayer, Meeting, CameraLook, CameraDismiss, CameraAvoid };
 
 UCLASS()
 class GAME_JAM_CLEAN_VERS_API APatrolEnemy : public ACharacter
@@ -27,6 +27,7 @@ public:
  UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="NPC|Weapon") bool bRandomGangWeapon=true;
  UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="NPC|Weapon") ETacticalWeaponKind WeaponKind=ETacticalWeaponKind::Rifle;
  UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="NPC|Weapon") TObjectPtr<ATacticalWeapon> HeldWeapon;
+ UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="NPC|Weapon") TObjectPtr<class UBackpackInventory> AmmoReserve;
  // Zero selects stationary guarding; otherwise destinations remain near the spawn point.
  UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="NPC") float PatrolRadius=1100;
  UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="NPC") TArray<FVector> PatrolPoints;
@@ -37,6 +38,7 @@ public:
  UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="NPC") int32 CompletedTrades=0;
  UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="NPC") float WarningRemaining=0;
  UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="NPC") float WarningRadius=0;
+ UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="NPC|Event") int32 StreetEventId=0;
  UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="NPC|Presentation") TMap<ENPCActivity,TObjectPtr<class UAnimSequence>> ActivityAnimations;
  UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="NPC|Presentation") TObjectPtr<class USoundBase> ScreamSound;
  UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="NPC|Presentation") TObjectPtr<class USoundBase> HelpSound;
@@ -53,6 +55,12 @@ public:
  UFUNCTION() void WitnessViolence(AActor* Victim,APawn* Attacker,bool ProtectedVictim);
  UFUNCTION(BlueprintImplementableEvent,Category="NPC") void OnActivityChanged(ENPCActivity NewActivity);
 private:
+ friend class UWorldEvents;
+ FVector EventDestination=FVector::ZeroVector,EventFocus=FVector::ZeroVector;
+ float CameraReactionTime=0,CameraReactionCooldown=0;
+ bool IsBeingFilmed() const;
+ bool TickCameraReaction(float DT);
+ void TickMeeting(float DT);
  UPROPERTY() TObjectPtr<USkeletalMeshComponent> Rifle;
  UPROPERTY() TObjectPtr<class UPoseableMeshComponent> NPCBody;
  UPROPERTY() TObjectPtr<class UStaticMeshComponent> TradeParcel;
@@ -63,6 +71,7 @@ private:
  UPROPERTY() TObjectPtr<class UAnimSequence> AimWalk;
  UPROPERTY() TArray<TObjectPtr<class UAnimSequence>> AimWalkDirections;
  UPROPERTY() TObjectPtr<class UAnimSequence> Run;
+ UPROPERTY() TObjectPtr<class UAnimSequence> ReloadAnimation;
  UPROPERTY() TObjectPtr<class UAnimSequence> UnarmedIdle;
  UPROPERTY() TObjectPtr<class UAnimSequence> UnarmedWalk;
  UPROPERTY() TObjectPtr<class UAnimSequence> CurrentAnimation;

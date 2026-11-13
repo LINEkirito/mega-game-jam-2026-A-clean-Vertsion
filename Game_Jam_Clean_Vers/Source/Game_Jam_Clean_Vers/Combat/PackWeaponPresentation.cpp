@@ -1,4 +1,5 @@
 #include "TacticalWeapon.h"
+#include "Audio/CharacterAudio.h"
 #include "Game_Jam_Clean_VersCharacter.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/PoseableMeshComponent.h"
@@ -21,11 +22,18 @@ FString Type(ETacticalWeaponKind K){return K==ETacticalWeaponKind::Rifle?TEXT("T
 UAnimSequence* ATacticalWeapon::PackAnimation(const FString& Group,const FString& Action)
 {
     const FString Type=PackPresentation::Type(Kind);
-    if(Action==TEXT("Charge")||Action==TEXT("ReloadCharge")){const FString Path=TEXT("/Game/Combat/Viewmodel/PackActions/A_")+Type+TEXT("_")+Group+TEXT("_")+Action;auto& Cached=PackAnimations.FindOrAdd(Path);if(!Cached)Cached=LoadObject<UAnimSequence>(nullptr,*Path);return Cached;}
     FString Suffix=Action;
     if(Action==TEXT("Idle")&&Group==TEXT("Character"))Suffix=Kind==ETacticalWeaponKind::Rifle?TEXT("Idle_Pose_Non_Grip"):Kind==ETacticalWeaponKind::Pistol?TEXT("Idle_Pose"):TEXT("Idle");
     FString Path=FString(PackPresentation::Root)+TEXT("Animations/UE5/")+Type+TEXT("/")+Group+TEXT("/A_")+(Group==TEXT("Character")?TEXT("FP_"):TEXT("W_"))+Type+TEXT("_")+Suffix;
     auto& Cached=PackAnimations.FindOrAdd(Path);if(!Cached)Cached=LoadObject<UAnimSequence>(nullptr,*Path);return Cached;
+}
+float ATacticalWeapon::PackChargeDuration()
+{
+    if(!bPackPresentation)return .85f;
+    const bool Shell=Kind==ETacticalWeaponKind::Shotgun;
+    auto* Animation=PackAnimation(TEXT("Character"),Shell?TEXT("Reload_End"):TEXT("Reload_Empty"));
+    const float Start=Shell?0.f:Spec().Reload;
+    return Animation?FMath::Max(.01f,Animation->GetPlayLength()-Start):.85f;
 }
 void ATacticalWeapon::SamplePackAnimation(USkeletalMeshComponent* Mesh,UAnimSequence* Animation,float Time)
 {
@@ -75,30 +83,30 @@ void ATacticalWeapon::UpdatePackPose(float DT,bool ADS,float Kick)
     const bool R=Kind==ETacticalWeaponKind::Rifle,P=Kind==ETacticalWeaponKind::Pistol;
     FString Action=TEXT("Idle");float Time=0;
     const float Progress=FMath::Clamp(HandlingTime/FMath::Max(.001f,HandlingDuration),0.f,1.f);
-    if(Handling==EWeaponHandling::Equip||Handling==EWeaponHandling::Holster){Action=Handling==EWeaponHandling::Equip?TEXT("Charge"):TEXT("Holster");if(auto* A=PackAnimation(TEXT("Character"),Action))Time=Progress*A->GetPlayLength();}
+    if(Handling==EWeaponHandling::Equip||Handling==EWeaponHandling::Holster){Action=Handling==EWeaponHandling::Equip?TEXT("Draw"):TEXT("Holster");if(auto* A=PackAnimation(TEXT("Character"),Action))Time=Progress*A->GetPlayLength();}
     else if(Handling==EWeaponHandling::MagazineReload){Action=TEXT("Reload_Empty");Time=Progress*(R?3.f:2.6f);}
     else if(Handling==EWeaponHandling::ShellStart){Action=bPackEmptyReload?TEXT("Reload_Empty_Start"):TEXT("Reload_Tac_Start");Time=HandlingTime;}
     else if(Handling==EWeaponHandling::ShellInsert){Action=TEXT("Reload_Loop");if(auto* A=PackAnimation(TEXT("Character"),Action))Time=Progress*A->GetPlayLength();}
-    else if(Handling==EWeaponHandling::Charge){Action=TEXT("ReloadCharge");Time=HandlingTime;}
+    else if(Handling==EWeaponHandling::Charge)
+    {
+        // Continue the publisher's empty reload without synthesizing a separate hand pose.
+        Action=(R||P)?TEXT("Reload_Empty"):TEXT("Reload_End");
+        Time=(R||P?Spec().Reload:0.f)+HandlingTime;
+    }
     // The publisher supplies complete, time-aligned action recordings rather than notify sounds.
     const bool NewAudio=Action!=PackAudioAction||Time<PackAudioTime-.01f;
     if(NewAudio)
     {
         if(PackActionAudio)PackActionAudio->Stop();PackActionAudio=nullptr;
-        if(Action!=TEXT("Idle")&&Action!=TEXT("Charge")&&Action!=TEXT("ReloadCharge"))
+        if(Action!=TEXT("Idle")&&Action!=TEXT("Draw")&&Action!=TEXT("Holster"))
         {
             FString Suffix=Action;
             if(P&&Action==TEXT("Reload_Empty"))Suffix=TEXT("Empty");
             if(!R&&!P){if(Action==TEXT("Reload_Empty_Start"))Suffix=TEXT("Start_Empty");if(Action==TEXT("Reload_Tac_Start"))Suffix=TEXT("Start_Normal");if(Action==TEXT("Reload_End"))Suffix=TEXT("End");}
             const FString Type=PackPresentation::Type(Kind);
             const FString Path=FString(PackPresentation::Root)+TEXT("SFX/")+Type+(P?TEXT("/"):TEXT("/Actions/"))+TEXT("S_")+Type+TEXT("_")+Suffix;
-            if(auto* Sound=LoadObject<USoundBase>(nullptr,*Path)){PackActionAudio=UGameplayStatics::SpawnSound2D(this,Sound,.65f,1.f,Time);++PackSoundsPlayed;}
+            if(auto* Sound=LoadObject<USoundBase>(nullptr,*Path)){PackActionAudio=CharacterAudio::Attached(Sound,WeaponVisual,ECharacterSound::Handling,.65f,1.f,Time);++PackSoundsPlayed;}
         }
-    }
-    if(Action==TEXT("Charge")||Action==TEXT("ReloadCharge"))
-    {
-        const float SoundTime=Action==TEXT("ReloadCharge")?.746667f:.48f;
-        if((NewAudio||PackAudioTime<SoundTime)&&Time>=SoundTime){if(auto* S=Sounds.FindRef(R?TEXT("RifleCharge"):P?TEXT("PistolCharge"):TEXT("ShotgunCharge")).Get()){UGameplayStatics::PlaySound2D(this,S,.65f);++PackSoundsPlayed;}}
     }
     PackAudioAction=Action;PackAudioTime=Time;
     const bool MagVisible=!(Handling==EWeaponHandling::MagazineReload&&Time>(R?.86f:.65f)&&Time<(R?1.1f:1.2f));
@@ -116,7 +124,6 @@ void ATacticalWeapon::UpdatePackPose(float DT,bool ADS,float Kick)
     const FVector Bob(-Kick*.7f,FMath::Sin(SwayTime)*Motion*.35f,FMath::Sin(SwayTime*2)*Motion*.3f);
     const FTransform ViewMotion(FRotator(Kick*.6f-15*SprintAlpha,4*SprintAlpha,-12*SprintAlpha),Bob+FVector(-3,0,-3)*SprintAlpha);
     const FTransform View(C->GetControlRotation(),C->GetFirstPersonCameraComponent()->GetComponentLocation());
-    if(Handling==EWeaponHandling::Equip){const float Raise=1-FMath::SmoothStep(0.f,.25f,HandlingTime);Frame.AddToTranslation(FVector(-3,0,-12)*Raise);}
     Frame=Frame*ViewMotion*View;
     Hands->SetWorldTransform(Frame);
     const FTransform GunWorld=GunLocal*Frame;
