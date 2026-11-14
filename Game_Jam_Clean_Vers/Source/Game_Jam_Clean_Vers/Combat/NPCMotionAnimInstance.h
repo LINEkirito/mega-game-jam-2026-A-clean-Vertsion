@@ -16,6 +16,7 @@ public:
  UPROPERTY(Transient,BlueprintReadOnly,Category="NPC|Motion") float PlaybackRate=1.f;
  bool bLoop=true;
  bool bLocomotion=false;
+ float PoseBlendDuration=.18f;
 protected:
  virtual FAnimInstanceProxy* CreateAnimInstanceProxy() override;
  virtual void DestroyAnimInstanceProxy(FAnimInstanceProxy* Proxy) override;

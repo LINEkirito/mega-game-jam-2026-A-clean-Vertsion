@@ -5,7 +5,8 @@ namespace { void InventoryChanged(UBackpackInventory* Inventory,FName Field,floa
 const FName UBackpackInventory::CameraId(TEXT("ShoulderCamcorder"));
 const FName UBackpackInventory::TabletId(TEXT("RecordingTablet"));
 const FName UBackpackInventory::BatteryId(TEXT("CamcorderBattery"));
-UBackpackInventory::UBackpackInventory() { Slots.Init(NAME_None,QuickSlotCount); }
+UBackpackInventory::UBackpackInventory() { Slots.Init(NAME_None,QuickSlotCount); Slots[0]=CameraId; FixedSlotNames.Init(TEXT("未持有"),QuickSlotCount); FixedSlotNames[0]=TEXT("手持摄像机"); }
+FString UBackpackInventory::SlotName(int32 Slot) const { return FixedSlotNames.IsValidIndex(Slot)?FixedSlotNames[Slot]:FString(); }
 const FBackpackEntry* UBackpackInventory::Find(FName Id) const { return Items.FindByPredicate([Id](const FBackpackEntry& E){return E.Id==Id;}); }
 int32 UBackpackInventory::Count(FName Id) const { const auto* E=Find(Id); return E?E->Count:0; }
 int32 UBackpackInventory::SlotIndex(FName Id) const { return Id.IsNone()?INDEX_NONE:Slots.IndexOfByKey(Id); }
@@ -14,28 +15,26 @@ bool UBackpackInventory::Add(FName Id,const FString& Name,const FString& Descrip
     if(Id.IsNone() || Amount<=0 || Count(Id)>MAX_int32-Amount) return false;
     if(auto* E=Items.FindByPredicate([Id](const FBackpackEntry& Item){return Item.Id==Id;})) E->Count+=Amount;
     else { FBackpackEntry Entry; Entry.Id=Id; Entry.Name=Name; Entry.Description=Description; Entry.Count=Amount; Entry.bHandheld=bHandheld; Items.Add(Entry); }
-    FillEmptySlots(); InventoryChanged(this,Id,float(Count(Id))); return true;
+    InventoryChanged(this,Id,float(Count(Id))); return true;
 }
 bool UBackpackInventory::Remove(FName Id,int32 Amount)
 {
     if(Amount<=0 || Count(Id)<Amount) return false;
     auto* E=Items.FindByPredicate([Id](const FBackpackEntry& Item){return Item.Id==Id;});
     E->Count-=Amount;
-    if(E->Count==0) { Items.RemoveAll([Id](const FBackpackEntry& Item){return Item.Id==Id;}); for(auto& Slot:Slots) if(Slot==Id) Slot=NAME_None; }
-    FillEmptySlots(); InventoryChanged(this,Id,float(Count(Id))); return true;
+    if(E->Count==0) Items.RemoveAll([Id](const FBackpackEntry& Item){return Item.Id==Id;});
+    InventoryChanged(this,Id,float(Count(Id))); return true;
 }
-bool UBackpackInventory::CanAssign(FName Id) const { const auto* Entry=Find(Id); return Entry && Entry->Count>0 && Entry->bHandheld; }
+bool UBackpackInventory::CanAssign(FName Id) const { return !Id.IsNone() && Slots.Contains(Id) && Count(Id)>0; }
 bool UBackpackInventory::Assign(int32 Slot,FName Id)
 {
-    if(!Slots.IsValidIndex(Slot) || !CanAssign(Id)) return false;
-    for(auto& Existing:Slots) if(Existing==Id) Existing=NAME_None;
-    Slots[Slot]=Id; FillEmptySlots(); InventoryChanged(this,TEXT("QuickSlots"),float(Slot)); return true;
+    return Slots.IsValidIndex(Slot) && CanAssign(Id) && Slots[Slot]==Id;
 }
-void UBackpackInventory::FillEmptySlots()
+bool UBackpackInventory::BindStartingWeapon(int32 Slot,FName Id)
 {
-    for(const auto& E:Items) if(E.Count>0 && E.bHandheld && !Slots.Contains(E.Id))
-    {
-        const int32 Empty=Slots.IndexOfByKey(NAME_None); if(Empty==INDEX_NONE) return;
-        Slots[Empty]=E.Id;
-    }
+    if(Slot<=0 || !Slots.IsValidIndex(Slot) || !Slots[Slot].IsNone() || Id.IsNone() || Slots.Contains(Id) || Count(Id)==0) return false;
+    Slots[Slot]=Id;
+    FixedSlotNames[Slot]=Find(Id)->Name;
+    InventoryChanged(this,TEXT("QuickSlots"),float(Slot));
+    return true;
 }

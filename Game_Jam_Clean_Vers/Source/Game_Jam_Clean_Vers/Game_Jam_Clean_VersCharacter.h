@@ -60,6 +60,7 @@ public:
     virtual float TakeDamage(float Damage,const FDamageEvent& Event,AController* Instigator,AActor* Causer) override;
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Health") float Health=100.f;
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Movement") bool bSprinting=false;
+    bool bSprintRequested=false;
     float DamageFlash=0.f;
     UPROPERTY() TObjectPtr<UItemInteractionComponent> ItemInteraction;
 private:

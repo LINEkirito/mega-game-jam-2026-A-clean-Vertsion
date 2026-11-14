@@ -19,6 +19,8 @@
 #include "Combat/CombatEquipmentComponent.h"
 #include "Camcorder/CamcorderEquipmentComponent.h"
 #include "Camcorder/ShoulderCamcorder.h"
+#include "Camcorder/RecordingTabletComponent.h"
+#include "Camcorder/RecordingLibrary.h"
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
 #include "Sound/SoundBase.h"
@@ -70,8 +72,14 @@ AGame_Jam_Clean_VersCharacter::AGame_Jam_Clean_VersCharacter()
 FVector AGame_Jam_Clean_VersCharacter::BodyCameraOffset() const
 {
     const float LookingDown=FMath::Clamp((-FMath::UnwindDegrees(GetControlRotation().Pitch)-25.f)/40.f,0.f,1.f);
+    const auto* Equipment=GetController()?GetController()->FindComponentByClass<UCamcorderEquipmentComponent>():nullptr;
+    const bool CameraPresented=Equipment&&Equipment->Camcorder&&Equipment->Camcorder->IsPresenting();
+    const float DeepLook=CameraPresented?0.f:FMath::Clamp((-FMath::UnwindDegrees(GetControlRotation().Pitch)-55.f)/25.f,0.f,1.f);
+    // Lean over the body when looking at the feet. This keeps shoulders and upper
+    // arms outside the near view without cutting geometry or changing selfies.
+    const float Lean=38.f*DeepLook*DeepLook*(3.f-2.f*DeepLook);
     // Follow the crouched head; give the near view clearance from the elbows when looking down.
-    return FVector(22-20*CrouchViewAlpha*(1-LookingDown),0,72-12*CrouchViewAlpha+CrouchCameraOffset);
+    return FVector(22+Lean-20*CrouchViewAlpha*(1-LookingDown),0,72-12*CrouchViewAlpha+CrouchCameraOffset);
 }
 void AGame_Jam_Clean_VersCharacter::BeginPlay(){Super::BeginPlay();
 FirstPersonCameraComponent->AttachToComponent(GetCapsuleComponent(),FAttachmentTransformRules::KeepWorldTransform);FirstPersonCameraComponent->SetRelativeLocation(FVector(22,0,72));FirstPersonCameraComponent->SetRelativeRotation(FRotator::ZeroRotator);
@@ -116,11 +124,22 @@ void AGame_Jam_Clean_VersCharacter::Tick(float DT)
         if(FootstepDistance>=Stride){FootstepDistance=FMath::Fmod(FootstepDistance,Stride);if(FootstepSounds.Num()){auto* S=FootstepSounds[FootstepIndex++%FootstepSounds.Num()].Get();if(S)CharacterAudio::At(this,S,GetActorLocation()-FVector(0,0,80),ECharacterSound::Footstep,bIsCrouched?.18f:bSprinting?.7f:.45f,FMath::FRandRange(.96f,1.04f));}}
     }
     else FootstepDistance=0;
-    DamageFlash=FMath::Max(0.f,DamageFlash-DT);auto* PC=Cast<APlayerController>(GetController());if(!PC||Health<=0)return;
-    auto* E=PC->FindComponentByClass<UCamcorderEquipmentComponent>();auto* Combat=PC->FindComponentByClass<UCombatEquipmentComponent>();if(E&&E->bBackpackOpen)return;
+    DamageFlash=FMath::Max(0.f,DamageFlash-DT);auto* PC=Cast<APlayerController>(GetController());if(!PC||Health<=0){bSprintRequested=false;bSprinting=false;return;}
+    auto* E=PC->FindComponentByClass<UCamcorderEquipmentComponent>();auto* Combat=PC->FindComponentByClass<UCombatEquipmentComponent>();if(E&&(E->bBackpackOpen||(E->Tablet&&E->Tablet->bOpen)||(E->RecordingLibrary&&E->RecordingLibrary->bRoundEnded)))
+    {bSprintRequested=false;bSprinting=false;GroundSpeed=360.f;GetCharacterMovement()->MaxWalkSpeed=GroundSpeed;return;}
+    if(PC->WasInputKeyJustPressed(EKeys::LeftShift))
+    {
+        bSprintRequested=!bSprintRequested;
+        if(bSprintRequested)
+        {
+            if(Combat) Combat->bADS=false;
+            if(E && E->Camcorder) E->CancelViewfinder();
+        }
+    }
     const bool ADS=(Combat&&Combat->bADS)||(E&&E->Camcorder&&E->Camcorder->bViewfinderRaised);
     if(PC->WasInputKeyJustPressed(EKeys::LeftControl)&&!GetCharacterMovement()->IsFalling()){if(bIsCrouched)UnCrouch();else Crouch();}
-    bSprinting=PC->IsInputKeyDown(EKeys::LeftShift)&&PC->IsInputKeyDown(EKeys::W)&&!PC->IsInputKeyDown(EKeys::S)&&!bIsCrouched&&!GetCharacterMovement()->bWantsToCrouch&&!ADS;
+    if(ADS || bIsCrouched || GetCharacterMovement()->bWantsToCrouch) bSprintRequested=false;
+    bSprinting=bSprintRequested&&PC->IsInputKeyDown(EKeys::W)&&!PC->IsInputKeyDown(EKeys::S)&&!bIsCrouched&&!GetCharacterMovement()->bWantsToCrouch&&!ADS;
     if(!GetCharacterMovement()->IsFalling())GroundSpeed=ADS?270.f:bSprinting?650.f:360.f;
     GetCharacterMovement()->MaxWalkSpeed=GroundSpeed;
 }
@@ -195,7 +214,12 @@ void AGame_Jam_Clean_VersCharacter::DoAim(float Yaw, float Pitch)
 	{
 		// pass the rotation inputs
 		AddControllerYawInput(Yaw);
-		AddControllerPitchInput(Pitch);
+		const auto* PC=Cast<APlayerController>(GetController());
+		const auto* Equipment=PC?PC->FindComponentByClass<UCamcorderEquipmentComponent>():nullptr;
+		const bool Selfie=Equipment&&Equipment->Camcorder&&Equipment->Camcorder->bSelfie;
+		// The reverse lens pitches opposite to its orbit. Compensate only here,
+		// so mouse-up still looks up, just like the forward camera.
+		AddControllerPitchInput(Selfie?-Pitch:Pitch);
 	}
 }
 

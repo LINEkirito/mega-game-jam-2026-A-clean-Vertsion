@@ -1,4 +1,8 @@
 #include "TacticalWeapon.h"
+#include "CombatEquipmentComponent.h"
+#include "Data/GlobalData.h"
+#include "Engine/StaticMesh.h"
+#include "Engine/Engine.h"
 #include "Audio/CharacterAudio.h"
 #include "Game_Jam_Clean_VersCharacter.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -123,17 +127,41 @@ void ATacticalWeapon::UpdatePackPose(float DT,bool ADS,float Kick)
     FTransform Frame;Frame.Blend(PackBaseFrame,PackAimFrame,PoseAlpha);
     const FVector Bob(-Kick*.7f,FMath::Sin(SwayTime)*Motion*.35f,FMath::Sin(SwayTime*2)*Motion*.3f);
     const FTransform ViewMotion(FRotator(Kick*.6f-15*SprintAlpha,4*SprintAlpha,-12*SprintAlpha),Bob+FVector(-3,0,-3)*SprintAlpha);
-    const FTransform View(C->GetControlRotation(),C->GetFirstPersonCameraComponent()->GetComponentLocation());
+    FRotator PoseRotation=C->GetControlRotation();
+    if(Handling==EWeaponHandling::Holster&&C->GetController())
+        if(auto* Combat=C->GetController()->FindComponentByClass<UCombatEquipmentComponent>())
+            PoseRotation.Pitch=FMath::Max(FMath::UnwindDegrees(PoseRotation.Pitch),Combat->MinimumHoldPitch(this));
+    const FTransform View(PoseRotation,C->GetFirstPersonCameraComponent()->GetComponentLocation());
     Frame=Frame*ViewMotion*View;
+    if(P)
+    {
+        // Rotating the hip pose about the eye brings its below-camera wrists
+        // into the chest at steep downward pitch. Carry the whole authored rig
+        // forward together so neither hand loses contact. Fade out in ADS to
+        // preserve the sight line; the body solver still keeps its elbows clear.
+        const float Down=FMath::Clamp((-FMath::UnwindDegrees(PoseRotation.Pitch)-25.f)/40.f,0.f,1.f);
+        const float Clearance=14.f*Down*Down*(3.f-2.f*Down)*(1.f-PoseAlpha);
+        Frame.AddToTranslation(C->GetActorForwardVector()*Clearance);
+    }
     // Move along the sight line to keep both authored wrists within anatomical
     // reach. This preserves the optic alignment and the weapon/hand animation.
-    const FVector Forward=C->GetControlRotation().Vector();
+    const FVector Forward=PoseRotation.Vector();
     float PullBack=0.f;
     // Preserve the solved crouch torso, transformed into the current body frame
     // so a yaw change cannot leave the reach calculation in last frame's world pose.
     auto* FullBody=C->GetFirstPersonMesh();
     const FTransform BodyFrame=C->GetMesh()->GetComponentTransform();
     auto BodyBone=[&](FName Bone){return BodyFrame.TransformPosition(FullBody->GetSocketTransform(Bone,RTS_Component).GetLocation());};
+    // Sample a complete ADS pose on entry, then retain its camera-relative depth.
+    // Locomotion moves the shoulders: resolving reach every frame used to pump
+    // all three weapons towards the eye. Hip fire keeps the original solver.
+    const FTransform StableAimFrame=PackAimFrame*View;
+    const float AimPitch=FMath::UnwindDegrees(C->GetControlRotation().Pitch);
+    const float AimHeight=View.GetLocation().Z-BodyFrame.GetLocation().Z;
+    // Looking up/down and changing stance still require a new anatomical fit;
+    // translation through the level and the walk cycle do not.
+    const bool RefreshAim=Aim&&(!bPackADSLocked||FMath::Abs(FMath::FindDeltaAngleDegrees(PackADSPitch,AimPitch))>.01f||FMath::Abs(PackADSHeight-AimHeight)>.01f);
+    float AimPullBack=0.f;
     for(int32 Side=0;Side<2;++Side)
     {
         const FName Upper=Side==0?TEXT("upperarm_l"):TEXT("upperarm_r");
@@ -147,7 +175,36 @@ void ATacticalWeapon::UpdatePackPose(float DT,bool ADS,float Kick)
         const float PerpendicularSquared=FMath::Max(0.f,D.SizeSquared()-Along*Along);
         if(Reach>1.f && PerpendicularSquared<Reach*Reach)
             PullBack=FMath::Max(PullBack,Along-FMath::Sqrt(Reach*Reach-PerpendicularSquared));
+        if(RefreshAim)
+        {
+            const FVector AimD=StableAimFrame.TransformPosition(Hands->GetSocketTransform(Hand,RTS_Component).GetLocation())-Shoulder;
+            const float AimAlong=FVector::DotProduct(AimD,Forward);
+            const float AimPerpendicular=FMath::Max(0.f,AimD.SizeSquared()-AimAlong*AimAlong);
+            if(Reach>1.f&&AimPerpendicular<Reach*Reach)
+                AimPullBack=FMath::Max(AimPullBack,AimAlong-FMath::Sqrt(Reach*Reach-AimPerpendicular));
+        }
     }
+    if(RefreshAim)
+    {
+        PackADSPitch=AimPitch;PackADSHeight=AimHeight;
+        PackADSPullBack=AimPullBack;
+        // Entering ADS while already walking must not latch a clipped optic.
+        if(R&&Optic&&Optic->GetStaticMesh())
+        {
+            const FTransform OpticFrame=Optic->GetRelativeTransform()*PackWeaponMesh->GetSocketTransform(TEXT("OpticSocket"),RTS_Component)*GunLocal*StableAimFrame;
+            const FBox Bounds=Optic->GetStaticMesh()->GetBoundingBox();
+            float Nearest=TNumericLimits<float>::Max();
+            for(int32 Corner=0;Corner<8;++Corner)
+            {
+                const FVector Point(Corner&1?Bounds.Max.X:Bounds.Min.X,Corner&2?Bounds.Max.Y:Bounds.Min.Y,Corner&4?Bounds.Max.Z:Bounds.Min.Z);
+                Nearest=FMath::Min(Nearest,static_cast<float>(FVector::DotProduct(OpticFrame.TransformPosition(Point)-View.GetLocation(),Forward)));
+            }
+            const float Clearance=FMath::Max(GNearClippingPlane+3.f,GetDefault<UGlobalData>()->RifleADSOpticClearance);
+            PackADSPullBack=FMath::Min(PackADSPullBack,Nearest-Clearance);
+        }
+    }
+    bPackADSLocked=Aim;
+    PullBack=FMath::Lerp(PullBack,PackADSPullBack,PoseAlpha);
     Frame.AddToTranslation(-Forward*PullBack);
     Hands->SetWorldTransform(Frame);
     const FTransform GunWorld=GunLocal*Frame;

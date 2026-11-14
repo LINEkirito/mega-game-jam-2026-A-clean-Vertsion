@@ -21,6 +21,9 @@ public:
  int32 GetSimulatedBoneCount() const { return Particles.Num(); }
  float GetMaxAngleDegrees() const { return MaxAngleDegrees; }
  static bool IsAccessoryBone(const FString& Name);
+ // Restrict the final, length-preserving swing against the entire strand segment.
+ static FQuat ConstrainSwing(const FVector& Origin,const FVector& Rest,const FQuat& Swing,
+                             const TArray<FCapsule>& Colliders);
 private:
  struct FParticle
  {
@@ -35,6 +38,7 @@ private:
  TArray<FCapsule> BodyColliders;
  int32 Head=INDEX_NONE,Neck=INDEX_NONE,Chest=INDEX_NONE,Pelvis=INDEX_NONE;
  int32 ThighL=INDEX_NONE,CalfL=INDEX_NONE,ThighR=INDEX_NONE,CalfR=INDEX_NONE;
+ int32 UpperArmL=INDEX_NONE,UpperArmR=INDEX_NONE,LowerArmL=INDEX_NONE,LowerArmR=INDEX_NONE;
  FTransform PreviousWorld=FTransform::Identity;
  bool Initialized=false;
  bool BodyCollisionEnabled=true;

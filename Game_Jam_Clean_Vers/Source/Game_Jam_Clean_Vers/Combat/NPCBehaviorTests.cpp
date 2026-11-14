@@ -121,7 +121,7 @@ bool FNPCBehaviorCheck::Update()
  SafeOfficer->Health=Suppressor->Health=100000.f;
  SafeOfficer->SetActorRotation(FRotator(0,180,0));
  SafeOfficer->WitnessViolence(Wounded,Suppressor,true);
- for(int I=0;I<20;++I){SafeOfficer->Tick(.1f);Suppressor->Tick(.1f);}
+ for(int I=0;I<30;++I){for(auto* N:{SafeOfficer,Suppressor}){N->GetMesh()->TickAnimation(.1f,false);N->GetMesh()->RefreshBoneTransforms();N->Tick(.1f);}}
  Test->TestEqual(TEXT("Gang retaliates against officer firing at it"),Suppressor->CombatTarget.Get(),static_cast<AActor*>(SafeOfficer));
  Test->TestTrue(TEXT("Police remain in the firefight during the short encounter"),SafeOfficer->Health>0);
 
@@ -189,6 +189,8 @@ bool FNPCBehaviorCheck::Update()
  AimedGang->Tick(.01f);
  Test->TestEqual(TEXT("Visible aiming immediately targets player without countdown"),AimedGang->CombatTarget.Get(),static_cast<AActor*>(Player));
  Test->TestEqual(TEXT("Gang aimed-threat countdown is skipped"),AimedGang->WarningRemaining,0.f);
+ // Acquiring a target is immediate; locomotion/fire readiness follows the draw clip.
+ for(int I=0;I<16;++I){AimedGang->Tick(.1f);AimedGang->GetMesh()->TickAnimation(.1f,false);AimedGang->GetMesh()->RefreshBoneTransforms();}
  AimedGang->GetCharacterMovement()->Velocity=AimedGang->GetActorForwardVector()*95;
  AimedGang->Tick(.01f);
  auto* Motion=Cast<UNPCMotionAnimInstance>(AimedGang->GetMesh()->GetAnimInstance());
@@ -207,6 +209,7 @@ bool FNPCBehaviorCheck::Update()
  auto* BarrelGuard=Spawn(ENPCRole::GangBoss,FVector(0,5000,0));
  BarrelGuard->CombatTarget=Player;BarrelGuard->Activity=ENPCActivity::Combat;BarrelGuard->bCombat=true;
  Player->SetActorLocation(BarrelGuard->GetActorLocation()+FVector(800,0,0));
+ for(int I=0;I<16;++I){BarrelGuard->Tick(.1f);BarrelGuard->GetMesh()->TickAnimation(.1f,false);BarrelGuard->GetMesh()->RefreshBoneTransforms();}
  BarrelGuard->GetMesh()->TickAnimation(.1f,false);BarrelGuard->GetMesh()->RefreshBoneTransforms();
  auto* GuardGun=BarrelGuard->HeldWeapon.Get();
  const FRotator OriginalGunRotation=GuardGun->PackWeaponMesh->GetRelativeRotation();
@@ -246,6 +249,8 @@ bool FNPCBehaviorCheck::Update()
   const FTransform T(FRotator::ZeroRotator,FVector(45000+int32(Kind)*1000,45000,1200));
   auto* Loader=World->SpawnActorDeferred<APatrolEnemy>(APatrolEnemy::StaticClass(),T,nullptr,nullptr,ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
   Loader->NPCRole=ENPCRole::Police;Loader->WeaponKind=Kind;Loader->PatrolRadius=0;Loader->FinishSpawning(T);Loader->GetCharacterMovement()->DisableMovement();
+  Loader->Activity=ENPCActivity::Combat;Loader->CombatTarget=Player;Loader->SightRange=0;
+  Loader->Tick(0);Loader->Tick(1.3f); // Finish drawing before exercising the reload machinery.
   auto* W=Loader->HeldWeapon.Get();const auto S=W->Spec();const int32 ReserveBefore=Loader->AmmoReserve->Count(S.Ammo);
   int32 Fired=0;while(W->ConsumeShot()){++Fired;W->AdvanceHandling(S.Interval);if(Fired>S.Capacity+1)break;}
   Test->TestEqual(TEXT("NPC consumes magazine plus separately chambered round"),Fired,S.Capacity+1);

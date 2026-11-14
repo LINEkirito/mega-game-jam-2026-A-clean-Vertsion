@@ -31,7 +31,7 @@ void ATacticalWeapon::EquipForNPC(USkeletalMeshComponent* CharacterMesh)
  SetActorTransform(FTransform(Rotation,Palm-Rotation.RotateVector(Contact)));
  AttachToComponent(CharacterMesh,FAttachmentTransformRules::KeepWorldTransform,TEXT("HandGrip_R"));
 }
-void ATacticalWeapon::UpdateNPCGripPose(USkeletalMeshComponent* Source,UPoseableMeshComponent* BodyPose,float ReadyAlpha)
+void ATacticalWeapon::UpdateNPCGripPose(USkeletalMeshComponent* Source,UPoseableMeshComponent* BodyPose,float ReadyAlpha,bool bRightHandOnly)
 {
  if(!Source||!BodyPose)return;BodyPose->CopyPoseFromSkeletalComponent(Source);
  const bool Shell=Kind==ETacticalWeaponKind::Shotgun;
@@ -71,7 +71,7 @@ void ATacticalWeapon::UpdateNPCGripPose(USkeletalMeshComponent* Source,UPoseable
   const FVector AuthoredPalm=(AuthoredHand.GetLocation()+Hands->GetSocketTransform(TEXT("middle_01_r"),RTS_Component).GetLocation())*.5f;
   RightContact=PackWeaponMesh->GetRelativeTransform().TransformPosition(AuthoredGun.InverseTransformPosition(AuthoredPalm));
   GunRotation=Frame.GetRotation()*Source->GetSocketTransform(TEXT("hand_r"),RTS_Component).GetRotation()*AuthoredHand.GetRotation().Inverse()*AuthoredGun.GetRotation()*FRotator(0,90,0).Quaternion();
-  if(Kind!=ETacticalWeaponKind::Pistol){
+  if(Kind!=ETacticalWeaponKind::Pistol&&!bRightHandOnly){
    // Fit the prop to the authored two-hand pose; never move a character bone.
    const FVector AuthoredLeftPalm=(Hands->GetSocketTransform(TEXT("hand_l"),RTS_Component).GetLocation()+Hands->GetSocketTransform(TEXT("middle_01_l"),RTS_Component).GetLocation())*.5f;
    const FVector LeftContact=PackWeaponMesh->GetRelativeTransform().TransformPosition(AuthoredGun.InverseTransformPosition(AuthoredLeftPalm));

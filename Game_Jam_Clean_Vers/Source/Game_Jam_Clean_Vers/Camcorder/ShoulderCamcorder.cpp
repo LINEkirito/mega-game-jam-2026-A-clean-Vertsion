@@ -117,6 +117,7 @@ void AShoulderCamcorder::BeginPlay()
 void AShoulderCamcorder::EndPlay(const EEndPlayReason::Type Reason)
 {
     SetViewfinderRaised(false);
+    bSelfie=false;
     SetHoldingHandsVisible(false);
     StopRecording(); Super::EndPlay(Reason);
 }
@@ -141,11 +142,12 @@ void AShoulderCamcorder::PickUp(APlayerController* Player)
     SetHoldingHandsVisible(true);
     AimPivot->SetRelativeRotation(AimOffset);
     Capture->HiddenActors.AddUnique(Player->GetPawn());
-    UpdateHeldPose(0); SetNotice(TEXT("已拿起摄像机；按住右键取景"));
+    UpdateHeldPose(0); SetNotice(TEXT("已拿起摄像机；右键切换取景"));
 }
 void AShoulderCamcorder::BeginLowering(bool Store)
 {
     SetViewfinderRaised(false); StopRecording();
+    bSelfie=false;
     bStoreAfterLowering=Store; bInBackpack=Store; bHeld=false;
     bLowering=true; LoweringTime=0;
     AimOffset=FRotator::ZeroRotator; AimPivot->SetRelativeRotation(AimOffset);
@@ -174,11 +176,23 @@ void AShoulderCamcorder::FinishLowering()
     SetActorHiddenInGame(bStoreAfterLowering);
     CharacterAudio::Attached(LoadObject<USoundBase>(nullptr,bStoreAfterLowering?TEXT("/Game/Combat/Audio/Handling/Cloth"):TEXT("/Game/Combat/Audio/Handling/ItemDrop")),GetRootComponent(),ECharacterSound::Handling,.4f);
 }
+bool AShoulderCamcorder::DropFromInventory(APlayerController* Player)
+{
+    if(!Player || !Player->GetPawn() || (!bHeld && !bInBackpack)) return false;
+    if(bLowering) return false;
+    if(bHeld) { PutDown(); return true; }
+    // Reuse the same actor so battery, focal length and recording history survive.
+    PickUp(Player);
+    if(!bHeld) return false;
+    BeginLowering(false);
+    FinishLowering();
+    return true;
+}
 void AShoulderCamcorder::PutDown()
 {
     if(!bHeld||bLowering)return;
     BeginLowering(false);
-    SetNotice(TEXT("已放下并结束录像；靠近后按 E 拿起，右键举机取景"));
+    SetNotice(TEXT("已放下并结束录像；靠近后按 F 拿起，右键举机取景"));
 }
 bool AShoulderCamcorder::StoreInBackpack(APlayerController* Player)
 {
@@ -193,7 +207,7 @@ void AShoulderCamcorder::UpdatePresentation(float DT)
 {
     AnimationClock+=DT;
     const float LookDuration=LookTransition?LookTransition->GetPlayLength():.433333f;
-    LookProgress=FMath::FInterpConstantTo(LookProgress,bViewfinderRaised?1.f:0.f,DT,1.f/FMath::Max(.01f,LookDuration));
+    LookProgress=FMath::FInterpConstantTo(LookProgress,bViewfinderRaised&&!bSelfie?1.f:0.f,DT,1.f/FMath::Max(.01f,LookDuration));
     const float EquipDuration=HoldStart?HoldStart->GetPlayLength():.533333f;
     if(!bLowering || LookProgress<=0)
         EquipProgress=FMath::FInterpConstantTo(EquipProgress,bLowering?0.f:1.f,DT,1.f/FMath::Max(.01f,EquipDuration));
@@ -216,8 +230,29 @@ void AShoulderCamcorder::UpdateHeldPose(float DT)
     if(!Holder || !Holder->GetPawn()) return;
     auto* Character=Cast<AGame_Jam_Clean_VersCharacter>(Holder->GetPawn());
     FVector Eye; FRotator View=Holder->GetControlRotation();
+    if(bSelfie)
+    {
+        View.Pitch=FMath::Clamp(FRotator::NormalizeAxis(View.Pitch),-10.f,15.f);
+        Holder->SetControlRotation(View); // Do not accumulate input beyond the orbit limits.
+        const float Alpha=1.f-FMath::Exp(-16.f*FMath::Max(0.f,DT));
+        SelfieFollowPitch=bSelfieFollowInitialized?FMath::Lerp(SelfieFollowPitch,View.Pitch,Alpha):View.Pitch;
+        View.Pitch=SelfieFollowPitch;
+    }
+    else bSelfieFollowInitialized=false;
     if(Character) Eye=Character->GetFirstPersonCameraComponent()->GetComponentLocation();
     else { FRotator Unused; Holder->GetPawn()->GetActorEyesViewPoint(Eye,Unused); }
+    // Track the animated head in selfies, including crouch/locomotion offsets.
+    // The first-person camera intentionally moves independently for body clearance.
+    if(bSelfie && Character)
+        Eye=Character->GetFirstPersonMesh()->GetSocketLocation(TEXT("head"))+Character->GetActorForwardVector()*8.f+FVector(0,0,6.f);
+    if(bSelfie)
+    {
+        const float Alpha=1.f-FMath::Exp(-20.f*FMath::Max(0.f,DT));
+        if(!bSelfieFollowInitialized || FVector::DistSquared(SelfieFollowEye,Eye)>FMath::Square(150.f)) SelfieFollowEye=Eye;
+        else SelfieFollowEye=FMath::Lerp(SelfieFollowEye,Eye,Alpha);
+        Eye=SelfieFollowEye;
+        bSelfieFollowInitialized=true;
+    }
     const float Speed=FMath::Clamp(Holder->GetPawn()->GetVelocity().Size2D()/450.f,0.f,1.f);
     SprintBlend=FMath::FInterpTo(SprintBlend,Character&&Character->bSprinting&&!bViewfinderRaised?1.f:0.f,DT,8.f);
     SwayClock+=DT*9.f;
@@ -227,11 +262,39 @@ void AShoulderCamcorder::UpdateHeldPose(float DT)
     // Pull the authored grip slightly in/up at high pitch so the original
     // player's right arm stays within reach without changing the hand/prop attachment.
     const float HighPitch=FMath::Clamp((FRotator::NormalizeAxis(View.Pitch)-20.f)/40.f,0.f,1.75f);
-    HoldingHands->SetRelativeLocation(FVector(-4.f-4.f*HighPitch,0.f,-151.327179f+4.f*HighPitch));
+    HoldingHands->SetRelativeLocation(FVector(-4.f-4.f*HighPitch,0.f,-151.327179f+4.f*HighPitch-(bSelfie?85.f:0.f)));
     UpdatePresentation(DT);
     // Preserve the seller's hand_r attachment exactly; the prop follows its authored grip.
     const FTransform Grip(FRotator(-.348233f,84.987534f,101.755234f),FVector(-9.067672f,5.660569f,-.9962f));
     CameraMesh->SetWorldTransform(Grip*HoldingHands->GetSocketTransform(TEXT("hand_r")));
+    // Full-screen aiming uses the control direction, independent of hand sway.
+    const FVector Lens=CameraMesh->GetComponentTransform().TransformPosition(FVector(1.38212f,15.804039f,0));
+    ViewfinderCamera->SetWorldLocationAndRotation(Eye+View.Vector()*20.f,View+AimOffset);
+    Capture->SetWorldLocationAndRotation(bViewfinderRaised?ViewfinderCamera->GetComponentLocation():Lens,View+AimOffset);
+    if(bSelfie)
+    {
+        // Both the recorded feed and scoring use this same, collision-safe reverse lens.
+        // Slightly elevated, off-centre head-and-shoulders framing leaves room for the scene.
+        const FVector Desired=Eye+View.RotateVector(FVector(105,30,18));
+        FHitResult Hit;
+        FCollisionQueryParams Query(SCENE_QUERY_STAT(SelfieLens),false,Holder->GetPawn());
+        Query.AddIgnoredActor(this);
+        const bool Blocked=GetWorld()->SweepSingleByChannel(Hit,Eye,Desired,FQuat::Identity,ECC_Visibility,FCollisionShape::MakeSphere(8.f),Query);
+        const FVector Position=Blocked?Hit.Location:Desired;
+        if(Blocked && (Hit.bStartPenetrating || FVector::DistSquared(Eye,Position)<FMath::Square(55.f)))
+        {
+            bSelfie=false;
+            Capture->HiddenActors.AddUnique(Holder->GetPawn());
+            SetNotice(TEXT("自拍空间不足，已切回前拍；请远离遮挡后按 V"));
+            return;
+        }
+        const FVector FramingTarget=Eye+View.RotateVector(FVector(0,15,6));
+        const FRotator Reverse=(FramingTarget-Position).Rotation();
+        ViewfinderCamera->SetWorldLocationAndRotation(Position,Reverse);
+        Capture->SetWorldLocationAndRotation(Position,Reverse);
+        Capture->HiddenActors.Remove(Holder->GetPawn());
+    }
+    else Capture->HiddenActors.AddUnique(Holder->GetPawn());
     // Resample the visible arms after this frame's prop pose, as weapons do,
     // instead of leaving wrists one movement frame behind during sprinting.
     if(Character)
@@ -239,10 +302,6 @@ void AShoulderCamcorder::UpdateHeldPose(float DT)
         Character->GetFirstPersonMesh()->TickAnimation(0,false);
         Character->GetFirstPersonMesh()->RefreshBoneTransforms();
     }
-    // Full-screen aiming uses the control direction, independent of hand sway.
-    const FVector Lens=CameraMesh->GetComponentTransform().TransformPosition(FVector(1.38212f,15.804039f,0));
-    ViewfinderCamera->SetWorldLocationAndRotation(Eye+View.Vector()*20.f,View+AimOffset);
-    Capture->SetWorldLocationAndRotation(bViewfinderRaised?ViewfinderCamera->GetComponentLocation():Lens,View+AimOffset);
 }
 void AShoulderCamcorder::UpdateScreen()
 {
@@ -260,6 +319,23 @@ void AShoulderCamcorder::UpdateScreen()
         HousingMaterial->SetScalarParameterValue(TEXT("RecLightIntensity"),bRecording?1.f:0.f);
     }
 }
+void AShoulderCamcorder::ToggleSelfie()
+{
+    if(!bHeld || bInBackpack || bLowering || !Holder) return;
+    if(!bViewfinderRaised)
+    {
+        SetViewfinderRaised(true);
+        if(!bViewfinderRaised) return;
+    }
+    const bool WantedSelfie=!bSelfie;
+    bSelfieFollowInitialized=false;
+    bSelfie=WantedSelfie;
+    if(bSelfie) AdjustFocalLength(0);
+
+    UpdateHeldPose(0);
+    if(WantedSelfie && !bSelfie) return;
+    SetNotice(bSelfie?TEXT("自拍镜头：画面内目标按原规则计分；V 切回前拍"):TEXT("已切回前拍镜头"));
+}
 void AShoulderCamcorder::ToggleViewfinder() { SetViewfinderRaised(!bViewfinderRaised); }
 void AShoulderCamcorder::SetViewfinderRaised(bool bRaised)
 {
@@ -272,6 +348,7 @@ void AShoulderCamcorder::SetViewfinderRaised(bool bRaised)
     else
     {
         StopRecording();
+        bSelfie=false;
         if(Holder && Holder->GetPawn()) Holder->SetViewTargetWithBlend(Holder->GetPawn(),.43f);
     }
 }
@@ -301,7 +378,7 @@ void AShoulderCamcorder::AdjustAim(float PitchDelta,float YawDelta)
 }
 void AShoulderCamcorder::AdjustFocalLength(float DeltaMM)
 {
-    FocalLength=FMath::Clamp(FocalLength+DeltaMM,18.f,100.f);
+    FocalLength=FMath::Clamp(FocalLength+DeltaMM,bSelfie?55.f:18.f,100.f);
     Capture->FOVAngle=FMath::RadiansToDegrees(2.f*FMath::Atan(36.f/(2.f*FocalLength)));
     ViewfinderCamera->SetFieldOfView(Capture->FOVAngle);
 }
@@ -377,7 +454,7 @@ bool AShoulderCamcorder::InstallFreshBattery()
     StopRecording(); BatteryPercent=100.f; bPowered=true;
     if(auto* Bus=GetWorld()->GetSubsystem<UDataTransmitter>()) Bus->NotifyChange(this,TEXT("BatteryPercent"),BatteryPercent);
     UpdateScreen();
-    SetNotice(TEXT("已更换电池并开机；按住右键取景，再按左键开始新录像")); return true;
+    SetNotice(TEXT("已更换电池并开机；右键切换取景，再按左键开始新录像")); return true;
 }
 void AShoulderCamcorder::Tick(float DT)
 {

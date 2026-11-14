@@ -14,7 +14,7 @@ struct FBackpackEntry
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly) bool bHandheld=false;
 };
 
-// Session inventory. Quick-slot assignment follows SixOClock's unique-slot / auto-fill rules.
+// Session inventory. The starting camera and three weapons retain their slots even when dropped.
 UCLASS(BlueprintType)
 class GAME_JAM_CLEAN_VERS_API UBackpackInventory : public UObject
 {
@@ -35,6 +35,9 @@ public:
     UFUNCTION(BlueprintCallable) bool Assign(int32 Slot, FName Id);
     const FBackpackEntry* Find(FName Id) const;
     int32 SlotIndex(FName Id) const;
+    FString SlotName(int32 Slot) const;
 private:
-    void FillEmptySlots();
+    TArray<FString> FixedSlotNames;
+    friend class UCombatEquipmentComponent;
+    bool BindStartingWeapon(int32 Slot, FName Id);
 };

@@ -10,6 +10,7 @@
 #include "Game_Jam_Clean_Vers.h"
 #include "Widgets/Input/SVirtualJoystick.h"
 #include "Camcorder/CamcorderEquipmentComponent.h"
+#include "Localization/GameLanguageUI.h"
 
 AGame_Jam_Clean_VersPlayerController::AGame_Jam_Clean_VersPlayerController()
 {
@@ -24,6 +25,7 @@ void AGame_Jam_Clean_VersPlayerController::BeginPlay()
 	{
 		CamcorderEquipment = NewObject<UCamcorderEquipmentComponent>(this, TEXT("CamcorderEquipment"));
 		CamcorderEquipment->RegisterComponent();
+		LanguageUI = GameLanguage::Install(this);
 	}
 
 	
@@ -79,4 +81,10 @@ bool AGame_Jam_Clean_VersPlayerController::ShouldUseTouchControls() const
 {
 	// are we on a mobile platform? Should we force touch?
 	return SVirtualJoystick::ShouldDisplayTouchInterface() || bForceTouchControls;
+}
+
+void AGame_Jam_Clean_VersPlayerController::EndPlay(const EEndPlayReason::Type Reason)
+{
+	GameLanguage::Uninstall(LanguageUI);
+	Super::EndPlay(Reason);
 }

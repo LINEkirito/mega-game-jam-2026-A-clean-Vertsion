@@ -36,6 +36,8 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Camcorder") bool bViewfinderRaised=false;
     UFUNCTION(BlueprintCallable, Category="Camcorder") void SetViewfinderRaised(bool bRaised);
     UFUNCTION(BlueprintCallable, Category="Camcorder") void ToggleViewfinder();
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Camcorder") bool bSelfie=false;
+    UFUNCTION(BlueprintCallable, Category="Camcorder") void ToggleSelfie();
     UPROPERTY(Transient, BlueprintReadOnly, Category="Camcorder") TObjectPtr<UTextureRenderTarget2D> MonitorTexture;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Camcorder", meta=(ClampMin="1")) float FullBatterySeconds=180.f;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Camcorder", meta=(ClampMin="20",ClampMax="500")) float InteractionDistance=220.f;
@@ -54,6 +56,7 @@ public:
     UFUNCTION(BlueprintCallable, Category="Camcorder") bool CanInteract(APlayerController* Player) const;
     UFUNCTION(BlueprintCallable, Category="Camcorder") void PickUp(APlayerController* Player);
     UFUNCTION(BlueprintCallable, Category="Camcorder") void PutDown();
+    bool DropFromInventory(APlayerController* Player);
     UFUNCTION(BlueprintCallable, Category="Camcorder") bool StoreInBackpack(APlayerController* Player);
     UFUNCTION(BlueprintCallable, Category="Camcorder") bool StartRecording();
     UFUNCTION(BlueprintCallable, Category="Camcorder") void StopRecording();
@@ -84,6 +87,9 @@ private:
     float CaptureClock=0.f, SwayClock=0.f, NoticeClock=0.f;
     int32 LastScheduledFrame=-1;
     bool bCaptureReadFailed=false;
+    bool bSelfieFollowInitialized=false;
+    float SelfieFollowPitch=0.f;
+    FVector SelfieFollowEye=FVector::ZeroVector;
     void UpdateHeldPose(float DeltaSeconds);
     void UpdatePresentation(float DeltaSeconds);
     void UpdateScreen();

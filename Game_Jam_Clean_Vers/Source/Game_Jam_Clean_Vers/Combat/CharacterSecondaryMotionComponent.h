@@ -20,5 +20,7 @@ private:
  UPROPERTY() TObjectPtr<class USkeletalMeshComponent> Body;
  FCharacterSecondaryMotion HairMotion,ClothMotion;
  TArray<int32> HairSourceBones,ClothSourceBones;
+ FDelegateHandle FinalPoseHandle;
+ void RefreshAttachmentsAfterAnimation();
  void CopyAnimatedPose(UPoseableMeshComponent* Target,TArray<int32>& SourceBones);
 };

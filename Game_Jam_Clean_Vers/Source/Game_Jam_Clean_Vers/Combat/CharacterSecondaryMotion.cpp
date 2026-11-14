@@ -9,6 +9,44 @@ bool FCharacterSecondaryMotion::IsAccessoryBone(const FString& Name)
         Name.StartsWith(TEXT("cloth_"))||Name.StartsWith(TEXT("celeste_skirt_"));
 }
 
+FQuat FCharacterSecondaryMotion::ConstrainSwing(const FVector& Origin,const FVector& Rest,
+ const FQuat& Swing,const TArray<FCapsule>& Colliders)
+{
+ if(Colliders.IsEmpty()||Rest.IsNearlyZero())return Swing;
+ auto Distance=[&](const FVector& Tip,const FCapsule& C)
+ {
+  FVector OnStrand,OnBody;
+  FMath::SegmentDistToSegmentSafe(Origin,Tip,C.A,C.B,OnStrand,OnBody);
+  return FVector::Distance(OnStrand,OnBody);
+ };
+ // Calibrate contact against the whole authored segment, not just its tip.
+ // This preserves intentional roots touching skin without disabling mid-strand contact.
+ TArray<float,TInlineAllocator<24>> Radii;
+ for(const auto& C:Colliders)Radii.Add(FMath::Min(C.Radius,FMath::Max(0.f,Distance(Origin+Rest,C)-.2f)));
+ auto Clear=[&](float Alpha)
+ {
+  const FVector Tip=Origin+FQuat::Slerp(FQuat::Identity,Swing,Alpha).RotateVector(Rest);
+  for(int32 I=0;I<Colliders.Num();++I)
+   if(Radii[I]>0&&Distance(Tip,Colliders[I])<Radii[I])return false;
+  return true;
+ };
+ // Walk the angular path as well as checking its endpoint: a fast turn must not
+ // skip through a collider and emerge on the other side in one update.
+ float Safe=0.f;
+ for(int32 Step=1;Step<=16;++Step)
+ {
+  float Blocked=Step/16.f;
+  if(Clear(Blocked)){Safe=Blocked;continue;}
+  for(int32 Iteration=0;Iteration<12;++Iteration)
+  {
+   const float Mid=(Safe+Blocked)*.5f;
+   if(Clear(Mid))Safe=Mid;else Blocked=Mid;
+  }
+  return FQuat::Slerp(FQuat::Identity,Swing,Safe).GetNormalized();
+ }
+ return Swing;
+}
+
 void FCharacterSecondaryMotion::Reset()
 {
  Initialized=false;MaxAngleDegrees=0;
@@ -45,6 +83,8 @@ void FCharacterSecondaryMotion::Configure(const USkeletalMesh* Mesh)
  Chest=Ref.FindBoneIndex(TEXT("spine_03"));Pelvis=Ref.FindBoneIndex(TEXT("pelvis"));
  ThighL=Ref.FindBoneIndex(TEXT("thigh_l"));CalfL=Ref.FindBoneIndex(TEXT("calf_l"));
  ThighR=Ref.FindBoneIndex(TEXT("thigh_r"));CalfR=Ref.FindBoneIndex(TEXT("calf_r"));
+ UpperArmL=Ref.FindBoneIndex(TEXT("upperarm_l"));UpperArmR=Ref.FindBoneIndex(TEXT("upperarm_r"));
+ LowerArmL=Ref.FindBoneIndex(TEXT("lowerarm_l"));LowerArmR=Ref.FindBoneIndex(TEXT("lowerarm_r"));
 }
 
 void FCharacterSecondaryMotion::Solve(TArray<FTransform>& Local,const FTransform& World,float DT,
@@ -70,7 +110,10 @@ void FCharacterSecondaryMotion::Solve(TArray<FTransform>& Local,const FTransform
  {
   Capsule(Head,Head,8.f);Capsule(Neck,Chest,9.f);Capsule(Chest,Pelvis,12.f);
   Capsule(ThighL,CalfL,7.f);Capsule(ThighR,CalfR,7.f);
+  Capsule(UpperArmL,UpperArmR,6.f);
+  Capsule(UpperArmL,LowerArmL,5.f);Capsule(UpperArmR,LowerArmR,5.f);
  }
+ BodyColliders.Append(External);
  const FVector Movement=Initialized?World.GetLocation()-PreviousWorld.GetLocation():FVector::ZeroVector;
  const int32 Steps=FMath::Clamp(FMath::CeilToInt(DT*120.f),1,12);
  const float H=FMath::Min(DT,.1f)/Steps;
@@ -113,19 +156,21 @@ void FCharacterSecondaryMotion::Solve(TArray<FTransform>& Local,const FTransform
     }
    };
    for(const auto& C:BodyColliders)Collide(C);
-   for(const auto& C:External)Collide(C);
    const FVector RestDirection=Rest.GetSafeNormal();
    FVector Direction=(P.Position-Origin).GetSafeNormal();if(Direction.IsNearlyZero())Direction=RestDirection;
    FQuat Delta=FQuat::FindBetweenNormals(RestDirection,Direction);
    const float Angle=Delta.GetAngle();
    const float Limit=FMath::DegreesToRadians(P.ShortHair?3.f:P.Cloth?10.f:18.f);
    if(Angle>Limit)Delta=FQuat::Slerp(FQuat::Identity,Delta,Limit/Angle);
+   Delta=FQuat::Slerp(FQuat::Identity,Delta,Weight);
+   const FQuat BeforeContact=Delta;
+   Delta=ConstrainSwing(Origin,Rest,Delta,BodyColliders);
+   if(!Delta.Equals(BeforeContact,.00001f))P.Velocity=FVector::ZeroVector;
    // Projection keeps authored lengths and removes radial velocity.
    Direction=Delta.RotateVector(RestDirection);
    P.Position=Origin+Direction*Length;
    P.Velocity-=Direction*FVector::DotProduct(P.Velocity,Direction);
    P.Velocity=P.Velocity.GetClampedToMaxSize(150.f);
-   Delta=FQuat::Slerp(FQuat::Identity,Delta,Weight);
    MaxAngleDegrees=FMath::Max(MaxAngleDegrees,FMath::RadiansToDegrees(Delta.GetAngle()));
    Current.SetRotation((Delta*Current.GetRotation()).GetNormalized());
    // Write rotation only. In particular never stretch a skinned joint or move its root.

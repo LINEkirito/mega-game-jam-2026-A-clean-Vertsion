@@ -1,4 +1,4 @@
-﻿#include "CamcorderEquipmentComponent.h"
+#include "CamcorderEquipmentComponent.h"
 #include "RecordingTabletComponent.h"
 #include "BackpackInventory.h"
 #include "InventoryItemPreview.h"
@@ -19,9 +19,11 @@
 #include "Widgets/Layout/SScaleBox.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Text/STextBlock.h"
+#include "Localization/GameLanguage.h"
 #include "Widgets/Images/SImage.h"
 #include "Styling/CoreStyle.h"
 #include "Framework/Application/SlateApplication.h"
+#include "Framework/MultiBox/MultiBoxBuilder.h"
 #include "InputCoreTypes.h"
 
 class SInventoryInspection : public SCompoundWidget
@@ -95,15 +97,16 @@ void UCamcorderEquipmentComponent::AddCameraToInventory()
 }
 void UCamcorderEquipmentComponent::StoreCamera()
 {
-    if(!Camcorder) return;
+    if(!Camcorder || (!Camcorder->bHeld && !Camcorder->bInBackpack)) return;
     if(Camcorder->StoreInBackpack(Player())) { AddCameraToInventory(); SelectedItem=UBackpackInventory::CameraId; RefreshBackpack(); }
     else Camcorder->SetNotice(TEXT("请先靠近摄像机，才能收入背包"));
 }
 void UCamcorderEquipmentComponent::EquipCamera()
 {
     if(!Camcorder || !Inventory || Inventory->Count(UBackpackInventory::CameraId)==0) return;
+    if(Combat && Combat->GetPresentationWeapon()){Combat->EquipWeapon(UBackpackInventory::CameraId);return;}
     if(Combat)Combat->Unequip();
-    Camcorder->PickUp(Player());
+    if(!Camcorder->bHeld) Camcorder->PickUp(Player());
     if(Camcorder->bHeld) { Inventory->ActiveSlot=Inventory->SlotIndex(UBackpackInventory::CameraId); SelectedItem=UBackpackInventory::CameraId; }
     RefreshBackpack();
 }
@@ -124,6 +127,7 @@ void UCamcorderEquipmentComponent::SetBackpackOpen(bool bOpen)
     }
     else
     {
+        FSlateApplication::Get().DismissAllMenus();
         FSlateApplication::Get().ReleaseAllPointerCapture();
         InspectionBrush.SetResourceObject(nullptr);
         if(IsValid(ItemPreview)) { ItemPreview->Destroy(); ItemPreview=nullptr; }
@@ -153,23 +157,33 @@ void UCamcorderEquipmentComponent::RefreshItemPreview()
 }
 void UCamcorderEquipmentComponent::ShowAssignmentMenu(FName Id)
 {
-    SelectInventoryItem(Id); bAssignmentMenu=Inventory && Inventory->CanAssign(Id);
+    if(!bBackpackOpen || !Inventory || Inventory->Count(Id)==0) return;
+    SelectInventoryItem(Id);
+    const TWeakObjectPtr<UCamcorderEquipmentComponent> Weak(this);
+    FMenuBuilder Menu(true,nullptr);
+    Menu.AddMenuEntry(GameLanguage::Text(TEXT("丢下")),GameLanguage::Text(TEXT("丢下此物品（弹药整组，电池一块）")),FSlateIcon(),
+        FUIAction(FExecuteAction::CreateLambda([Weak,Id]{if(auto* E=Weak.Get()) E->DropInventoryItem(Id);})));
+    FSlateApplication::Get().PushMenu(BackpackHUD.ToSharedRef(),FWidgetPath(),Menu.MakeWidget(),
+        FSlateApplication::Get().GetCursorPos(),FPopupTransitionEffect(FPopupTransitionEffect::ContextMenu));
 }
 void UCamcorderEquipmentComponent::AssignQuickSlot(int32 Index)
 {
-    if(Inventory && !Inventory->CanAssign(SelectedItem)) { if(Camcorder) Camcorder->SetNotice(TEXT("只有能拿在手上的物品可以登记快捷栏")); return; }
-    if(Inventory && Inventory->Assign(Index,SelectedItem))
-    {
-        bAssignmentMenu=false;
-        if(Camcorder) Camcorder->SetNotice(FString::Printf(TEXT("%s 已登记到快捷槽 %d"),*ItemTitle(SelectedItem),Index+1));
-    }
+    bAssignmentMenu=false;
+    ActivateQuickSlot(Index);
 }
 void UCamcorderEquipmentComponent::ActivateQuickSlot(int32 Index)
 {
     if(!Inventory || !Inventory->Slots.IsValidIndex(Index)) return;
     const FName Id=Inventory->Slots[Index];
-    if(Inventory->Count(Id)==0) { if(Camcorder) Camcorder->SetNotice(TEXT("这个快捷槽为空；按 I 打开背包登记物品")); return; }
-    Inventory->ActiveSlot=Index; SelectedItem=Id; UseSelectedItem();
+    Inventory->ActiveSlot=Index; SelectedItem=Id;
+    if(Inventory->Count(Id)==0)
+    {
+        if(Combat) Combat->EquipWeapon(NAME_None);
+        if(Camcorder && Camcorder->bHeld) StoreCamera();
+        if(Camcorder) Camcorder->SetNotice(TEXT("该道具未持有，拾回后恢复原槽位"));
+        return;
+    }
+    UseSelectedItem();
 }
 void UCamcorderEquipmentComponent::UseSelectedItem()
 {
@@ -207,15 +221,25 @@ FString UCamcorderEquipmentComponent::SlotTitle(int32 Index) const
 {
     if(!Inventory || !Inventory->Slots.IsValidIndex(Index)) return TEXT("—");
     const FName Id=Inventory->Slots[Index]; const int32 Count=Inventory->Count(Id);
-    return FString::Printf(TEXT("%d  %s%s"),Index+1,*ItemTitle(Id),Count>0?*FString::Printf(TEXT(" ×%d"),Count):TEXT(""));
+    FString Title=FString::Printf(TEXT("%d  %s"),Index+1,*Inventory->SlotName(Index));
+    if(Count==0)return Title+TEXT("\n未持有");
+    if(Id==UBackpackInventory::CameraId && Camcorder)
+        return Title+FString::Printf(TEXT("\n电量 %.0f%% · 焦距 %.0f mm"),Camcorder->BatteryPercent,Camcorder->FocalLength);
+    if(Combat)if(const auto* Found=Combat->Weapons.Find(Id);Found && IsValid(*Found))
+    {
+        const auto* Gun=Found->Get();const auto Spec=Gun->Spec();
+        return FString::Printf(TEXT("%d  %s\n%s %d/%d · 膛内 %d · 备用 %d"),Index+1,*Spec.Name,
+            Gun->Kind==ETacticalWeaponKind::Shotgun?TEXT("弹管"):TEXT("弹匣"),Gun->Magazine,Spec.Capacity, Gun->bChambered?1:0,Inventory->Count(Spec.Ammo));
+    }
+    return Title;
 }
 FString UCamcorderEquipmentComponent::SelectedDescription() const
 {
     const auto* E=Inventory?Inventory->Find(SelectedItem):nullptr; if(!E) return TEXT("背包为空。靠近绿色电池或摄像机，按 F 收入背包。");
     FString S=E->Description;
     const int32 Slot=Inventory->SlotIndex(SelectedItem);
-    if(!Inventory->CanAssign(SelectedItem)) return S+TEXT("\n\n此物品不能登记快捷栏，请在背包中使用。");
-    S+=Slot>=0?FString::Printf(TEXT("\n\n已登记：快捷槽 %d"),Slot+1):TEXT("\n\n尚未登记：选中后按 1–4，或右键选择槽位。");
+    if(!Inventory->CanAssign(SelectedItem)) return S+TEXT("\n\n此物品不占用固定快捷栏，请在背包中使用。");
+    S+=Slot>=0?FString::Printf(TEXT("\n\n固定快捷槽 %d；滚轮 / 数字键切换。"),Slot+1):TEXT("\n\n请在背包中使用。");
     if(SelectedItem==UBackpackInventory::CameraId && Camcorder)
         S+=FString::Printf(TEXT("\n\n状态：%s\n电量 %.0f%%    焦距 %.0f mm"),Camcorder->bInBackpack?TEXT("在背包中"):TEXT("已手持装备"),Camcorder->BatteryPercent,Camcorder->FocalLength);
     return S;
@@ -237,38 +261,33 @@ void UCamcorderEquipmentComponent::RefreshBackpack()
          .OnMouseButtonDown_Lambda([Weak,Id](const FGeometry&,const FPointerEvent& Event){if(Event.GetEffectingButton()==EKeys::RightMouseButton){if(auto* E=Weak.Get())E->ShowAssignmentMenu(Id);return FReply::Handled();}return FReply::Unhandled();})
          [SNew(SButton).ButtonStyle(FCoreStyle::Get(),"NoBorder").ContentPadding(FMargin(16)).IsFocusable(false)
           .OnClicked_Lambda([Weak,Id]{if(auto* E=Weak.Get()) E->SelectInventoryItem(Id); return FReply::Handled();})
-          [SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",18)).Text_Lambda([Weak,Id]{auto* E=Weak.Get();return FText::FromString(E?FString::Printf(TEXT("%s  ×%d\n右键登记快捷槽"),*E->ItemTitle(Id),E->Inventory->Count(Id)):TEXT(""));})]]];
+          [SNew(SLocalizedTextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",18)).WrapTextAt(230).Text_Lambda([Weak,Id]{auto* E=Weak.Get();return FText::FromString(E?FString::Printf(TEXT("%s  ×%d\n左键查看 · 右键丢下"),*E->ItemTitle(Id),E->Inventory->Count(Id)):TEXT(""));})]]];
     }
-    if(Inventory->Items.IsEmpty()) InventoryList->AddSlot().AutoHeight()[SNew(STextBlock).Text(FText::FromString(TEXT("背包为空")))];
+    if(Inventory->Items.IsEmpty()) InventoryList->AddSlot().AutoHeight()[SNew(SLocalizedTextBlock).Text(FText::FromString(TEXT("背包为空")))];
 }
 
 void UCamcorderEquipmentComponent::CreateBackpackHUD()
 {
     const TWeakObjectPtr<UCamcorderEquipmentComponent> Weak(this);
     const auto Font=FCoreStyle::GetDefaultFontStyle("Regular",18);
-    auto Label=[Font](const FString& Text){return SNew(STextBlock).Font(Font).Text(FText::FromString(Text));};
+    auto Label=[Font](const FString& Text){return SNew(SLocalizedTextBlock).Font(Font).Text(FText::FromString(Text));};
     auto Button=[Label](const FString& Text,TFunction<void()> Action){return SNew(SButton).IsFocusable(false).ContentPadding(FMargin(16,10)).OnClicked_Lambda([Action]{Action();return FReply::Handled();})[Label(Text)];};
     auto Bar=SNew(SHorizontalBox);
     auto Slots=SNew(SHorizontalBox);
-    auto Assignments=SNew(SVerticalBox);
     for(int32 I=0;I<UBackpackInventory::QuickSlotCount;++I)
     {
         Bar->AddSlot().AutoWidth().Padding(3)[SNew(SBorder).Padding(10).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
             .BorderBackgroundColor_Lambda([Weak,I]{auto* E=Weak.Get();return E && E->Inventory->ActiveSlot==I?FLinearColor(.07f,.35f,.42f,.95f):FLinearColor(.02f,.03f,.05f,.95f);})
-            [SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",16)).Text_Lambda([Weak,I]{auto* E=Weak.Get();return FText::FromString(E?E->SlotTitle(I):TEXT(""));})]];
+            [SNew(SLocalizedTextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",14)).WrapTextAt(270).Text_Lambda([Weak,I]{auto* E=Weak.Get();return FText::FromString(E?E->SlotTitle(I):TEXT(""));})]];
         Slots->AddSlot().FillWidth(1).Padding(3)[SNew(SButton).IsFocusable(false).ContentPadding(8)
             .OnClicked_Lambda([Weak,I]{if(auto* E=Weak.Get()) E->AssignQuickSlot(I);return FReply::Handled();})
-            [SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",14)).AutoWrapText(true).Text_Lambda([Weak,I]{auto* E=Weak.Get();return FText::FromString(E?E->SlotTitle(I):TEXT(""));})]];
-        Assignments->AddSlot().AutoHeight().Padding(0,3)[SNew(SButton).IsFocusable(false).ContentPadding(10)
-            .OnClicked_Lambda([Weak,I]{if(auto* E=Weak.Get())E->AssignQuickSlot(I);return FReply::Handled();})
-            [SNew(STextBlock).Font(Font).Text_Lambda([Weak,I]{auto* E=Weak.Get();return FText::FromString(TEXT("登记到 ")+(E?E->SlotTitle(I):TEXT("")));})]];
+            [SNew(SLocalizedTextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",14)).AutoWrapText(true).Text_Lambda([Weak,I]{auto* E=Weak.Get();return FText::FromString(E?E->SlotTitle(I):TEXT(""));})]];
     }
-    Assignments->AddSlot().AutoHeight().Padding(0,8)[Button(TEXT("取消"),[Weak]{if(auto* E=Weak.Get()) E->bAssignmentMenu=false;})];
     TSharedRef<SWidget> Panel=SNew(SBorder).Padding(24).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(FLinearColor(.025f,.035f,.05f,1))
     [SNew(SVerticalBox)
       +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,18)
       [SNew(SHorizontalBox)
-        +SHorizontalBox::Slot().FillWidth(1)[SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Bold",28)).Text(FText::FromString(TEXT("背包  /  BACKPACK")))]
+        +SHorizontalBox::Slot().FillWidth(1)[SNew(SLocalizedTextBlock).Font(FCoreStyle::GetDefaultFontStyle("Bold",28)).Text(FText::FromString(TEXT("背包  /  BACKPACK")))]
         +SHorizontalBox::Slot().AutoWidth()[Button(TEXT("关闭  [I]"),[Weak]{if(auto* E=Weak.Get())E->SetBackpackOpen(false);})]]
       +SVerticalBox::Slot().FillHeight(1)
       [SNew(SHorizontalBox)
@@ -278,19 +297,19 @@ void UCamcorderEquipmentComponent::CreateBackpackHUD()
         [SNew(SVerticalBox)
           +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,12)[Label(TEXT("物体检视 / 3D"))]
           +SVerticalBox::Slot().FillHeight(1)[SNew(SInventoryInspection).Equipment(Weak)]
-          +SVerticalBox::Slot().AutoHeight().Padding(0,12)[SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",15)).AutoWrapText(true).Text(FText::FromString(TEXT("左键拖动旋转 · 滚轮缩放 · 双击复位")))]
+          +SVerticalBox::Slot().AutoHeight().Padding(0,12)[SNew(SLocalizedTextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",15)).AutoWrapText(true).Text(FText::FromString(TEXT("左键拖动旋转 · 滚轮缩放 · 双击复位")))]
           +SVerticalBox::Slot().AutoHeight()[Button(TEXT("重置视角"),[Weak]{if(auto* E=Weak.Get())if(E->ItemPreview)E->ItemPreview->ResetView();})]]
         +SHorizontalBox::Slot().FillWidth(.30f)
         [SNew(SVerticalBox)
-          +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,16)[SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Bold",24)).Text_Lambda([Weak]{auto* E=Weak.Get();return FText::FromString(E?E->ItemTitle(E->SelectedItem):TEXT(""));})]
-          +SVerticalBox::Slot().FillHeight(1)[SNew(SScrollBox)+SScrollBox::Slot()[SNew(STextBlock).Font(Font).AutoWrapText(true).Text_Lambda([Weak]{auto* E=Weak.Get();return FText::FromString(E?E->SelectedDescription():TEXT(""));})]]
+          +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,16)[SNew(SLocalizedTextBlock).Font(FCoreStyle::GetDefaultFontStyle("Bold",24)).AutoWrapText(true).Text_Lambda([Weak]{auto* E=Weak.Get();return FText::FromString(E?E->ItemTitle(E->SelectedItem):TEXT(""));})]
+          +SVerticalBox::Slot().FillHeight(1)[SNew(SScrollBox)+SScrollBox::Slot()[SNew(SLocalizedTextBlock).Font(Font).AutoWrapText(true).Text_Lambda([Weak]{auto* E=Weak.Get();return FText::FromString(E?E->SelectedDescription():TEXT(""));})]]
           +SVerticalBox::Slot().AutoHeight().Padding(0,8)[SNew(SVerticalBox)
             +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[Button(TEXT("使用 / 装备  [Enter]"),[Weak]{if(auto* E=Weak.Get())E->UseSelectedItem();})]
             +SVerticalBox::Slot().AutoHeight()[Button(TEXT("摄像机收入背包"),[Weak]{if(auto* E=Weak.Get())E->StoreCamera();})]]]]
-      +SVerticalBox::Slot().AutoHeight().Padding(0,10)[SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",15)).ColorAndOpacity(FLinearColor(1,.8f,.3f)).AutoWrapText(true).Text_Lambda([Weak]{auto* E=Weak.Get();return FText::FromString(E && E->Camcorder?E->Camcorder->Notice:TEXT(""));})]
-      +SVerticalBox::Slot().AutoHeight()[Label(TEXT("快捷栏登记：选中物品后按 1–4 / 点击槽位，也可右键物品"))]
+      +SVerticalBox::Slot().AutoHeight().Padding(0,10)[SNew(SLocalizedTextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",15)).ColorAndOpacity(FLinearColor(1,.8f,.3f)).AutoWrapText(true).Text_Lambda([Weak]{auto* E=Weak.Get();return FText::FromString(E && E->Camcorder?E->Camcorder->Notice:TEXT(""));})]
+      +SVerticalBox::Slot().AutoHeight()[Label(TEXT("固定快捷栏：摄像机 / 手枪 / 霰弹枪 / 步枪；按 1–4 或点击槽位切换"))]
       +SVerticalBox::Slot().AutoHeight().Padding(0,10)[Slots]
-      +SVerticalBox::Slot().AutoHeight()[SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",14)).Text(FText::FromString(TEXT("游戏中 1–4 切换手持物品 · 电池在背包中使用 · 打开背包不暂停录像")))]];
+      +SVerticalBox::Slot().AutoHeight()[SNew(SLocalizedTextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",14)).Text(FText::FromString(TEXT("游戏中 F 拾取 · Q 丢下当前槽物品 · 背包右键丢下 · 打开背包不暂停录像")))]];
     BackpackHUD=SNew(SCamcorderBackpackRoot).Equipment(Weak)
       .Visibility_Lambda([Weak]{auto* E=Weak.Get();return E && E->bBackpackOpen?EVisibility::Visible:EVisibility::SelfHitTestInvisible;})
       [SNew(SOverlay)
@@ -299,11 +318,7 @@ void UCamcorderEquipmentComponent::CreateBackpackHUD()
         +SOverlay::Slot()
         [SNew(SBorder).Visibility_Lambda([Weak]{auto* E=Weak.Get();return E && E->bBackpackOpen?EVisibility::Visible:EVisibility::Collapsed;})
          .Padding(35).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(FLinearColor(0,0,0,.75f))
-         [SNew(SScaleBox).Stretch(EStretch::ScaleToFit)[SNew(SBox).WidthOverride(1200).HeightOverride(680)[Panel]]]]
-        +SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center)
-        [SNew(SBorder).Visibility_Lambda([Weak]{auto* E=Weak.Get();return E && E->bBackpackOpen && E->bAssignmentMenu?EVisibility::Visible:EVisibility::Collapsed;})
-         .Padding(20).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(FLinearColor(.05f,.09f,.13f))
-         [SNew(SBox).WidthOverride(360)[Assignments]]]];
+         [SNew(SScaleBox).Stretch(EStretch::ScaleToFit)[SNew(SBox).WidthOverride(1200).HeightOverride(680)[Panel]]]]];
     GetWorld()->GetGameViewport()->AddViewportWidgetContent(BackpackHUD.ToSharedRef(),20);
     RefreshBackpack();
 }

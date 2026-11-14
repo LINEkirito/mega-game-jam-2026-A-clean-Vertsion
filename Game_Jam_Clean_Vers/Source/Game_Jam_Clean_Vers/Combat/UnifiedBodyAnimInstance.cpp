@@ -11,6 +11,7 @@
 #include "TacticalWeapon.h"
 #include "Camcorder/CamcorderEquipmentComponent.h"
 #include "Camcorder/ShoulderCamcorder.h"
+#include "Components/SceneCaptureComponent2D.h"
 #include "Camcorder/ItemInteractionComponent.h"
 #include "GameFramework/PlayerController.h"
 
@@ -23,15 +24,21 @@ struct FProxy : FAnimInstanceProxy
     TMap<FName,FTransform> AuthoredComponentPose;
     TMap<FName,FQuat> FingerRotations;
     TWeakObjectPtr<UAnimSequence> Sequence;
+    TWeakObjectPtr<UAnimSequence> Unarmed;
+    float UnarmedTime=0,UnarmedAlpha=0;
     FTransform Wrists[2];
     FTransform MeshWorld;
     bool Active=false;
     bool ApplyHand[2]={false,false};
     float Time=0;
     float LowAimAlpha=0;
+    bool Pistol=false;
+    bool StableWeaponAim=false;
     float CrouchAlpha=0,CrouchPhase=0,CrouchMoveAlpha=0,CrouchDirectionAlpha=0;
     TWeakObjectPtr<UAnimSequence> CrouchIdle,CrouchMoveA,CrouchMoveB;
     FVector BodyRight,BodyForward;
+    bool SelfieLook=false;
+    FVector SelfieLookTarget;
     explicit FProxy(UAnimInstance* Instance):FAnimInstanceProxy(Instance){}
     virtual void PreUpdate(UAnimInstance* Instance,float DT) override
     {
@@ -39,7 +46,7 @@ struct FProxy : FAnimInstanceProxy
         AuthoredComponentPose.Reset();FingerRotations.Reset();Active=false;ApplyHand[0]=ApplyHand[1]=false;Sequence.Reset();
         auto* Character=Cast<AGame_Jam_Clean_VersCharacter>(Instance->GetOwningActor());
         auto* PC=Character?Cast<APlayerController>(Character->GetController()):nullptr;
-        BodyLocalPose.Reset();
+        BodyLocalPose.Reset();SelfieLook=false;
         if(Character&&Character->GetMesh())
         {
             auto* Body=Character->GetMesh();
@@ -53,6 +60,8 @@ struct FProxy : FAnimInstanceProxy
         LowAimAlpha=FMath::Clamp((-FMath::UnwindDegrees(PC->GetControlRotation().Pitch)-25.f)/40.f,0.f,1.f);
         auto* Combat=PC->FindComponentByClass<UCombatEquipmentComponent>();
         auto* Gun=Combat?Combat->GetPresentationWeapon():nullptr;
+        Pistol=Gun&&Gun->Kind==ETacticalWeaponKind::Pistol;
+        StableWeaponAim=Gun&&Gun->HasStableADSPose();
         CrouchAlpha=FMath::FInterpTo(CrouchAlpha,Character->bIsCrouched?1.f:0.f,DT,12.f);
         if(CrouchAlpha>.001f)
         {
@@ -97,7 +106,12 @@ struct FProxy : FAnimInstanceProxy
         }
         else if(auto* Equipment=PC->FindComponentByClass<UCamcorderEquipmentComponent>())
         {
-            if(Equipment->Camcorder&&Equipment->Camcorder->IsPresenting())Source=Equipment->Camcorder->HoldingHands;
+            if(Equipment->Camcorder&&Equipment->Camcorder->IsPresenting())
+            {
+                Source=Equipment->Camcorder->HoldingHands;
+                SelfieLook=Equipment->Camcorder->bSelfie;
+                SelfieLookTarget=MeshWorld.InverseTransformPosition(Equipment->Camcorder->Capture->GetComponentLocation());
+            }
         }
         if(Source)
         {
@@ -110,6 +124,16 @@ struct FProxy : FAnimInstanceProxy
                 if(N.StartsWith(TEXT("index_"))||N.StartsWith(TEXT("middle_"))||N.StartsWith(TEXT("ring_"))||N.StartsWith(TEXT("pinky_"))||N.StartsWith(TEXT("thumb_")))
                     FingerRotations.Add(Name,Source->GetSocketTransform(Name).GetRelativeTransform(Source->GetSocketTransform(Source->GetParentBone(Name))).GetRotation());
             }
+        }
+        UnarmedAlpha=FMath::FInterpTo(UnarmedAlpha,Source?0.f:1.f,DT,12.f);
+        if(UnarmedAlpha>.001f)
+        {
+            const FString Clip=Character->GetVelocity().Size2D()>10.f?
+                TEXT("/Game/Characters/Mannequins/Anims/Unarmed/Walk/MF_Unarmed_Walk_Fwd"):
+                TEXT("/Game/Characters/Mannequins/Anims/Unarmed/MM_Idle");
+            auto& Cached=CastChecked<UUnifiedBodyAnimInstance>(Instance)->CachedAnimations.FindOrAdd(Clip);
+            if(!Cached)Cached=LoadObject<UAnimSequence>(nullptr,*Clip);
+            Unarmed=Cached.Get();UnarmedTime+=DT;
         }
         if(auto* Interaction=Character->FindComponentByClass<UItemInteractionComponent>())
             if(Interaction->GetLeftWristTarget(Wrists[0])){Active=true;ApplyHand[0]=true;}
@@ -138,6 +162,17 @@ struct FProxy : FAnimInstanceProxy
                 Moving.Blend(MoveA.Pose[B],MoveB.Pose[B],CrouchDirectionAlpha);
                 Target.Blend(Idle.Pose[B],Moving,CrouchMoveAlpha);
                 Blended.Blend(Output.Pose[B],Target,CrouchAlpha);Output.Pose[B]=Blended;
+            }
+        }
+        if(UnarmedAlpha>.001f&&Unarmed.IsValid())
+        {
+            FPoseContext Sample(Output);Sample.ResetToRefPose();FAnimationPoseData Data(Sample);
+            Unarmed->GetAnimationPose(Data,FAnimExtractContext(FMath::Fmod(UnarmedTime,Unarmed->GetPlayLength()),true));
+            for(FCompactPoseBoneIndex B:Output.Pose.ForEachBoneIndex())
+            {
+                const FString Name=Ref.GetBoneName(Bones.MakeMeshPoseIndex(B).GetInt()).ToString();
+                if(Name.StartsWith(TEXT("clavicle"))||Name.StartsWith(TEXT("upperarm"))||Name.StartsWith(TEXT("lowerarm"))||Name.StartsWith(TEXT("hand_"))||Name.StartsWith(TEXT("index_"))||Name.StartsWith(TEXT("middle_"))||Name.StartsWith(TEXT("ring_"))||Name.StartsWith(TEXT("pinky_"))||Name.StartsWith(TEXT("thumb_")))
+                {FTransform Blended;Blended.Blend(Output.Pose[B],Sample.Pose[B],UnarmedAlpha);Output.Pose[B]=Blended;}
             }
         }
         if(!AuthoredComponentPose.IsEmpty())
@@ -179,6 +214,56 @@ struct FProxy : FAnimInstanceProxy
         auto Rebuild=[&](){for(FCompactPoseBoneIndex B:Output.Pose.ForEachBoneIndex()){const auto Parent=Output.Pose.GetParentBoneIndex(B);CS[B.GetInt()]=Parent.GetInt()<0?Output.Pose[B]:Output.Pose[B]*CS[Parent.GetInt()];}};
         auto SetRotation=[&](FCompactPoseBoneIndex B,const FQuat& Rotation){const auto Parent=Output.Pose.GetParentBoneIndex(B);Output.Pose[B].SetRotation((Parent.GetInt()<0?Rotation:CS[Parent.GetInt()].GetRotation().Inverse()*Rotation).GetNormalized());Rebuild();};
         Rebuild();
+        if(SelfieLook)
+        {
+            const auto Head=Index(TEXT("head"));
+            if(Head.GetInt()>=0)
+            {
+                // This rig maps both original eye bones onto head. Align the eye/head
+                // forward axis with the actual lens, preserving the purchased skeleton.
+                int32 RefIndex=Ref.FindBoneIndex(TEXT("head"));
+                FTransform RefHead=Ref.GetRefBonePose()[RefIndex];
+                while((RefIndex=Ref.GetParentIndex(RefIndex))>=0)RefHead=RefHead*Ref.GetRefBonePose()[RefIndex];
+                const FVector LocalForward=RefHead.InverseTransformVectorNoScale(BodyForward).GetSafeNormal();
+                const FVector EyeOffset=RefHead.InverseTransformVectorNoScale(BodyForward*8.f+FVector(0,0,6));
+                const FTransform HeadPose=CS[Head.GetInt()];
+                const FVector Eye=HeadPose.TransformPosition(EyeOffset);
+                const FVector Forward=HeadPose.TransformVectorNoScale(LocalForward).GetSafeNormal();
+                const FVector TowardLens=(SelfieLookTarget-Eye).GetSafeNormal();
+                if(!TowardLens.IsNearlyZero())SetRotation(Head,FQuat::FindBetweenNormals(Forward,TowardLens)*HeadPose.GetRotation());
+            }
+        }
+        if(StableWeaponAim)
+        {
+            // Let the torso support the stationary ADS rig instead of pulling
+            // the gun into the eye. CCD over the spine preserves all bone lengths
+            // and leaves pelvis/legs rooted in their locomotion pose.
+            for(int32 Iteration=0;Iteration<8;++Iteration)
+            for(const TCHAR* SpineName:{TEXT("spine_03"),TEXT("spine_02"),TEXT("spine_01")})
+            {
+                const auto Spine=Index(SpineName);
+                if(Spine.GetInt()<0)continue;
+                FVector ShoulderMean=FVector::ZeroVector,GoalMean=FVector::ZeroVector;
+                int32 Count=0;
+                for(int32 Side=0;Side<2;++Side)
+                {
+                    const auto Upper=Index(Side==0?TEXT("upperarm_l"):TEXT("upperarm_r"));
+                    const auto Lower=Index(Side==0?TEXT("lowerarm_l"):TEXT("lowerarm_r"));
+                    const auto Hand=Index(Side==0?TEXT("hand_l"):TEXT("hand_r"));
+                    if(Upper.GetInt()<0||Lower.GetInt()<0||Hand.GetInt()<0)continue;
+                    const FVector Shoulder=CS[Upper.GetInt()].GetLocation();
+                    const FVector Target=MeshWorld.InverseTransformPosition(Wrists[Side].GetLocation());
+                    const float Reach=FVector::Distance(Shoulder,CS[Lower.GetInt()].GetLocation())+FVector::Distance(CS[Lower.GetInt()].GetLocation(),CS[Hand.GetInt()].GetLocation())-.5f;
+                    const FVector Delta=Target-Shoulder;
+                    const float Excess=FMath::Max(0.f,static_cast<float>(Delta.Size())-Reach);
+                    ShoulderMean+=Shoulder;GoalMean+=Shoulder+Delta.GetSafeNormal()*Excess;++Count;
+                }
+                if(!Count)continue;
+                const FVector Pivot=CS[Spine.GetInt()].GetLocation();
+                const FQuat Adjust=FQuat::FindBetweenNormals((ShoulderMean/Count-Pivot).GetSafeNormal(),(GoalMean/Count-Pivot).GetSafeNormal());
+                SetRotation(Spine,Adjust*CS[Spine.GetInt()].GetRotation());
+            }
+        }
         for(int32 Side=0;Side<2;++Side)
         {
             if(!ApplyHand[Side])continue;
@@ -186,6 +271,31 @@ struct FProxy : FAnimInstanceProxy
             const auto Lower=Index(Side==0?TEXT("lowerarm_l"):TEXT("lowerarm_r"));
             const auto Hand=Index(Side==0?TEXT("hand_l"):TEXT("hand_r"));
             if(Upper.GetInt()<0||Lower.GetInt()<0||Hand.GetInt()<0)continue;
+            if(StableWeaponAim)
+            {
+                // Raising the rifle can also need the shoulder girdle. Rotate
+                // the clavicle only enough to restore reach, without stretching.
+                const auto Clavicle=Index(Side==0?TEXT("clavicle_l"):TEXT("clavicle_r"));
+                if(Clavicle.GetInt()>=0)
+                {
+                    const FVector Pivot=CS[Clavicle.GetInt()].GetLocation();
+                    const FVector Shoulder=CS[Upper.GetInt()].GetLocation();
+                    const FVector Target=MeshWorld.InverseTransformPosition(Wrists[Side].GetLocation());
+                    const float Reach=FVector::Distance(Shoulder,CS[Lower.GetInt()].GetLocation())+FVector::Distance(CS[Lower.GetInt()].GetLocation(),CS[Hand.GetInt()].GetLocation())-.5f;
+                    const float Radius=FVector::Distance(Pivot,Shoulder),Distance=FVector::Distance(Pivot,Target);
+                    if(FVector::Distance(Shoulder,Target)>Reach&&Radius>1.f&&Distance>1.f)
+                    {
+                        const FVector Direction=(Target-Pivot).GetSafeNormal();
+                        FVector Pole=Shoulder-Pivot;Pole-=Direction*FVector::DotProduct(Pole,Direction);
+                        if(Pole.Normalize())
+                        {
+                            const float Cos=FMath::Clamp((Distance*Distance+Radius*Radius-Reach*Reach)/(2.f*Distance*Radius),-1.f,1.f);
+                            const FVector Desired=Direction*Cos+Pole*FMath::Sqrt(FMath::Max(0.f,1.f-Cos*Cos));
+                            SetRotation(Clavicle,FQuat::FindBetweenNormals((Shoulder-Pivot).GetSafeNormal(),Desired)*CS[Clavicle.GetInt()].GetRotation());
+                        }
+                    }
+                }
+            }
             const FVector A=CS[Upper.GetInt()].GetLocation(),B=CS[Lower.GetInt()].GetLocation(),C=CS[Hand.GetInt()].GetLocation();
             const float L1=FVector::Distance(A,B),L2=FVector::Distance(B,C);
             if(L1<1||L2<1)continue;
@@ -198,9 +308,10 @@ struct FProxy : FAnimInstanceProxy
             if(!Pole.Normalize())Pole=FVector::CrossProduct(Direction,FVector::UpVector).GetSafeNormal();
             if(!AuthoredComponentPose.IsEmpty() && LowAimAlpha>0.f)
             {
-                // Lower the elbows beside the torso when aiming down; the camera-oriented
-                // recording otherwise bends them forward into the owner's face.
-                FVector LowPole=BodyRight*(Side==0?-.7f:.7f)-BodyForward*.3f+FVector(0,0,-1);
+                // A pistol's close two-handed grip needs the elbows in front of the
+                // ribs. Pulling them behind the torso sends the forearms through it.
+                // Keep the downward/outward bend and the authored wrist rotations.
+                FVector LowPole=BodyRight*(Side==0?-.7f:.7f)+BodyForward*(Pistol?1.f:-.3f)+FVector(0,0,-1);
                 LowPole-=Direction*FVector::DotProduct(LowPole,Direction);
                 if(LowPole.Normalize())Pole=FMath::Lerp(Pole,LowPole,LowAimAlpha).GetSafeNormal();
             }

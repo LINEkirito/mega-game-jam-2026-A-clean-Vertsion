@@ -8,6 +8,7 @@
 #include "Widgets/Layout/SUniformGridPanel.h"
 #include "Widgets/Images/SImage.h"
 #include "Widgets/Text/STextBlock.h"
+#include "Localization/GameLanguage.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SSlider.h"
 #include "Widgets/SOverlay.h"
@@ -32,7 +33,7 @@ public:
  }
 private:TWeakPtr<SRecordingReview> Review;
 };
-static TSharedRef<STextBlock> ReviewText(const FString& Text,int32 Size=22,FLinearColor Color=FLinearColor::White){return SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",Size)).ColorAndOpacity(Color).AutoWrapText(true).Text(FText::FromString(Text));}
+static TSharedRef<STextBlock> ReviewText(const FString& Text,int32 Size=22,FLinearColor Color=FLinearColor::White){return SNew(SLocalizedTextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",Size)).ColorAndOpacity(Color).AutoWrapText(true).Text(FText::FromString(Text));}
 void SRecordingReview::Construct(const FArguments& A){Library=A._Library;if(auto* L=Library.Get())for(int I=0;I<L->Clips.Num();++I)Thumbnails.Add(MakeShared<FThumbnail>());Build();}
 void SRecordingReview::LoadThumbnail(int32 Index){
  auto* L=Library.Get();if(!L||!Thumbnails.IsValidIndex(Index)||Thumbnails[Index]->bLoaded)return;
@@ -106,23 +107,23 @@ void SRecordingReview::Build(){
   Video->AddSlot().AutoHeight()[SNew(SBox).WidthOverride(864).HeightOverride(486)[SNew(SOverlay)
    +SOverlay::Slot()[SNew(SImage).Image(&VideoBrush)]
    +SOverlay::Slot()[SNew(SRecordingScoreOutline).Review(SharedThis(this))]]];
-  Video->AddSlot().AutoHeight().Padding(0,8)[SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",20)).Text_Lambda([this]{return FText::FromString(FString::Printf(TEXT("录像 %02d   %.1f / %.1f 秒   ·   %d×   %s"),SelectedClip+1,PlaybackSeconds,Duration,GetPlaybackRate(),bPlaying?TEXT("播放中"):TEXT("暂停")));})];
+  Video->AddSlot().AutoHeight().Padding(0,8)[SNew(SLocalizedTextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",20)).Text_Lambda([this]{return FText::FromString(FString::Printf(TEXT("录像 %02d   %.1f / %.1f 秒   ·   %d×   %s"),SelectedClip+1,PlaybackSeconds,Duration,GetPlaybackRate(),bPlaying?TEXT("播放中"):TEXT("暂停")));})];
   Video->AddSlot().AutoHeight()[SNew(SSlider).IsFocusable(false).Value_Lambda([this]{return Duration>0?PlaybackSeconds/Duration:0.f;}).OnValueChanged_Lambda([this](float V){Seek(V);})];
-  Video->AddSlot().AutoHeight().Padding(0,8)[SNew(SBox).HeightOverride(64)[SNew(SScrollBox)+SScrollBox::Slot()[SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",18)).ColorAndOpacity(FLinearColor(1,.78f,.35f)).AutoWrapText(true).Text_Lambda([this]{
+  Video->AddSlot().AutoHeight().Padding(0,8)[SNew(SBox).HeightOverride(64)[SNew(SScrollBox)+SScrollBox::Slot()[SNew(SLocalizedTextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",18)).ColorAndOpacity(FLinearColor(1,.78f,.35f)).AutoWrapText(true).Text_Lambda([this]{
    if(!PlaybackError.IsEmpty())return FText::FromString(PlaybackError);FString Text;if(auto* Lib=Library.Get())if(Lib->Clips.IsValidIndex(SelectedClip))for(const auto& M:Lib->Clips[SelectedClip].ScoreMoments)if(M.Seconds<=PlaybackSeconds&&M.Seconds+2>=PlaybackSeconds)Text+=M.Subject+TEXT(" · ")+M.Explanation+TEXT("\n");return FText::FromString(Text);
   })]]];
   Body->AddSlot().AutoWidth()[Video];auto Details=SNew(SVerticalBox);
-  Details->AddSlot().AutoHeight().Padding(0,0,0,12)[SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",24)).Text_Lambda([this]{int32 Score=0;auto* Lib=Library.Get();if(Lib&&Lib->Clips.IsValidIndex(SelectedClip))for(const auto& M:Lib->Clips[SelectedClip].ScoreMoments)if(M.Seconds<=PlaybackSeconds)Score+=M.Points;return FText::FromString(FString::Printf(TEXT("播放至此：%+d 分"),Score));})];
+  Details->AddSlot().AutoHeight().Padding(0,0,0,12)[SNew(SLocalizedTextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",24)).Text_Lambda([this]{int32 Score=0;auto* Lib=Library.Get();if(Lib&&Lib->Clips.IsValidIndex(SelectedClip))for(const auto& M:Lib->Clips[SelectedClip].ScoreMoments)if(M.Seconds<=PlaybackSeconds)Score+=M.Points;return FText::FromString(FString::Printf(TEXT("播放至此：%+d 分"),Score));})];
   auto Entries=SNew(SVerticalBox);
   const auto& Clip=L->Clips[SelectedClip];for(int32 I=0;I<Clip.ScoreMoments.Num();++I){const auto M=Clip.ScoreMoments[I];
-   Entries->AddSlot().AutoHeight().Padding(0,0,0,14)[SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",19)).AutoWrapText(true).ColorAndOpacity_Lambda([this,M]{return M.Seconds>PlaybackSeconds?FLinearColor(.4f,.45f,.5f):M.Points>=0?FLinearColor(.55f,1,.8f):FLinearColor(1,.55f,.45f);}).Text(FText::FromString(FString::Printf(TEXT("%.1f秒 · %s\n%s"),M.Seconds,*M.Subject,*M.Explanation)))];
+   Entries->AddSlot().AutoHeight().Padding(0,0,0,14)[SNew(SLocalizedTextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",19)).AutoWrapText(true).ColorAndOpacity_Lambda([this,M]{return M.Seconds>PlaybackSeconds?FLinearColor(.4f,.45f,.5f):M.Points>=0?FLinearColor(.55f,1,.8f):FLinearColor(1,.55f,.45f);}).Text(FText::FromString(FString::Printf(TEXT("%.1f秒 · %s\n%s"),M.Seconds,*M.Subject,*M.Explanation)))];
   }
   for(const auto& Evidence:Clip.RecordingEvidence)Entries->AddSlot().AutoHeight().Padding(0,8)[ReviewText(Evidence,17,FLinearColor(.65f,.72f,.8f))];
   if(Clip.ScoreMoments.IsEmpty())Entries->AddSlot().AutoHeight()[ReviewText(TEXT("本段没有达到加分或扣分门槛。"),20)];
   Details->AddSlot().FillHeight(1)[SNew(SScrollBox)+SScrollBox::Slot()[Entries]];
   Body->AddSlot().FillWidth(1).Padding(24,0)[Details];Root->AddSlot().FillHeight(1)[Body];
   auto Controls=SNew(SHorizontalBox);
-  auto Button=[&](const FString& Label,TFunction<void()> Action){Controls->AddSlot().AutoWidth().Padding(0,0,12,0)[SNew(SButton).IsFocusable(false).ContentPadding(FMargin(14,8)).OnClicked_Lambda([Action]{Action();return FReply::Handled();})[SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",18)).Text(FText::FromString(Label))]];};
+  auto Button=[&](const FString& Label,TFunction<void()> Action){Controls->AddSlot().AutoWidth().Padding(0,0,12,0)[SNew(SButton).IsFocusable(false).ContentPadding(FMargin(14,8)).OnClicked_Lambda([Action]{Action();return FReply::Handled();})[SNew(SLocalizedTextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",18)).Text(FText::FromString(Label))]];};
   Button(TEXT("← 上一段"),[this]{PlayClip(FMath::Max(0,SelectedClip-1));});Button(TEXT("播放 / 暂停"),[this]{TogglePause();});Button(TEXT("下一段 →"),[this]{PlayClip(SelectedClip+1);});for(int Rate:{1,2,4})Button(FString::Printf(TEXT("%d×"),Rate),[this,Rate]{SetPlaybackRate(Rate);});Button(TEXT("跳过回看 · 总分"),[this]{ShowSummary();});
   Root->AddSlot().AutoHeight().Padding(0,12)[Controls];
   Root->AddSlot().AutoHeight()[ReviewText(TEXT("空格暂停 · 1/2/4切换倍速 · 左右键切换录像 · 按住画面临时2倍速，松开恢复1倍速"),17,FLinearColor(.65f,.72f,.8f))];

@@ -67,19 +67,38 @@ bool FPlayerFullBodyCheck::Update()
     for(const auto& Entry:Combat->Weapons)
     {
         auto* Gun=Entry.Value.Get();Combat->ActiveWeapon=Gun;Gun->Equip(Player);Gun->AdvanceHandling(5.f);
-        for(float Pitch:{-85.f,-65.f,0.f,65.f,85.f})
+        for(bool ADS:{false,true})
+        for(float Pitch:{-85.f,-70.f,-65.f,-45.f,-25.f,0.f,65.f,85.f})
         {
-            PC->SetControlRotation(FRotator(Pitch,0,0));
+            // This synchronous sweep does not tick the pawn's yaw-follow logic.
+            // Keep view yaw aligned with its current body, even on rotated spawns.
+            PC->SetControlRotation(FRotator(Pitch,Player->GetActorRotation().Yaw,0));
             const FVector FootBefore=Mesh->GetSocketLocation(TEXT("foot_l"));
-            Gun->UpdatePose(1.f,true,0);
+            Gun->UpdatePose(1.f,ADS,0);
             const float Error=FMath::Max(Gun->GripError(false),Gun->GripError(true));MaxGrip=FMath::Max(MaxGrip,Error);
             Test->TestTrue(*FString::Printf(TEXT("Both wrists contact gun kind %d pitch %.0f (%.3fcm)"),int32(Gun->Kind),Pitch,Error),Error<.2f);
             Test->TestTrue(TEXT("Looking does not rotate or lift feet"),FVector::Distance(FootBefore,Mesh->GetSocketLocation(TEXT("foot_l")))<.05f);
             Test->TestTrue(TEXT("Body stays at locomotion frame"),Mesh->GetComponentTransform().Equals(Player->GetMesh()->GetComponentTransform(),.001f));
+            // The player camera clamps normal play to -70 degrees. Keep the
+            // +/-85 stress checks for grip reach, but test torso clearance at
+            // the playable downward limit rather than bypassing that clamp.
+            if(Gun->Kind==ETacticalWeaponKind::Pistol && Pitch<=-65.f && Pitch>=-70.f)
+            {
+                // Grip accuracy alone allows both arms to pass through the chest.
+                const FVector Chest=Mesh->GetSocketLocation(TEXT("spine_04"));
+                const FVector Forward=Player->GetActorForwardVector();
+                for(const TCHAR* Side:{TEXT("l"),TEXT("r")})
+                {
+                    const FVector Elbow=Mesh->GetSocketLocation(FName(*FString::Printf(TEXT("lowerarm_%s"),Side)));
+                    const FVector Wrist=Mesh->GetSocketLocation(FName(*FString::Printf(TEXT("hand_%s"),Side)));
+                    Test->TestTrue(*FString::Printf(TEXT("Low pistol elbow clears chest %s ADS %d pitch %.0f"),Side,ADS,Pitch),FVector::DotProduct(Elbow-Chest,Forward)>8.f);
+                    Test->TestTrue(*FString::Printf(TEXT("Low pistol wrist clears chest %s ADS %d pitch %.0f"),Side,ADS,Pitch),FVector::DotProduct(Wrist-Chest,Forward)>14.f);
+                }
+            }
         }
         Gun->Stow();Combat->ActiveWeapon=nullptr;
     }
-    PC->SetControlRotation(FRotator::ZeroRotator);
+    PC->SetControlRotation(FRotator(0,Player->GetActorRotation().Yaw,0));
     Test->AddInfo(FString::Printf(TEXT("Max full-body grip error %.4fcm"),MaxGrip));
     return true;
 }
@@ -114,12 +133,12 @@ public:
                 auto* Gun=Entry.Value.Get();Combat->ActiveWeapon=Gun;Gun->Equip(Player);Gun->AdvanceHandling(5.f);
                 for(float Pitch:{-85.f,0.f,85.f})
                 {
-                    PC->SetControlRotation(FRotator(Pitch,0,0));Gun->UpdatePose(1,true,0);
+                    PC->SetControlRotation(FRotator(Pitch,Player->GetActorRotation().Yaw,0));Gun->UpdatePose(1,true,0);
                     Test->TestTrue(TEXT("Crouched hands retain weapon contact"),FMath::Max(Gun->GripError(false),Gun->GripError(true))<.2f);
                 }
                 Gun->Stow();Combat->ActiveWeapon=nullptr;
             }
-            PC->SetControlRotation(FRotator::ZeroRotator);Player->UnCrouch();Started=FPlatformTime::Seconds();Stage=2;return false;
+            PC->SetControlRotation(FRotator(0,Player->GetActorRotation().Yaw,0));Player->UnCrouch();Started=FPlatformTime::Seconds();Stage=2;return false;
         }
         Test->TestFalse(TEXT("Player stands again"),Player->bIsCrouched);
         Test->TestTrue(TEXT("Standing pelvis restored"),FMath::Abs(StandingPelvis-Mesh->GetSocketLocation(TEXT("pelvis")).Z)<5.f);

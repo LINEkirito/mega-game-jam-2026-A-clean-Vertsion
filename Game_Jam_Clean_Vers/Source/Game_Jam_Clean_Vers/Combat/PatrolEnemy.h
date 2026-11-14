@@ -9,6 +9,8 @@ UENUM(BlueprintType)
 enum class ENPCRole : uint8 { GangMember, GangBoss, Civilian, Merchant, Police, Injured };
 UENUM(BlueprintType)
 enum class ENPCActivity : uint8 { Idle, Patrol, Investigate, Combat, Threaten, Beat, Trade, Command, Flee, Injured, Dead, WarnPlayer, Meeting, CameraLook, CameraDismiss, CameraAvoid, PursueMelee, Counterattack };
+UENUM(BlueprintType)
+enum class ENPCWeaponCarry : uint8 { Holstered, Drawing, Drawn, Holstering };
 
 UCLASS()
 class GAME_JAM_CLEAN_VERS_API APatrolEnemy : public ACharacter
@@ -30,6 +32,7 @@ public:
  UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="NPC|Weapon") bool bRandomGangWeapon=true;
  UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="NPC|Weapon") ETacticalWeaponKind WeaponKind=ETacticalWeaponKind::Rifle;
  UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="NPC|Weapon") TObjectPtr<ATacticalWeapon> HeldWeapon;
+ UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="NPC|Weapon") ENPCWeaponCarry WeaponCarry=ENPCWeaponCarry::Holstered;
  UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="NPC|Weapon") TObjectPtr<class UBackpackInventory> AmmoReserve;
  // Zero selects stationary guarding; otherwise destinations remain near the spawn point.
  UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="NPC") float PatrolRadius=1100;
@@ -59,6 +62,20 @@ public:
  UFUNCTION() void WitnessViolence(AActor* Victim,APawn* Attacker,bool ProtectedVictim);
  UFUNCTION(BlueprintImplementableEvent,Category="NPC") void OnActivityChanged(ENPCActivity NewActivity);
 private:
+ friend class FNPCWeaponCarryCheck;
+ UPROPERTY() TObjectPtr<class UAnimSequence> DrawWeaponAnimation;
+ UPROPERTY() TObjectPtr<class UAnimSequence> HolsterWeaponAnimation;
+ FTransform BackWeaponRelative=FTransform::Identity;
+ float WeaponCarryTime=0.f;
+ bool bDeathAmmoDropped=false;
+ bool WantsWeaponDrawn() const;
+ bool IsWeaponTransitioning() const;
+ bool IsWeaponInHand() const;
+ void InitializeWeaponCarry();
+ void ApplyBackCarryPose(const FTransform& AuthoredGun);
+ FName WeaponCarrySocket() const;
+ void TickWeaponCarry(float DT);
+ void DropDeathAmmo();
  friend class UWorldEvents;
  friend class FNPCStreetConflictCheck;
  friend class FFilmingEventMatrixCheck;
@@ -102,9 +119,6 @@ private:
  float PanicTime=0,InvestigationTime=0,SocialCooldown=0,SpeechTime=0;
  bool bMoving=false,bMeleeApplied=false,bSocialArrived=false;
  bool bAimWarning=false;
- bool bPreviousArmed=false;
- float PresentationBlendTime=1.f;
- TArray<FTransform> LastPresentedPose,PresentationBlendFrom;
  FCharacterSecondaryMotion SecondaryMotion;
  bool IsPlayerAimingAtMe() const;
  float TurnDelta=0,ScanYaw=0,NextLookTime=0,WeaponReadyAlpha=0;
@@ -140,5 +154,10 @@ private:
  bool ChooseDestination(bool Flee);
  void Face(FVector Point,float DT);
  bool IsLiving(AActor* Actor) const;
+ friend class FGangRetaliationCheck;
+ TWeakObjectPtr<APawn> GangAttackLookTarget;
+ FVector GangAttackLookLocation=FVector::ZeroVector;
+ float GangAttackLookUntil=0.f;
+ bool TickGangAttackObservation(float DT);
 };
 

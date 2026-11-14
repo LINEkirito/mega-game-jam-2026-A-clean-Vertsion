@@ -1,4 +1,5 @@
 #pragma once
+#include "Localization/GameLanguage.h"
 #include "Widgets/SLeafWidget.h"
 #include "Rendering/DrawElements.h"
 #include "Styling/CoreStyle.h"
@@ -24,9 +25,10 @@ public:
         auto Box=[&](float X,float Y,float BW,float BH,FLinearColor Color)
         { FSlateDrawElement::MakeBox(Out,Layer,G.ToPaintGeometry(FVector2D(BW,BH),FSlateLayoutTransform(FVector2D(X,Y))),FCoreStyle::Get().GetBrush("WhiteBrush"),ESlateDrawEffect::None,Color); };
         auto Text=[&](float X,float Y,const FString& Value,int32 FontSize,FLinearColor Color)
-        { FSlateDrawElement::MakeText(Out,Layer+1,G.ToPaintGeometry(FVector2D(W,H),FSlateLayoutTransform(FVector2D(X,Y))),Value,FCoreStyle::GetDefaultFontStyle("Bold",FMath::RoundToInt(FontSize*S)),ESlateDrawEffect::None,Color); };
+        { const FString Display=LanguageCache.Get(Value);FSlateDrawElement::MakeText(Out,Layer+1,G.ToPaintGeometry(FVector2D(W,H),FSlateLayoutTransform(FVector2D(X,Y))),Display,GameLanguage::FittedFont(Display,FMath::RoundToInt(FontSize*S),W-X-20*S),ESlateDrawEffect::None,Color); };
         auto Line=[&](FVector2D A,FVector2D B,FLinearColor Color)
         { TArray<FVector2D> P{A,B}; FSlateDrawElement::MakeLines(Out,Layer,G.ToPaintGeometry(),P,ESlateDrawEffect::None,Color,true,1.5f*S); };
+        Text(Margin,Margin,C->bSelfie?TEXT("SELFIE  自拍"):TEXT("前拍"),22,White);
         Text(W*.5f-40*S,Margin,C->bRecording?TEXT("● REC"):TEXT("STBY"),30,C->bRecording?FLinearColor(1,.15f,.1f):White);
         Text(W*.5f-32*S,Margin+40*S,FString::Printf(TEXT("%02d:%02d"),int32(C->RecordingSeconds)/60,int32(C->RecordingSeconds)%60),18,White);
         const float BX=W-Margin-124*S,BY=Margin;
@@ -48,9 +50,10 @@ public:
         Box(CX-100*S+194*S*(C->FocalLength-18.f)/82.f,ZoomY-3*S,6*S,13*S,White);
         Text(Margin,ZoomY-7*S,FString::Printf(TEXT("%.0f mm"),C->FocalLength),22,White);
         Text(W-Margin-220*S,ZoomY-7*S,TEXT("640×360  /  15 FPS"),19,White);
-        Text(CX-270*S,H-Margin-18*S,TEXT("按住右键取景  ·  左键录像  ·  滚轮变焦  ·  退格键结束并结算"),17,White);
+        Text(Margin,H-Margin-18*S,TEXT("右键切换取景  ·  左键录像  ·  V 自拍/前拍  ·  滚轮变焦  ·  退格键结束并结算"),17,White);
         return Layer+2;
     }
 private:
+    FLocalizedDisplayCache LanguageCache;
     TWeakObjectPtr<UCamcorderEquipmentComponent> Equipment;
 };

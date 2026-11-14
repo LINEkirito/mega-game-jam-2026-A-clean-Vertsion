@@ -4,6 +4,85 @@
 #include "Engine/SkeletalMesh.h"
 #include "Rendering/SkeletalMeshModel.h"
 #include "Rendering/SkeletalMeshLODModel.h"
+#include "CharacterSecondaryMotionComponent.h"
+#include "Components/PoseableMeshComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Game_Jam_Clean_VersCharacter.h"
+#include "GameFramework/PlayerController.h"
+#include "Camcorder/CamcorderEquipmentComponent.h"
+#include "Camcorder/ShoulderCamcorder.h"
+#include "Engine/Engine.h"
+#include "Engine/World.h"
+#include "Tests/AutomationCommon.h"
+#include "Tests/AutomationEditorCommon.h"
+
+DEFINE_LATENT_AUTOMATION_COMMAND_ONE_PARAMETER(FSecondaryMotionLatePoseCheck,FAutomationTestBase*,Test);
+bool FSecondaryMotionLatePoseCheck::Update()
+{
+ UWorld* World=nullptr;
+ for(const auto& C:GEngine->GetWorldContexts())if(C.WorldType==EWorldType::PIE){World=C.World();break;}
+ auto* PC=World?World->GetFirstPlayerController():nullptr;
+ auto* Player=PC?Cast<AGame_Jam_Clean_VersCharacter>(PC->GetPawn()):nullptr;
+ auto* Motion=Player?Player->FindComponentByClass<UCharacterSecondaryMotionComponent>():nullptr;
+ if(!Test->TestNotNull(TEXT("Runtime player physics component"),Motion))return true;
+ auto* Equipment=PC->FindComponentByClass<UCamcorderEquipmentComponent>();
+ if(!Test->TestNotNull(TEXT("Camera equipment"),Equipment))return true;
+ Equipment->EquipCamera();auto* Camera=Equipment->Camcorder.Get();
+ if(!Test->TestNotNull(TEXT("Selfie camera"),Camera))return true;
+ // Complete the equip transition before asking to enter the viewfinder. V now
+ // correctly rejects a camera that has not yet finished being equipped.
+ Camera->Tick(2.f);
+ Camera->SetViewfinderRaised(true);Camera->ToggleSelfie();
+ Test->TestTrue(TEXT("Selfie remains enabled"),Camera->bSelfie);
+ for(float Pitch:{-70.f,0.f,80.f})
+ {
+  PC->SetControlRotation(FRotator(Pitch,Player->GetActorRotation().Yaw,0));
+  Camera->Tick(0);
+  auto* Body=Player->GetFirstPersonMesh();
+  for(auto* Part:{Motion->Hair.Get(),Motion->Cloth.Get()})
+  {
+   if(!Test->TestNotNull(TEXT("Runtime accessory"),Part))continue;
+   for(const TCHAR* Bone:{TEXT("head"),TEXT("neck_01"),TEXT("spine_03"),TEXT("pelvis")})
+    Test->TestTrue(FString(Part->GetName())+TEXT(" follows final selfie bone ")+Bone,Part->GetSocketTransform(Bone).Equals(Body->GetSocketTransform(Bone),.001f));
+   const auto Before=Part->BoneSpaceTransforms;
+   Body->RefreshBoneTransforms();
+   for(int32 B=0;B<Before.Num();++B)
+    if(FCharacterSecondaryMotion::IsAccessoryBone(Part->GetBoneName(B).ToString()))
+     Test->TestTrue(TEXT("Late refresh preserves solved local physics without reintegration"),Before[B].Equals(Part->BoneSpaceTransforms[B],.0001f));
+  }
+ }
+ return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSecondaryMotionLatePoseTest,"Game.Characters.SecondaryMotionLatePose",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
+bool FSecondaryMotionLatePoseTest::RunTest(const FString&)
+{
+ AddCommand(new FStartPIECommand(false));AddCommand(new FWaitLatentCommand(2));
+ AddCommand(new FSecondaryMotionLatePoseCheck(this));AddCommand(new FEndPlayMapCommand());return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSecondaryMotionContactTest,"Game.Characters.SecondaryMotionContact",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
+bool FSecondaryMotionContactTest::RunTest(const FString&)
+{
+ // The tip stays outside this shoulder-sized obstacle, but the middle of the
+ // strand crosses it. Endpoint-only collision (the old solver) misses this.
+ const FVector Origin=FVector::ZeroVector,Rest(0,0,-20);
+ const FCharacterSecondaryMotion::FCapsule Obstacle{FVector(2.5f,0,-10),FVector(2.5f,0,-10),1.f};
+ const FQuat Swing(FVector::YAxisVector,FMath::DegreesToRadians(-18.f));
+ const FVector Unconstrained=Swing.RotateVector(Rest);
+ TestTrue(TEXT("Tip alone clears obstacle"),FVector::Distance(Unconstrained,Obstacle.A)>Obstacle.Radius);
+ TestTrue(TEXT("Middle of strand penetrates"),FVector::Distance(FMath::ClosestPointOnSegment(Obstacle.A,Origin,Unconstrained),Obstacle.A)<Obstacle.Radius);
+ const FQuat Fixed=FCharacterSecondaryMotion::ConstrainSwing(Origin,Rest,Swing,{Obstacle});
+ const FVector Tip=Fixed.RotateVector(Rest);
+ TestTrue(TEXT("Whole final strand clears obstacle"),FVector::Distance(FMath::ClosestPointOnSegment(Obstacle.A,Origin,Tip),Obstacle.A)>=Obstacle.Radius-.001f);
+ TestTrue(TEXT("Contact preserves bone length"),FMath::IsNearlyEqual(Tip.Size(),Rest.Size(),.0001));
+ TestTrue(TEXT("Contact preserves angular limit"),Fixed.GetAngle()<=Swing.GetAngle()+.0001f);
+ TestTrue(TEXT("Contact keeps some motion"),Fixed.GetAngle()>.01f);
+ const FQuat Across(FVector::YAxisVector,FMath::DegreesToRadians(-40.f));
+ const FQuat Swept=FCharacterSecondaryMotion::ConstrainSwing(Origin,Rest,Across,{Obstacle});
+ TestTrue(TEXT("Cannot tunnel through to other side"),Swept.GetAngle()<FMath::DegreesToRadians(15.f));
+ TestTrue(TEXT("No collider leaves motion intact"),FCharacterSecondaryMotion::ConstrainSwing(Origin,Rest,Swing,{}).Equals(Swing));
+ return true;
+}
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCharacterSecondaryMotionTest,"Game.Characters.SecondaryMotion",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
 bool FCharacterSecondaryMotionTest::RunTest(const FString&)
@@ -73,6 +152,30 @@ bool FCharacterSecondaryMotionTest::RunTest(const FString&)
   for(int32 F=1;F<120;++F){Pose=Base;Motion.Solve(Pose,FTransform(FVector(15.f*FMath::Sin(F*.1f),0,0)),1.f/60);Peak=FMath::Max(Peak,Motion.GetMaxAngleDegrees());}
   TestTrue(FString(Name)+TEXT(" actually reacts"),Peak>.1f);
   TestTrue(FString(Name)+TEXT(" bounded swing"),Peak<=18.01f);
+  const int32 Head=Mesh->GetRefSkeleton().FindBoneIndex(TEXT("head"));
+  for(float Rate:{30.f,60.f,120.f})
+  {
+   Motion.Reset();bool Stable=true,Preserved=true;
+   for(int32 Frame=0;Frame<180;++Frame)
+   {
+    Pose=Base;
+    if(Head!=INDEX_NONE)Pose[Head].ConcatenateRotation(FQuat(FVector::YAxisVector,FMath::DegreesToRadians(25.f*FMath::Sin(Frame*.08f))));
+    const auto Animated=Pose;
+    Motion.Solve(Pose,FTransform(FRotator(0,Frame*2.f,0),FVector(Frame*2.f,0,15.f*FMath::Sin(Frame*.1f))),1.f/Rate);
+    for(int32 B=0;B<Pose.Num();++B)
+    {
+     Stable&=!Pose[B].ContainsNaN()&&Pose[B].IsRotationNormalized();
+     Preserved&=Pose[B].GetTranslation().Equals(Animated[B].GetTranslation(),.0001f)&&Pose[B].GetScale3D().Equals(Animated[B].GetScale3D(),.0001f);
+     if(!FCharacterSecondaryMotion::IsAccessoryBone(Mesh->GetRefSkeleton().GetBoneName(B).ToString()))Preserved&=Pose[B].Equals(Animated[B],.0001f);
+    }
+   }
+   TestTrue(FString::Printf(TEXT("%s head turns at %.0f FPS remain finite"),Name,Rate),Stable);
+   TestTrue(FString::Printf(TEXT("%s at %.0f FPS preserves animated body and lengths"),Name,Rate),Preserved);
+  }
+  Pose=Base;Motion.Solve(Pose,FTransform(FVector(10000,0,0)),1.f/60);
+  TestTrue(FString(Name)+TEXT(" player teleport resets"),Motion.GetMaxAngleDegrees()<.01f);
+  Pose=Base;Motion.Solve(Pose,FTransform::Identity,.5f);
+  TestTrue(FString(Name)+TEXT(" player hitch resets"),Motion.GetMaxAngleDegrees()<.01f);
  }
  return true;
 }

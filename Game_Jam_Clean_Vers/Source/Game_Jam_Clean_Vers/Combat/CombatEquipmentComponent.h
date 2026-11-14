@@ -29,9 +29,12 @@ public:
     UFUNCTION(BlueprintCallable) bool EquipWeapon(FName Id);
     UFUNCTION(BlueprintCallable) void Unequip();
     UFUNCTION(BlueprintCallable) void DropWeapon();
+    bool DropInventoryWeapon(FName Id);
     UFUNCTION(BlueprintCallable) bool Fire();
     UFUNCTION(BlueprintCallable) bool Reload();
     ATacticalWeapon* GetPresentationWeapon() const { return ActiveWeapon ? ActiveWeapon.Get() : TransitionWeapon.Get(); }
+    bool HasLookDownSelection() const { return !LookDownWeaponId.IsNone(); }
+    float MinimumHoldPitch(const ATacticalWeapon* Weapon) const;
     void Cycle(int32 Direction);
     void HandleInput();
     void InitializeHUD();
@@ -42,6 +45,10 @@ public:
     float HitMarker=0;
     bool bKillMarker=false;
 private:
+    friend class FPlayerLowLookCheck;
+    FName LookDownWeaponId;
+    bool IsBelowHoldPitch(const ATacticalWeapon* Weapon) const;
+    void TickLookDownHolster();
     UPROPERTY() TObjectPtr<ATacticalWeapon> TransitionWeapon;
     FName PendingEquip;
     bool bPendingDrop=false;

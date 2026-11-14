@@ -48,7 +48,7 @@ void URecordingLibrary::Sample(AShoulderCamcorder* Camera) {
    const FVector Local=Lens.InverseTransformPosition(Point);
    if(Local.X<10 || FMath::Abs(Local.Y)>Local.X*TanX || FMath::Abs(Local.Z)>Local.X*TanY) continue;
    FCollisionQueryParams Q(SCENE_QUERY_STAT(RecordingSubject),true,Camera);
-   if(PC && PC->GetPawn()) Q.AddIgnoredActor(PC->GetPawn());
+   if(!Camera->bSelfie && PC && PC->GetPawn()) Q.AddIgnoredActor(PC->GetPawn());
    FHitResult Hit;
    if(!GetWorld()->LineTraceSingleByChannel(Hit,Lens.GetLocation(),Point,ECC_Visibility,Q) || Hit.GetActor()==Person) { Visible=true; break; }
   }
@@ -101,7 +101,7 @@ void URecordingLibrary::Sample(AShoulderCamcorder* Camera) {
   for(const FVector& Point:Points){
    const FVector Local=Lens.InverseTransformPosition(Point);
    if(Local.X<10||FMath::Abs(Local.Y)>Local.X*TanX||FMath::Abs(Local.Z)>Local.X*TanY)continue;
-   FCollisionQueryParams Q(SCENE_QUERY_STAT(RecordingLogo),true,Camera);if(PC&&PC->GetPawn())Q.AddIgnoredActor(PC->GetPawn());
+   FCollisionQueryParams Q(SCENE_QUERY_STAT(RecordingLogo),true,Camera);if(!Camera->bSelfie&&PC&&PC->GetPawn())Q.AddIgnoredActor(PC->GetPawn());
    FHitResult Hit;
    if(!GetWorld()->LineTraceSingleByChannel(Hit,Lens.GetLocation(),Point,ECC_Visibility,Q)||Hit.GetActor()==Logo){Visible=true;break;}
   }

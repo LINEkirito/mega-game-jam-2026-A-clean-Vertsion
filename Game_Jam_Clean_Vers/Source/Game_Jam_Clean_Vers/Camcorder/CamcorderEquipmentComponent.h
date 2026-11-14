@@ -44,6 +44,8 @@ public:
     UFUNCTION(BlueprintCallable, Category="Inventory") void ActivateQuickSlot(int32 Index);
     UFUNCTION(BlueprintCallable, Category="Inventory") void SelectInventoryItem(FName Id);
     UFUNCTION(BlueprintCallable, Category="Inventory") void UseSelectedItem();
+    UFUNCTION(BlueprintCallable, Category="Inventory") bool DropInventoryItem(FName Id);
+    UFUNCTION(BlueprintCallable, Category="Inventory") void DropActiveQuickSlot();
     void CancelViewfinder();
     void ShowAssignmentMenu(FName Id);
     bool HandleBackpackKey(const FKey& Key);

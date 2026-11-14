@@ -8,7 +8,7 @@ namespace NPCMotion
 struct FProxy : FAnimInstanceProxy
 {
  UAnimSequence* Sequence=nullptr;
- float Time=0,BlendTime=1;
+ float Time=0,BlendTime=1,BlendDuration=.18f;
  bool CaptureBlend=false;
  bool Turning=false;
  bool WasLocomotion=false;
@@ -23,7 +23,7 @@ struct FProxy : FAnimInstanceProxy
   {
    const float Phase=Sequence&&Sequence->GetPlayLength()>0?Time/Sequence->GetPlayLength():0;
    Sequence=Motion->Sequence;Time=Sequence&&WasLocomotion&&Motion->bLocomotion?Phase*Sequence->GetPlayLength():0;
-   BlendTime=0;CaptureBlend=true;
+   BlendTime=0;BlendDuration=FMath::Max(.01f,Motion->PoseBlendDuration);CaptureBlend=true;
   }
   else if(Sequence){Time+=DT*Motion->PlaybackRate;Time=Motion->bLoop?FMath::Fmod(Time,FMath::Max(.001f,Sequence->GetPlayLength())):FMath::Min(Time,Sequence->GetPlayLength());}
   BlendTime+=DT;
@@ -39,7 +39,7 @@ struct FProxy : FAnimInstanceProxy
   // Navigation owns world displacement and yaw. Never apply the authored root twice.
   if(Turning)Output.Pose[FCompactPoseBoneIndex(0)]=FTransform::Identity;
   else {auto& Root=Output.Pose[FCompactPoseBoneIndex(0)];const float Height=Root.GetTranslation().Z;Root.SetTranslation(FVector(0,0,Height));}
-  const float Alpha=FMath::SmoothStep(0.f,.18f,BlendTime);
+  const float Alpha=FMath::SmoothStep(0.f,BlendDuration,BlendTime);
   if(BlendFrom.Num()==Output.Pose.GetNumBones()&&Alpha<1)
    for(FCompactPoseBoneIndex B:Output.Pose.ForEachBoneIndex()){FTransform T;T.Blend(BlendFrom[B.GetInt()],Output.Pose[B],Alpha);Output.Pose[B]=T;}
   LastPose.SetNum(Output.Pose.GetNumBones());for(FCompactPoseBoneIndex B:Output.Pose.ForEachBoneIndex())LastPose[B.GetInt()]=Output.Pose[B];

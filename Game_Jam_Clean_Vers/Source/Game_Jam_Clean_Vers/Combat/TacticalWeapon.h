@@ -56,7 +56,7 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly) bool bNPCEquipped=false;
     UPROPERTY(Transient,BlueprintReadWrite,Category="NPC") float NPCReloadDuration=0;
     void EquipForNPC(USkeletalMeshComponent* CharacterMesh);
-    void UpdateNPCGripPose(USkeletalMeshComponent* Source,UPoseableMeshComponent* BodyPose,float ReadyAlpha=1.f);
+    void UpdateNPCGripPose(USkeletalMeshComponent* Source,UPoseableMeshComponent* BodyPose,float ReadyAlpha=1.f,bool bRightHandOnly=false);
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly) bool bMagnified=false;
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly) bool bMagazineSeated=true;
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly) EWeaponHandling Handling=EWeaponHandling::Idle;
@@ -93,6 +93,7 @@ public:
     void ToggleSightOrMode();
     void ToggleLight();
     float AimFOV() const;
+    bool HasStableADSPose() const { return bPackADSLocked; }
     FVector SightRear() const;
     FVector SightFront() const;
     void Holster();
@@ -111,6 +112,9 @@ private:
     FString PackAudioAction;
     float PackAudioTime=-1;
     FTransform PackBaseFrame,PackAimFrame;
+    float PackADSPullBack=0.f;
+    float PackADSPitch=0.f,PackADSHeight=0.f;
+    bool bPackADSLocked=false;
     bool bPackEmptyReload=false;
 
     void SetBasePose();

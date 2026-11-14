@@ -7,7 +7,9 @@
 UCharacterSecondaryMotionComponent::UCharacterSecondaryMotionComponent()
 {
  PrimaryComponentTick.bCanEverTick=true;
- PrimaryComponentTick.TickGroup=TG_PostUpdateWork;
+ // Finish attachments after the animated body but before PostUpdateWork scene
+ // captures; otherwise selfies can combine this frame's head with last frame's hair.
+ PrimaryComponentTick.TickGroup=TG_PostPhysics;
 }
 
 void UCharacterSecondaryMotionComponent::Initialize(USkeletalMeshComponent* Source)
@@ -26,6 +28,28 @@ void UCharacterSecondaryMotionComponent::Initialize(USkeletalMeshComponent* Sour
  };
  Hair=Create(TEXT("CharacterPhysicsHair"),TEXT("/Game/Characters/MechanicGirl/SK_MechanicHair_Secondary"),true);
  Cloth=Create(TEXT("CharacterPhysicsCloth"),TEXT("/Game/Characters/MechanicGirl/SK_MechanicCloth_Secondary"),false);
+ FinalPoseHandle=Source->RegisterOnBoneTransformsFinalizedDelegate(
+  FOnBoneTransformsFinalizedMultiCast::FDelegate::CreateUObject(this,&UCharacterSecondaryMotionComponent::RefreshAttachmentsAfterAnimation));
+ RefreshAttachmentsAfterAnimation();
+}
+
+void UCharacterSecondaryMotionComponent::RefreshAttachmentsAfterAnimation()
+{
+ if(!Body)return;
+ // Camera/weapon late IK may finalize the body again after our simulation tick.
+ // Rebase the solved local accessory rotations on that pose, without integrating
+ // springs a second time or leaving the scalp on the previous head orientation.
+ auto Refresh=[&](UPoseableMeshComponent* Part,TArray<int32>& SourceBones)
+ {
+  if(!Part)return;
+  const TArray<FTransform> Previous=Part->BoneSpaceTransforms;
+  CopyAnimatedPose(Part,SourceBones);
+  for(int32 B=0;B<Part->BoneSpaceTransforms.Num();++B)
+   if(SourceBones.IsValidIndex(B)&&SourceBones[B]==INDEX_NONE&&Previous.IsValidIndex(B))
+    Part->BoneSpaceTransforms[B].SetRotation(Previous[B].GetRotation());
+  Part->MarkRefreshTransformDirty();Part->RefreshBoneTransforms();
+ };
+ Refresh(Hair,HairSourceBones);Refresh(Cloth,ClothSourceBones);
 }
 
 void UCharacterSecondaryMotionComponent::CopyAnimatedPose(UPoseableMeshComponent* Target,TArray<int32>& SourceBones)
@@ -73,6 +97,8 @@ void UCharacterSecondaryMotionComponent::TickComponent(float DT,ELevelTick Type,
 
 void UCharacterSecondaryMotionComponent::EndPlay(const EEndPlayReason::Type Reason)
 {
+ if(Body)Body->UnregisterOnBoneTransformsFinalizedDelegate(FinalPoseHandle);
+ FinalPoseHandle.Reset();
  if(Hair)Hair->DestroyComponent();if(Cloth)Cloth->DestroyComponent();
  Hair=nullptr;Cloth=nullptr;Body=nullptr;HairMotion.Reset();ClothMotion.Reset();
  Super::EndPlay(Reason);

@@ -37,6 +37,10 @@ public:
  // ENPCRole enumerator names; missing NPC multipliers use 1x.
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Recording") TMap<FName,float> RecordingNPCMultipliers;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC") float NPCPatrolRadius=1100;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|WeaponCarry",meta=(Units="cm")) FVector NPCBackCarryOffset=FVector(-24,8,40);
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|WeaponCarry",meta=(Units="cm")) FVector NPCPistolCarryOffset=FVector(3,25,10);
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|WeaponCarry") FVector NPCBackCarryMuzzleDirection=FVector(0,-.35f,-.94f);
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|WeaponCarry",meta=(ClampMin="0",Units="cm")) float NPCWeaponTransferArc=10.f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC") float NPCHearingRange=6000;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC") float NPCPanicSeconds=12;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC") float NPCInjuryHealth=30;
@@ -51,6 +55,8 @@ public:
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Gang",meta=(ClampMin="0",ClampMax="1")) float GangHitChance=.7f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Combat",meta=(ClampMin="0",ClampMax="1")) float PoliceGangHitChance=.3f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Gang") float GangWarningDistance=500;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Gang",meta=(ClampMin="0",Units="cm")) float GangRetaliationRadius=2000.f;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Gang",meta=(ClampMin="0",Units="s")) float GangAttackObservationSeconds=5.f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Gang") float GangFilmingWarningDistance=1000;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Gang") float GangWarningSeconds=3;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Gang",meta=(ClampMin="0",ClampMax="360")) float GangSightAngle=180.f;
@@ -65,6 +71,11 @@ public:
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Weapon") int32 ShotgunCapacity=4;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Weapon") float RecoilScale=.5f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Weapon") float SpreadScale=.5f;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Weapon|ADS",meta=(ClampMin="0")) float RifleADSOpticClearance=10.f;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Weapon|LowLook",meta=(ClampMin="-85",ClampMax="0",Units="deg")) float PistolMinimumHoldPitch=-55.f;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Weapon|LowLook",meta=(ClampMin="-85",ClampMax="0",Units="deg")) float ShotgunMinimumHoldPitch=-48.f;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Weapon|LowLook",meta=(ClampMin="-85",ClampMax="0",Units="deg")) float RifleMinimumHoldPitch=-50.f;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Weapon|LowLook",meta=(ClampMin="0",ClampMax="10",Units="deg")) float LowLookRestoreHysteresis=3.f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Camcorder") float BatteryDuration=180;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Player") float DamageProtectionSeconds=.75f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Damage") float RifleBodyDamage=54;

@@ -23,6 +23,7 @@
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/Images/SImage.h"
 #include "Widgets/Text/STextBlock.h"
+#include "Localization/GameLanguage.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SSlider.h"
 #include "Styling/CoreStyle.h"
@@ -118,8 +119,8 @@ void URecordingTabletComponent::BuildUI(){
  for(int32 I=0;I<L->Clips.Num();++I){const auto& Clip=L->Clips[I];
   List->AddSlot().AutoHeight().Padding(0,0,0,8)[SNew(SButton).OnClicked_Lambda([W,I]{if(auto* T=W.Get())T->SelectClip(I);return FReply::Handled();})
    [SNew(SVerticalBox)
-    +SVerticalBox::Slot().AutoHeight()[SNew(STextBlock).Font(Font).ColorAndOpacity(I==SelectedClip?FLinearColor(.2f,.85f,1):FLinearColor::White).Text(FText::FromString(FString::Printf(TEXT("录像 %02d   %02d:%02d"),I+1,int32(Clip.Seconds)/60,int32(Clip.Seconds)%60)))]
-    +SVerticalBox::Slot().AutoHeight().Padding(0,5)[SNew(STextBlock).Font(Small).Text(FText::FromString(FString::Printf(TEXT("评分 %d   ·   %d 人"),Clip.Score,Clip.People.Num())))]]];
+    +SVerticalBox::Slot().AutoHeight()[SNew(SLocalizedTextBlock).Font(Font).ColorAndOpacity(I==SelectedClip?FLinearColor(.2f,.85f,1):FLinearColor::White).Text(FText::FromString(FString::Printf(TEXT("录像 %02d   %02d:%02d"),I+1,int32(Clip.Seconds)/60,int32(Clip.Seconds)%60)))]
+    +SVerticalBox::Slot().AutoHeight().Padding(0,5)[SNew(SLocalizedTextBlock).Font(Small).Text(FText::FromString(FString::Printf(TEXT("评分 %d   ·   %d 人"),Clip.Score,Clip.People.Num())))]]];
  }
  FString Score=TEXT("尚未选择录像"),People=TEXT("举起摄像机开始拍摄，保存的视频会出现在这里。");
  if(L->Clips.IsValidIndex(SelectedClip)){
@@ -131,22 +132,22 @@ void URecordingTabletComponent::BuildUI(){
  Detail->AddSlot().AutoHeight()[SNew(SBox).HeightOverride(345)[SNew(SScaleBox).Stretch(EStretch::ScaleToFit)[SNew(SBox).WidthOverride(640).HeightOverride(360)[SNew(SImage).Image(&VideoBrush).ColorAndOpacity_Lambda([W]{auto* T=W.Get();return T&&T->LastFrame>=0?FLinearColor::White:FLinearColor::Black;})]]]];
  Detail->AddSlot().AutoHeight().Padding(0,6)[SNew(SSlider).Value_Lambda([W]{auto* T=W.Get();return T?T->PlaybackSeconds/FMath::Max(.01f,T->Playback.NumFrames()/15.f):0.f;}).OnValueChanged_Lambda([W](float V){if(auto* T=W.Get())T->Seek(V);})];
  auto Controls=SNew(SHorizontalBox);
- Controls->AddSlot().AutoWidth()[SNew(SButton).OnClicked_Lambda([W]{if(auto* T=W.Get())T->TogglePlayback();return FReply::Handled();})[SNew(STextBlock).Text_Lambda([W]{auto* T=W.Get();return FText::FromString(T&&T->bPlaying?TEXT("暂停"):TEXT("播放 / 重播"));})]];
- Controls->AddSlot().FillWidth(1).Padding(12,0)[SNew(STextBlock).Font(Small).Text_Lambda([W]{auto* T=W.Get();return T?FText::FromString(FString::Printf(TEXT("%s  %.1f / %.1f 秒"),*T->PlaybackStatus,T->PlaybackSeconds,T->Playback.NumFrames()/15.f)):FText::GetEmpty();})];
+ Controls->AddSlot().AutoWidth()[SNew(SButton).OnClicked_Lambda([W]{if(auto* T=W.Get())T->TogglePlayback();return FReply::Handled();})[SNew(SLocalizedTextBlock).Text_Lambda([W]{auto* T=W.Get();return FText::FromString(T&&T->bPlaying?TEXT("暂停"):TEXT("播放 / 重播"));})]];
+ Controls->AddSlot().FillWidth(1).Padding(12,0)[SNew(SLocalizedTextBlock).Font(Small).Text_Lambda([W]{auto* T=W.Get();return T?FText::FromString(FString::Printf(TEXT("%s  %.1f / %.1f 秒"),*T->PlaybackStatus,T->PlaybackSeconds,T->Playback.NumFrames()/15.f)):FText::GetEmpty();})];
  Detail->AddSlot().AutoHeight()[Controls];
- Detail->AddSlot().AutoHeight().Padding(0,12,0,6)[SNew(STextBlock).Font(Font).ColorAndOpacity(FLinearColor(.35f,.9f,.72f)).Text(FText::FromString(Score))];
- Detail->AddSlot().FillHeight(1)[SNew(SScrollBox)+SScrollBox::Slot()[SNew(STextBlock).Font(Small).AutoWrapText(true).Text(FText::FromString(People))]];
+ Detail->AddSlot().AutoHeight().Padding(0,12,0,6)[SNew(SLocalizedTextBlock).Font(Font).ColorAndOpacity(FLinearColor(.35f,.9f,.72f)).Text(FText::FromString(Score))];
+ Detail->AddSlot().FillHeight(1)[SNew(SScrollBox)+SScrollBox::Slot()[SNew(SLocalizedTextBlock).Font(Small).AutoWrapText(true).Text(FText::FromString(People))]];
  auto Columns=SNew(SHorizontalBox);
  Columns->AddSlot().AutoWidth().Padding(0,0,16,0)[SNew(SBox).WidthOverride(205)[SNew(SScrollBox)+SScrollBox::Slot()[List]]];
  Columns->AddSlot().FillWidth(1)[Detail];
  auto Header=SNew(SHorizontalBox);
- Header->AddSlot().FillWidth(1)[SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Bold",23)).Text(FText::FromString(TEXT("现场影像  /  本次进场")))];
- Header->AddSlot().AutoWidth()[SNew(SButton).OnClicked_Lambda([W]{if(auto* T=W.Get())T->SetOpen(false);return FReply::Handled();})[SNew(STextBlock).Text(FText::FromString(TEXT("关闭  Esc")))]];
+ Header->AddSlot().FillWidth(1)[SNew(SLocalizedTextBlock).Font(FCoreStyle::GetDefaultFontStyle("Bold",23)).Text(FText::FromString(TEXT("现场影像  /  本次进场")))];
+ Header->AddSlot().AutoWidth()[SNew(SButton).OnClicked_Lambda([W]{if(auto* T=W.Get())T->SetOpen(false);return FReply::Handled();})[SNew(SLocalizedTextBlock).Text(FText::FromString(TEXT("关闭  Esc")))]];
  auto Screen=SNew(SVerticalBox);
  Screen->AddSlot().AutoHeight()[Header];
- Screen->AddSlot().AutoHeight().Padding(0,10)[SNew(STextBlock).Font(Small).Text(FText::FromString(FString::Printf(TEXT("已保存 %d 段  ·  按策划案累计计分 · 事件 Level 1/2/3＝1/2/3 倍"),L->Clips.Num())))];
+ Screen->AddSlot().AutoHeight().Padding(0,10)[SNew(SLocalizedTextBlock).Font(Small).Text(FText::FromString(FString::Printf(TEXT("已保存 %d 段  ·  按策划案累计计分 · 事件 Level 1/2/3＝1/2/3 倍"),L->Clips.Num())))];
  Screen->AddSlot().FillHeight(1)[Columns];
- Screen->AddSlot().AutoHeight().Padding(0,10,0,0)[SNew(STextBlock).Font(Small).Text(FText::FromString(TEXT("空格 播放/暂停  ·  ← → 跳转 5 秒  ·  Tab / Esc 收起平板")))];
+ Screen->AddSlot().AutoHeight().Padding(0,10,0,0)[SNew(SLocalizedTextBlock).Font(Small).Text(FText::FromString(TEXT("空格 播放/暂停  ·  ← → 跳转 5 秒  ·  Tab / Esc 收起平板")))];
  auto Shell=SNew(SOverlay);
  Shell->AddSlot()[SNew(SImage).Image(&TabletBrush)];
  Shell->AddSlot().HAlign(HAlign_Center).VAlign(VAlign_Center)[SNew(SBox).WidthOverride(910).HeightOverride(680)[SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(FLinearColor(.015f,.025f,.035f)).Padding(18)[Screen]]];

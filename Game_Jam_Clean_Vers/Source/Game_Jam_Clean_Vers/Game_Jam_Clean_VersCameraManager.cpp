@@ -6,6 +6,6 @@
 AGame_Jam_Clean_VersCameraManager::AGame_Jam_Clean_VersCameraManager()
 {
 	// set the min/max pitch
-	ViewPitchMin = -70.0f;
+	ViewPitchMin = -85.0f;
 	ViewPitchMax = 80.0f;
 }

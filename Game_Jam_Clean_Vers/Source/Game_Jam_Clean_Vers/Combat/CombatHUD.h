@@ -1,4 +1,5 @@
 #pragma once
+#include "Localization/GameLanguage.h"
 #include "Widgets/SLeafWidget.h"
 #include "UObject/StrongObjectPtr.h"
 #include "Engine/Texture2D.h"
@@ -45,7 +46,7 @@ public:
         auto* E=Combat.Get();auto* PC=E?Cast<APlayerController>(E->GetOwner()):nullptr;auto* C=PC?Cast<AGame_Jam_Clean_VersCharacter>(PC->GetPawn()):nullptr;if(!C)return L;
         const FVector2D SZ=G.GetLocalSize();const float W=SZ.X,H=SZ.Y,S=FMath::Clamp(H/900.f,.65f,1.4f);
         auto Box=[&](float X,float Y,float BW,float BH,FLinearColor Color){FSlateDrawElement::MakeBox(Out,L,G.ToPaintGeometry(FVector2D(BW,BH),FSlateLayoutTransform(FVector2D(X,Y))),FCoreStyle::Get().GetBrush("WhiteBrush"),ESlateDrawEffect::None,Color);};
-        auto Text=[&](float X,float Y,const FString& T,int32 Size,FLinearColor Col=FLinearColor::White){FSlateDrawElement::MakeText(Out,L+1,G.ToPaintGeometry(SZ,FSlateLayoutTransform(FVector2D(X,Y))),T,FCoreStyle::GetDefaultFontStyle("Regular",FMath::RoundToInt(Size*S)),ESlateDrawEffect::None,Col);};
+        auto Text=[&](float X,float Y,const FString& T,int32 Size,FLinearColor Col=FLinearColor::White){const FString Display=LanguageCache.Get(T);FSlateDrawElement::MakeText(Out,L+1,G.ToPaintGeometry(SZ,FSlateLayoutTransform(FVector2D(X,Y))),Display,GameLanguage::FittedFont(Display,FMath::RoundToInt(Size*S),W-X-20*S),ESlateDrawEffect::None,Col);};
         const float Red=FMath::Max(C->DamageFlash>0?.45f:0.f,C->Health<=30?.15f:0.f);
         if(Red>0)for(int32 I=0;I<20;++I){const float A=Red*(1.f-I/20.f);Box(I*3,0,3,H,FLinearColor(.7f,0,0,A));Box(W-I*3-3,0,3,H,FLinearColor(.7f,0,0,A));Box(0,I*3,W,3,FLinearColor(.7f,0,0,A));Box(0,H-I*3-3,W,3,FLinearColor(.7f,0,0,A));}
         const float BloodAlpha=FMath::Max(FMath::Clamp(C->DamageFlash/1.2f,0.f,1.f)*.8f,C->Health<=30?.2f:0.f);
@@ -58,6 +59,7 @@ public:
         // Reserve the empty strip below health; weapon, viewfinder and shortcut UI live elsewhere.
         Box(25*S,65*S,104*S,26*S,FLinearColor(.015f,.022f,.03f,.65f));
         Text(33*S,68*S,FrameRateText,14,FLinearColor(.75f,.85f,.85f));
+        Text(25*S,98*S,TEXT("L 语言"),14,FLinearColor(.75f,.85f,.85f));
         if(C->Health<=0){Text(W*.5f-80*S,H*.45f,TEXT("你已死亡"),40,FLinearColor(1,.2f,.15f));return L+2;}
         if(E->Equipment->bBackpackOpen)return L+2;
         const FString Prompt=E->InteractionText();if(!Prompt.IsEmpty())Text(W*.5f-120*S,H*.65f,Prompt,20,FLinearColor(.5f,1,1));
@@ -77,10 +79,10 @@ public:
             Text(X,117*S,FString::Printf(TEXT("备用弹药  %03d"),E->Reserve()),18);
             if(Gun->Kind==ETacticalWeaponKind::Rifle)Text(X,145*S,TEXT("全息瞄准 · 1×"),15);
             else if(Gun->Kind==ETacticalWeaponKind::Shotgun)Text(X,145*S,TEXT("逐发装填 · 半自动"),15);
-            Text(25*S,H-197*S,TEXT("左键 射击 · 按住右键 瞄准 · R 换弹"),17);
-            Text(25*S,H-171*S,TEXT("G 丢枪 · B 收枪 · T 战术灯 · 滚轮 切装备"),16);
+            Text(25*S,H-197*S,TEXT("左键 射击 · 右键切换 瞄准 · R 换弹"),17);
+            Text(25*S,H-171*S,TEXT("Q 丢下 · B 收枪 · T 战术灯 · 滚轮 切装备"),16);
             Text(25*S,H-145*S,TEXT("I 背包 · 1–4 快捷槽 · E/F 拾取"),16);
-            Text(25*S,H-119*S,TEXT("Shift 冲刺 · Ctrl 蹲起 · Space 跳跃"),16);
+            Text(25*S,H-119*S,TEXT("Shift 切换跑步 · Ctrl 蹲起 · Space 跳跃"),16);
             if(E->bReloading){Box(W*.5f-90*S,H*.73f,180*S,5*S,FLinearColor(.1f,.1f,.1f,.8f));Box(W*.5f-90*S,H*.73f,180*S*E->ReloadProgress(),5*S,FLinearColor(.4f,.9f,1));}
             if(E->EquipRemaining>0)Text(W*.5f-70*S,H*.68f,TEXT("装备中…"),22);
         }
@@ -88,6 +90,7 @@ public:
         return L+2;
     }
 private:TWeakObjectPtr<UCombatEquipmentComponent> Combat;
+ FLocalizedDisplayCache LanguageCache;
  double SampleStartSeconds = 0.0;
  uint64 SampleStartFrame = 0;
  FString FrameRateText = TEXT("FPS --");

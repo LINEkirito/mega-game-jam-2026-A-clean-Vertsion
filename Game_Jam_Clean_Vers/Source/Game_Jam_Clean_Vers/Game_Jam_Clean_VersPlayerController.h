@@ -27,6 +27,9 @@ public:
 
 protected:
 
+	TSharedPtr<class IInputProcessor> LanguageUI;
+	virtual void EndPlay(const EEndPlayReason::Type Reason) override;
+
 	UPROPERTY(Transient)
 	TObjectPtr<UCamcorderEquipmentComponent> CamcorderEquipment;
 
