@@ -39,5 +39,8 @@ public:
 private:
     TArray<FString> FixedSlotNames;
     friend class UCombatEquipmentComponent;
+#if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
+    friend void GiveTestWeapons(class UCamcorderEquipmentComponent* E);
+#endif
     bool BindStartingWeapon(int32 Slot, FName Id);
 };

@@ -37,10 +37,16 @@ bool FNPCWeaponCarryCheck::Update()
    Test->TestTrue(FString::Printf(TEXT("Pistol sits outside right waist: %s"),*BackLocal.ToString()),BackLocal.Y>20&&FMath::Abs(BackLocal.Z)<25);
    Test->TestEqual(TEXT("Pistol follows waist bone"),N->HeldWeapon->GetRootComponent()->GetAttachSocketName(),FName(TEXT("pelvis")));
   }
-  else Test->TestTrue(FString::Printf(TEXT("Receiver mounted behind torso, below shoulders: %s"),*BackLocal.ToString()),BackLocal.X<-15&&BackLocal.Z<55);
+  else Test->TestTrue(FString::Printf(TEXT("Receiver mounted behind torso, below shoulders: %s"),*BackLocal.ToString()),BackLocal.X<-15&&BackLocal.Z>30&&BackLocal.Z<65);
   const float BarrelDot=FVector::DotProduct(N->HeldWeapon->MuzzleDirection(),N->GetActorForwardVector());
   Test->TestTrue(FString::Printf(TEXT("Slung barrel runs along back (forward dot %.2f)"),BarrelDot),FMath::Abs(BarrelDot)<.25f);
-  Test->TestTrue(TEXT("Stowed muzzle points down"),N->HeldWeapon->MuzzleDirection().Z<-.8f);
+  const FVector CarryBarrel=N->GetActorQuat().UnrotateVector(N->HeldWeapon->MuzzleDirection());
+  if(Kind==ETacticalWeaponKind::Pistol)
+   Test->TestTrue(TEXT("Waist pistol muzzle points down"),CarryBarrel.Z<-.8f);
+  else
+   Test->TestTrue(TEXT("Back weapon muzzle rises diagonally toward left shoulder"),CarryBarrel.Z>.8f&&CarryBarrel.Y<-.2f);
+  const FTransform InitialCarry=N->HeldWeapon->GetActorTransform();
+  const ENPCActivity InitialActivity=N->Activity;
   float LargestStep=0;
   auto Advance=[N,&LargestStep,this](float Seconds){for(int I=0;I<FMath::CeilToInt(Seconds/.025f);++I){const FVector Before=N->HeldWeapon->GetActorLocation();N->TickWeaponCarry(.025f);N->SetMotion();N->GetMesh()->TickAnimation(.025f,false);N->GetMesh()->RefreshBoneTransforms();N->UpdateWeaponPose(.025f);const float Step=FVector::Distance(Before,N->HeldWeapon->GetActorLocation());LargestStep=FMath::Max(LargestStep,Step);if(Step>20)Test->AddInfo(FString::Printf(TEXT("Carry step Kind=%d State=%d Time=%.3f Distance=%.1f"),int32(N->WeaponKind),int32(N->WeaponCarry),N->WeaponCarryTime,Step));}};
   N->Activity=ENPCActivity::Combat;Advance(.025f);
@@ -49,6 +55,9 @@ bool FNPCWeaponCarryCheck::Update()
   Advance(1.f);Test->TestTrue(TEXT("Draw completes in hand"),N->WeaponCarry==ENPCWeaponCarry::Drawn);
   N->Activity=ENPCActivity::Trade;Advance(.025f);Test->TestTrue(TEXT("Leaving combat starts holster"),N->WeaponCarry==ENPCWeaponCarry::Holstering);
   Advance(1.3f);Test->TestTrue(TEXT("Social state retains visible back weapon"),N->WeaponCarry==ENPCWeaponCarry::Holstered&&!N->HeldWeapon->IsHidden()&&N->HeldWeapon->GetRootComponent()->GetAttachParent()==N->NPCBody);
+  N->Activity=InitialActivity;Advance(.5f);
+  Test->TestTrue(TEXT("Holster restores the original mount position"),N->HeldWeapon->GetActorLocation().Equals(InitialCarry.GetLocation(),3.f));
+  Test->TestTrue(TEXT("Holster restores the original muzzle direction"),FVector::DotProduct(N->HeldWeapon->MuzzleDirection(),N->GetActorQuat().RotateVector(CarryBarrel))>.98f);
   Test->TestTrue(FString::Printf(TEXT("Back/hand transfers are continuous (largest 25 ms step %.1f cm)"),LargestStep),LargestStep<20.f);
   const int32 Before=CountBoxes();
   TSet<ACombatAmmoPickup*> Existing;for(TActorIterator<ACombatAmmoPickup> It(W);It;++It)Existing.Add(*It);

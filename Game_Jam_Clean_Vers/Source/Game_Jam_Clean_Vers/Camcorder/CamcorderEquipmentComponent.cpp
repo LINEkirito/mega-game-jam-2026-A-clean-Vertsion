@@ -82,42 +82,17 @@ void UCamcorderEquipmentComponent::ToggleCarry()
 }
 void UCamcorderEquipmentComponent::ReplaceBattery()
 {
-    if(!Camcorder || (!Camcorder->bInBackpack && !CanUse())) { if(Camcorder) Camcorder->SetNotice(TEXT("请先靠近摄像机再换电池")); return; }
-    if(GetBatteryCount()<=0) { Camcorder->SetNotice(TEXT("背包没有电池；寻找绿色电池，靠近后按 F 拾取")); return; }
-    if(Camcorder->InstallFreshBattery()) Inventory->Remove(UBackpackInventory::BatteryId);
-    RefreshBackpack();
+    // Retained for existing Blueprint callers; batteries cannot be replaced.
 }
-ACamcorderBattery* UCamcorderEquipmentComponent::NearbyBattery() const
-{
-    const auto* PC=Player(); if(!PC || !PC->GetPawn()) return nullptr;
-    const FVector Eye=PC->PlayerCameraManager->GetCameraLocation();
-    ACamcorderBattery* Best=nullptr; float Dist2=FMath::Square(200.f);
-    for(TActorIterator<ACamcorderBattery> It(GetWorld()); It; ++It)
-    {
-        const float D=FVector::DistSquared(Eye,It->GetActorLocation());
-        if(D>=Dist2) continue;
-        FHitResult Hit; FCollisionQueryParams Q(SCENE_QUERY_STAT(BatteryInteraction),false,PC->GetPawn()); Q.AddIgnoredActor(*It);
-        if(Camcorder) Q.AddIgnoredActor(Camcorder);
-        if(GetWorld()->LineTraceSingleByChannel(Hit,Eye,It->GetActorLocation(),ECC_Visibility,Q)) continue;
-        Best=*It; Dist2=D;
-    }
-    return Best;
-}
+ACamcorderBattery* UCamcorderEquipmentComponent::NearbyBattery() const { return nullptr; }
 FString UCamcorderEquipmentComponent::PickupPrompt() const
 {
- if(NearbyBattery())return GameLanguage::Display(TEXT("[F] 拾取 · 摄像机电池"));
  if(Camcorder&&!Camcorder->bHeld&&!Camcorder->IsPresenting()&&!Camcorder->bInBackpack&&CanUse())return GameLanguage::Display(TEXT("[F] 拾取 · 摄像机"));
  return FString();
 }
 void UCamcorderEquipmentComponent::CollectBattery()
 {
-    if(auto* Battery=NearbyBattery())
-    {
-        if(Inventory && Inventory->Add(UBackpackInventory::BatteryId,TEXT("摄像机电池"),TEXT("消耗一块，将摄像机电量恢复到 100% 并开机。可在背包中使用，或按 R 快速换电池。")))
-        { if(auto* C=Cast<AGame_Jam_Clean_VersCharacter>(Player()->GetPawn()))if(C->ItemInteraction)C->ItemInteraction->Play(Battery->Mesh); CharacterAudio::Attached(LoadObject<USoundBase>(nullptr,TEXT("/Game/Combat/Audio/Handling/ItemPickup")),Player()->GetPawn()->GetRootComponent(),ECharacterSound::Handling,.45f); Battery->Destroy(); if(Camcorder) Camcorder->SetNotice(TEXT("已拾取电池并放入背包")); RefreshBackpack(); }
-    }
-    else if(Camcorder && !Camcorder->IsPresenting() && !Camcorder->bInBackpack && CanUse()) { if(Camcorder->StoreInBackpack(Player())) { AddCameraToInventory(); EquipCamera(); } }
-    else if(Camcorder) Camcorder->SetNotice(TEXT("附近没有可拾取电池；靠近绿色电池后按 F"));
+    if(Camcorder && !Camcorder->IsPresenting() && !Camcorder->bInBackpack && CanUse()) { if(Camcorder->StoreInBackpack(Player())) { AddCameraToInventory(); EquipCamera(); } }
 }
 void UCamcorderEquipmentComponent::TickComponent(float DT,ELevelTick Type,FActorComponentTickFunction* TickFunction)
 {
@@ -131,7 +106,6 @@ void UCamcorderEquipmentComponent::TickComponent(float DT,ELevelTick Type,FActor
         if(!Camcorder) return;
         Inventory=NewObject<UBackpackInventory>(this);
         AddCameraToInventory();
-        Inventory->Add(UBackpackInventory::BatteryId,TEXT("摄像机电池"),TEXT("消耗一块，将摄像机电量恢复到 100% 并开机。可在背包中使用，或按 R 快速换电池。"),2);
         RecordingLibrary=NewObject<URecordingLibrary>(PC,TEXT("RecordingLibrary"));RecordingLibrary->RegisterComponent();
         Tablet=NewObject<URecordingTabletComponent>(PC,TEXT("RecordingTablet"));Tablet->RegisterComponent();
         SelectedItem=UBackpackInventory::CameraId;
@@ -166,7 +140,6 @@ void UCamcorderEquipmentComponent::TickComponent(float DT,ELevelTick Type,FActor
     if(PC->WasInputKeyJustPressed(EKeys::RightMouseButton) && !bRequireAimRelease) Camcorder->ToggleViewfinder();
     if(PC->WasInputKeyJustPressed(EKeys::V)) Camcorder->ToggleSelfie();
     if(PC->WasInputKeyJustPressed(EKeys::Escape)) CancelViewfinder();
-    if(PC->WasInputKeyJustPressed(EKeys::R)) ReplaceBattery();
     if(PC->WasInputKeyJustPressed(EKeys::P))
     {
         if(CanUse()) Camcorder->TogglePower(); else Camcorder->SetNotice(TEXT("请靠近摄像机后开关机"));
@@ -195,18 +168,18 @@ void UCamcorderEquipmentComponent::CreateHUD()
         {
         case 3: S=C->bInBackpack?TEXT("1 装备摄像机  |  I 打开背包"):(E->CanUse()?(C->bHeld?TEXT("右键切换 举机取景  |  Q 丢下  |  B 收入背包"):TEXT("F 拾取摄像机")):TEXT("摄像机已放下：靠近后按 F 拾取")); break;
         case 4: S=C->Notice; break;
-        case 5: S=E->NearbyBattery()?TEXT("附近有电池：按 F 拾取"):TEXT("F 拾取附近绿色电池  |  初始携带 2 块备用电池"); break;
+        case 5: S=TEXT("电量耗尽后无法继续拍摄"); break;
         }
         return FText::FromString(S);
     };
     const auto Font=FCoreStyle::GetDefaultFontStyle("Regular",16);
     HUD=SNew(SOverlay)
-    +SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Bottom).Padding(22,22,22,90)
+    +SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Bottom).Padding(22,22,22,220)
     [ SNew(SBorder).Visibility_Lambda([WeakThis]{auto* E=WeakThis.Get();return E && ((E->RecordingLibrary && E->RecordingLibrary->bRoundEnded) || (E->Camcorder && E->Camcorder->bViewfinderRaised) || (E->Combat && E->Combat->ActiveWeapon))?EVisibility::Collapsed:EVisibility::HitTestInvisible;}).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(FLinearColor(.01f,.015f,.02f,.88f)).Padding(12)
       [SNew(SVerticalBox)
        +SVerticalBox::Slot().AutoHeight().Padding(0,2)[SNew(SLocalizedTextBlock).Font(Font).ColorAndOpacity(FLinearColor(.4f,.9f,1)).Text_Lambda([Text]{return Text(3);})]
        +SVerticalBox::Slot().AutoHeight().Padding(0,2)[SNew(SLocalizedTextBlock).Font(Font).Text(FText::FromString(TEXT("V 自拍/前拍  |  左键开始/停止录像  |  鼠标转向 / 滚轮变焦  |  Esc 放下取景")))]
-       +SVerticalBox::Slot().AutoHeight().Padding(0,2)[SNew(SLocalizedTextBlock).Font(Font).Text(FText::FromString(TEXT("R 更换电池  |  P 开关机  |  WASD 移动  |  鼠标环顾  |  Space 跳跃")))]
+       +SVerticalBox::Slot().AutoHeight().Padding(0,2)[SNew(SLocalizedTextBlock).Font(Font).Text(FText::FromString(TEXT("P 开关机  |  WASD 移动  |  鼠标环顾  |  Space 跳跃")))]
        +SVerticalBox::Slot().AutoHeight().Padding(0,2)[SNew(SLocalizedTextBlock).Font(Font).Text_Lambda([Text]{return Text(5);})]
        +SVerticalBox::Slot().AutoHeight().Padding(0,2)[SNew(SLocalizedTextBlock).Font(Font).Text(FText::FromString(TEXT("I 背包  |  1–4 快捷槽")))]
        +SVerticalBox::Slot().AutoHeight()[SNew(SLocalizedTextBlock).Font(Font).WrapTextAt(700).ColorAndOpacity(FLinearColor(1,.8f,.25f)).Text_Lambda([Text]{return Text(4);})]

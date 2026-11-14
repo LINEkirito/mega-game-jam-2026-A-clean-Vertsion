@@ -6,8 +6,9 @@ UCLASS(Config=Game,DefaultConfig,BlueprintType)
 class GAME_JAM_CLEAN_VERS_API UGlobalData:public UObject {
  GENERATED_BODY()
 public:
- UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Extraction",meta=(ClampMin="1",Units="cm")) float ExtractionRadius=300.f;
- UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Extraction",meta=(ClampMin="0.1",Units="s")) float ExtractionSeconds=15.f;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Extraction",meta=(ClampMin="100",Units="cm/s")) float ConvoySpeed=700.f;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Extraction",meta=(ClampMin="1",Units="cm")) float ExtractionRadius=1500.f;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Extraction",meta=(ClampMin="0.1",Units="s")) float ExtractionSeconds=60.f;
  // Maximum audible distance in cm, including the inner radius. Per-source state stays on audio components.
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Audio",meta=(ClampMin="100",Units="cm")) float VoiceAudibleDistance=1800.f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Audio",meta=(ClampMin="100",Units="cm")) float FootstepAudibleDistance=1000.f;
@@ -54,9 +55,10 @@ public:
  // ENPCRole enumerator names; missing NPC multipliers use 1x.
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Recording") TMap<FName,float> RecordingNPCMultipliers;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC") float NPCPatrolRadius=1100;
- UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|WeaponCarry",meta=(Units="cm")) FVector NPCBackCarryOffset=FVector(-24,8,40);
- UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|WeaponCarry",meta=(Units="cm")) FVector NPCPistolCarryOffset=FVector(3,25,10);
- UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|WeaponCarry") FVector NPCBackCarryMuzzleDirection=FVector(0,-.35f,-.94f);
+ // Actor-local mounts: long gun rises toward the left shoulder; pistol rests at the right waist.
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|WeaponCarry",meta=(Units="cm")) FVector NPCBackCarryOffset=FVector(-24,5,50);
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|WeaponCarry",meta=(Units="cm")) FVector NPCPistolCarryOffset=FVector(0,25,5);
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|WeaponCarry") FVector NPCBackCarryMuzzleDirection=FVector(0,-.4f,.9165f);
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|WeaponCarry",meta=(ClampMin="0",Units="cm")) float NPCWeaponTransferArc=10.f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC") float NPCHearingRange=6000;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC") float NPCPanicSeconds=12;

@@ -1,5 +1,6 @@
 #if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
 #include "Misc/AutomationTest.h"
+#include "Combat/WeaponTestInventory.h"
 #include "Tests/AutomationCommon.h"
 #include "Tests/AutomationEditorCommon.h"
 #include "Engine/Engine.h"
@@ -36,6 +37,7 @@ public:
         switch(Stage++)
         {
         case 0:
+            GiveTestWeapons(E);
             for(TActorIterator<APatrolEnemy> It(World);It;++It)It->SetActorTickEnabled(false);
             Original=Bag->Slots;
             Test->TestEqual(TEXT("Exactly four slots"),Original.Num(),4);

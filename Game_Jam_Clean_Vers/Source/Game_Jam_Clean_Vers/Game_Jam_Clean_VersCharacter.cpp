@@ -90,6 +90,7 @@ FVector AGame_Jam_Clean_VersCharacter::BodyCameraOffset() const
         0,72-12*CrouchViewAlpha+20*CrouchMove+CrouchCameraOffset);
 }
 void AGame_Jam_Clean_VersCharacter::BeginPlay(){Super::BeginPlay();
+RoundSpawnLocation=GetActorLocation();bSpawnRecorded=true;
 FirstPersonCameraComponent->AttachToComponent(GetCapsuleComponent(),FAttachmentTransformRules::KeepWorldTransform);FirstPersonCameraComponent->SetRelativeLocation(FVector(22,0,72));FirstPersonCameraComponent->SetRelativeRotation(FRotator::ZeroRotator);
 GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Visibility,ECR_Block);if(auto* Body=LoadObject<USkeletalMesh>(nullptr,TEXT("/Game/Characters/MechanicGirl/SK_MechanicGirl_PackRig")))
 {
@@ -151,6 +152,26 @@ void AGame_Jam_Clean_VersCharacter::Tick(float DT)
     bSprinting=bSprintRequested&&PC->IsInputKeyDown(EKeys::W)&&!PC->IsInputKeyDown(EKeys::S)&&!bIsCrouched&&!GetCharacterMovement()->bWantsToCrouch&&!ADS;
     if(!GetCharacterMovement()->IsFalling())GroundSpeed=ADS?270.f:bSprinting?650.f:360.f;
     GetCharacterMovement()->MaxWalkSpeed=GroundSpeed;
+}
+bool AGame_Jam_Clean_VersCharacter::CanReturnToSpawn() const
+{
+    auto* PC=Cast<APlayerController>(GetController());
+    if(!bSpawnRecorded||Health<=0||bDeathFalling||!PC||!PC->IsLocalController()||PC->IsMoveInputIgnored()||PC->bShowMouseCursor||GetWorld()->IsPaused())return false;
+    auto* Equipment=PC->FindComponentByClass<UCamcorderEquipmentComponent>();
+    if(Equipment&&(Equipment->bBackpackOpen||(Equipment->Tablet&&Equipment->Tablet->bOpen)||(Equipment->RecordingLibrary&&Equipment->RecordingLibrary->bRoundEnded)))return false;
+    return true;
+}
+bool AGame_Jam_Clean_VersCharacter::ReturnToSpawn()
+{
+    if(!CanReturnToSpawn())return false;
+    // TeleportTo checks destination collision and can adjust around a blocked spawn.
+    // Never sweep through the intervening walls or force a capsule into geometry.
+    if(!TeleportTo(RoundSpawnLocation,GetActorRotation(),false,false))return false;
+    auto* Movement=GetCharacterMovement();
+    Movement->StopMovementImmediately();Movement->ClearAccumulatedForces();
+    SetBase(static_cast<UPrimitiveComponent*>(nullptr));Movement->SetMovementMode(MOVE_Falling);
+    LastFootstepLocation=GetActorLocation();FootstepDistance=0;
+    return true;
 }
 void AGame_Jam_Clean_VersCharacter::OnStartCrouch(float H,float S)
 {

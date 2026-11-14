@@ -132,12 +132,25 @@ TSharedRef<SWidget> GameFrontend::Main(TFunction<void()> Start,TFunction<void()>
   +SVerticalBox::Slot().AutoHeight().Padding(0,6)[Button(TEXT("退出游戏"),MoveTemp(Quit))]
   +SVerticalBox::Slot().AutoHeight().Padding(0,28,0,0)[Label(TEXT("在设置中选择语言"),16)]];
 }
+TSharedRef<SWidget> GameFrontend::Pause(TFunction<void()> Resume,TFunction<void()> Settings,TFunction<void()> Unstuck,TFunction<void()> Title,bool bUnstuckFailed)
+{
+ return SNew(SBox).WidthOverride(520)[SNew(SVerticalBox)
+  +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,12)[Label(TEXT("游戏菜单"),32)]
+  +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,20)[Label(TEXT("菜单打开时游戏继续运行。"),16,500)]
+  +SVerticalBox::Slot().AutoHeight().Padding(0,6)[Button(TEXT("继续游戏"),MoveTemp(Resume))]
+  +SVerticalBox::Slot().AutoHeight().Padding(0,6)[Button(TEXT("设置"),MoveTemp(Settings))]
+  +SVerticalBox::Slot().AutoHeight().Padding(0,6)[Button(TEXT("脱离卡死"),MoveTemp(Unstuck))]
+  +SVerticalBox::Slot().AutoHeight().Padding(0,4,0,16)[Label(TEXT("返回本局出生点，保留当前生命值和物品。"),16,500)]
+  +SVerticalBox::Slot().AutoHeight().Padding(0,6)[Button(TEXT("返回标题界面"),MoveTemp(Title))]
+  +SVerticalBox::Slot().AutoHeight().Padding(0,4)[Label(TEXT("返回标题将结束本局，不进行撤离结算。"),16,500)]
+  +SVerticalBox::Slot().AutoHeight().Padding(0,12)[Label(bUnstuckFailed?TEXT("出生点被阻挡，暂时无法返回。请稍后重试。"):TEXT(""),16,500)]];
+}
 TSharedRef<SWidget> GameFrontend::Tutorial(TFunction<void()> Close)
 {
  auto Rows=SNew(SVerticalBox);
  Rows->AddSlot().AutoHeight().Padding(0,0,0,20)[Label(TEXT("使用教程"),30)];
  const TCHAR* Keys[]={TEXT("W A S D"),TEXT("SHIFT / CTRL"),TEXT("SPACE"),TEXT("F / I"),TEXT("1  2  3  4"),TEXT("RMB → LMB"),TEXT("SCROLL / V"),TEXT("R / P")};
- const TCHAR* Texts[]={TEXT("移动"),TEXT("切换冲刺 / 蹲下"),TEXT("跳跃"),TEXT("拾取互动 / 背包"),TEXT("切换装备；滚轮也可切换"),TEXT("摄像机：举起取景器 → 开始或停止录像"),TEXT("取景时变焦 / 切换自拍"),TEXT("换电池或装填 / 摄像机开关机")};
+ const TCHAR* Texts[]={TEXT("移动"),TEXT("切换冲刺 / 蹲下"),TEXT("跳跃"),TEXT("拾取互动 / 背包"),TEXT("切换装备；滚轮也可切换"),TEXT("摄像机：举起取景器 → 开始或停止录像"),TEXT("取景时变焦 / 切换自拍"),TEXT("枪械装填 / 摄像机开关机")};
  for(int32 I=0;I<8;++I)
   Rows->AddSlot().AutoHeight().Padding(0,5)[SNew(SHorizontalBox)
    +SHorizontalBox::Slot().AutoWidth()[SNew(SBox).WidthOverride(210)[SNew(SBorder).Padding(12).BorderBackgroundColor(FLinearColor(.08,.18,.22))[Label(Keys[I],18)]]]
@@ -148,7 +161,7 @@ TSharedRef<SWidget> GameFrontend::Tutorial(TFunction<void()> Close)
   +SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)[SNew(SGuideIcon).Kind(I)]
   +SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0,8)[Label(StepsText[I],20,230)]];
  Rows->AddSlot().AutoHeight().Padding(0,16)[Steps];
- Rows->AddSlot().AutoHeight().Padding(0,0,0,18)[Label(TEXT("3 米内对准撤离车辆，按 F 启动撤离；留在范围内 15 秒，可转身还击。死亡得分减半，撤离保留全分。"),16)];
+ Rows->AddSlot().AutoHeight().Padding(0,0,0,18)[Label(TEXT("15 米内对准撤离车辆，按 F 启动撤离；留在范围内 60 秒，可转身还击。死亡得分减半，撤离保留全分。"),16)];
  Rows->AddSlot().AutoHeight()[Button(TEXT("返回"),MoveTemp(Close))];
  return SNew(SBox).WidthOverride(760).HeightOverride(700)[SNew(SScrollBox)+SScrollBox::Slot()[Rows]];
 }

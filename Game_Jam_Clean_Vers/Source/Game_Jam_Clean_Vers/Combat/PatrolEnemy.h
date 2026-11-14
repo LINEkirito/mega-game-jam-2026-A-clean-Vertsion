@@ -64,6 +64,7 @@ public:
  UFUNCTION(BlueprintImplementableEvent,Category="NPC") void OnActivityChanged(ENPCActivity NewActivity);
 private:
  friend class UPoliceReinforcements;
+ friend class UExtractionSubsystem;
  friend class FExtractionFlowCheck;
  bool TickExtractionResponse(float DT);
  bool bRespondingToExtraction=false;

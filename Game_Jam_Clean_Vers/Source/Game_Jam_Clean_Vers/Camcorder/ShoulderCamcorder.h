@@ -105,5 +105,6 @@ class GAME_JAM_CLEAN_VERS_API ACamcorderBattery : public AActor
     GENERATED_BODY()
 public:
     ACamcorderBattery();
+    virtual void BeginPlay() override;
     UPROPERTY(VisibleAnywhere) TObjectPtr<UStaticMeshComponent> Mesh;
 };

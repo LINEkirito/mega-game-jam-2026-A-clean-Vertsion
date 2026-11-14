@@ -34,8 +34,8 @@ public:
         const float BX=W-Margin-124*S,BY=Margin;
         Box(BX,BY,120*S,34*S,White); Box(BX+3*S,BY+3*S,114*S,28*S,FLinearColor(.015f,.02f,.02f,.9f)); Box(BX-5*S,BY+10*S,5*S,14*S,White);
         for(int32 I=0;I<16;++I) Box(BX+(6+I*6.8f)*S,BY+6*S,4.8f*S,22*S,I<C->BatteryPercent*.16f?Battery:FLinearColor(.15f,.17f,.16f));
-        Text(BX,BY+45*S,FString::Printf(TEXT("%.0f%%  备用 ×%d"),C->BatteryPercent,E->GetBatteryCount()),18,Battery);
-        if(C->BatteryPercent<=50) Text(BX-70*S,BY+76*S,TEXT("低电量 · R 更换电池"),17,Battery);
+        Text(BX,BY+45*S,FString::Printf(TEXT("%.0f%%"),C->BatteryPercent),18,Battery);
+        if(C->BatteryPercent<=50) Text(BX-70*S,BY+76*S,TEXT("低电量 · 请节省拍摄时间"),17,Battery);
         const float CX=W*.5f,CY=H*.5f,DX=72*S,DY=42*S,L=22*S;
         for(float XSign:{-1.f,1.f}) for(float YSign:{-1.f,1.f})
         {

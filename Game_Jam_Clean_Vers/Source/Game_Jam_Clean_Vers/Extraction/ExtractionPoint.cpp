@@ -20,9 +20,9 @@
 bool UExtractionSubsystem::Claim(AExtractionPoint* Point)
 {
  if(!IsValid(Point)||Point->GetWorld()!=GetWorld()||ActivePoint.IsValid())return false;
- ActivePoint=Point;return true;
+ ActivePoint=Point;SpawnRetry=0;return true;
 }
-void UExtractionSubsystem::Release(AExtractionPoint* Point){if(ActivePoint.Get()==Point)ActivePoint.Reset();}
+void UExtractionSubsystem::Release(AExtractionPoint* Point){if(ActivePoint.Get()==Point){StopResponse();ActivePoint.Reset();}}
 AGame_Jam_Clean_VersCharacter* UExtractionSubsystem::GetExtractingPlayer() const
 {
  auto* Point=ActivePoint.Get();
@@ -83,7 +83,8 @@ bool AExtractionPoint::TryStart(APlayerController* PC)
  auto* Session=GetWorld()->GetSubsystem<UExtractionSubsystem>();
  if(!Session||!Session->Claim(this))return false;
  ExtractingPlayer=Player;RemainingSeconds=GetDefault<UGlobalData>()->ExtractionSeconds;State=EExtractionState::Extracting;
- Notice.Empty();NoticeSeconds=0;NotifyState();return true;
+ Notice.Empty();NoticeSeconds=0;Session->UpdateResponse(0);NotifyState();
+ GameAudio::Cue(this,TEXT("ExtractionEnter"));return true;
 }
 void AExtractionPoint::NotifyState()
 {
@@ -98,7 +99,7 @@ void AExtractionPoint::Cancel()
  if(State!=EExtractionState::Extracting)return;
  if(auto* Session=GetWorld()->GetSubsystem<UExtractionSubsystem>())Session->Release(this);
  State=EExtractionState::Idle;RemainingSeconds=0;ExtractingPlayer=nullptr;
- Notice=TEXT("撤离已取消：请留在车辆 3 米内");NoticeSeconds=2.f;NotifyState();
+ Notice=TEXT("撤离已取消：请留在车辆 15 米内");NoticeSeconds=2.f;NotifyState();
 }
 void AExtractionPoint::Advance(float DeltaSeconds)
 {
@@ -106,11 +107,9 @@ void AExtractionPoint::Advance(float DeltaSeconds)
  auto* PC=IsValid(ExtractingPlayer)?Cast<APlayerController>(ExtractingPlayer->GetController()):nullptr;
  auto* Library=PC?PC->FindComponentByClass<URecordingLibrary>():nullptr;
  if(!IsPlayerInRange(ExtractingPlayer)||!Library||Library->bRoundEnded){Cancel();return;}
- const int32 PreviousSecond=FMath::CeilToInt(RemainingSeconds);
  RemainingSeconds=FMath::Max(0.f,RemainingSeconds-FMath::Max(0.f,DeltaSeconds));
- if(RemainingSeconds>0&&FMath::CeilToInt(RemainingSeconds)<PreviousSecond)GameAudio::Cue(this,TEXT("ExtractionTick"),.22f);
  if(auto* Bus=GetWorld()->GetSubsystem<UDataTransmitter>())Bus->NotifyChange(this,TEXT("ExtractionRemaining"),RemainingSeconds);
- if(RemainingSeconds>0.f)return;
+ if(RemainingSeconds>0.f){GetWorld()->GetSubsystem<UExtractionSubsystem>()->UpdateResponse(DeltaSeconds);return;}
  State=EExtractionState::Completed;
  GetWorld()->GetSubsystem<UExtractionSubsystem>()->Release(this);NotifyState();RemoveOverlay();
  GameAudio::Cue(this,TEXT("Victory"),.35f);
@@ -120,7 +119,7 @@ FString AExtractionPoint::StatusText() const
 {
  if(State==EExtractionState::Extracting)return FString::Printf(TEXT("撤离倒计时：%.1f 秒"),RemainingSeconds);
  if(NoticeSeconds>0)return Notice;
- return TEXT("[F] 开始撤离（车身 3 米内）");
+ return TEXT("[F] 开始撤离（车身 15 米内）");
 }
 void AExtractionPoint::UpdateOverlay(APlayerController* PC,bool Visible)
 {
@@ -143,7 +142,7 @@ void AExtractionPoint::UpdateOverlay(APlayerController* PC,bool Visible)
     +SVerticalBox::Slot().AutoHeight().Padding(0,6).HAlign(HAlign_Center)
     [SNew(SLocalizedTextBlock).Font(GameLanguage::Font(16)).AutoWrapText(true).Justification(ETextJustify::Center)
      .Visibility_Lambda([WeakThis]{return WeakThis.IsValid()&&WeakThis->State==EExtractionState::Extracting?EVisibility::HitTestInvisible:EVisibility::Collapsed;})
-     .Text(FText::FromString(TEXT("敌人正在靠近！留在车辆 3 米内，可转身还击。")))]
+     .Text(FText::FromString(TEXT("敌人正在靠近！留在车辆 15 米内，可转身还击。")))]
    ]]];
  Overlay->SetVisibility(EVisibility::HitTestInvisible);
  GetWorld()->GetGameViewport()->AddViewportWidgetContent(Overlay.ToSharedRef(),45);
@@ -160,9 +159,6 @@ void AExtractionPoint::Tick(float DeltaSeconds)
  auto* Library=PC?PC->FindComponentByClass<URecordingLibrary>():nullptr;
  if(!PC||!Library||Library->bRoundEnded){if(State==EExtractionState::Extracting)Cancel();RemoveOverlay();return;}
  if(State==EExtractionState::Completed){RemoveOverlay();return;}
- const bool InRange=IsPlayerInRange(Cast<AGame_Jam_Clean_VersCharacter>(PC->GetPawn()));
- if(InRange&&!bAudioPlayerInRange&&!PC->bShowMouseCursor&&!PC->IsPaused())GameAudio::Cue(this,TEXT("ExtractionEnter"));
- bAudioPlayerInRange=InRange;
  const bool WasExtracting=State==EExtractionState::Extracting;
  if(WasExtracting)Advance(DeltaSeconds);
  // Starting is handled exclusively by the shared F interaction input.

@@ -163,7 +163,7 @@ void UCamcorderEquipmentComponent::ShowAssignmentMenu(FName Id)
     const TWeakObjectPtr<UCamcorderEquipmentComponent> Weak(this);
     FSlateApplication::Get().PlaySound(GameAudio::UISound(TEXT("UI_Click")));
     FMenuBuilder Menu(true,nullptr);
-    Menu.AddMenuEntry(GameLanguage::Text(TEXT("丢下")),GameLanguage::Text(TEXT("丢下此物品（弹药整组，电池一块）")),FSlateIcon(),
+    Menu.AddMenuEntry(GameLanguage::Text(TEXT("丢下")),GameLanguage::Text(TEXT("丢下此物品（弹药整组）")),FSlateIcon(),
         FUIAction(FExecuteAction::CreateLambda([Weak,Id]{FSlateApplication::Get().PlaySound(GameAudio::UISound(TEXT("UI_Click")));if(auto* E=Weak.Get()) E->DropInventoryItem(Id);})));
     FSlateApplication::Get().PushMenu(BackpackHUD.ToSharedRef(),FWidgetPath(),Menu.MakeWidget(),
         FSlateApplication::Get().GetCursorPos(),FPopupTransitionEffect(FPopupTransitionEffect::ContextMenu));
@@ -191,7 +191,6 @@ void UCamcorderEquipmentComponent::UseSelectedItem()
 {
     if(!Inventory || Inventory->Count(SelectedItem)==0) { if(Camcorder) Camcorder->SetNotice(TEXT("背包里没有该物品")); return; }
     if(SelectedItem==UBackpackInventory::TabletId){if(Tablet)Tablet->SetOpen(true);}
-    else if(SelectedItem==UBackpackInventory::BatteryId) ReplaceBattery();
     else if(SelectedItem==UBackpackInventory::CameraId) EquipCamera();
     else if(Combat && Combat->Weapons.Contains(SelectedItem)) Combat->EquipWeapon(SelectedItem);
     else if(Combat && Combat->ActiveWeapon && Combat->ActiveWeapon->Spec().Ammo==SelectedItem) Combat->Reload();
@@ -237,7 +236,7 @@ FString UCamcorderEquipmentComponent::SlotTitle(int32 Index) const
 }
 FString UCamcorderEquipmentComponent::SelectedDescription() const
 {
-    const auto* E=Inventory?Inventory->Find(SelectedItem):nullptr; if(!E) return TEXT("背包为空。靠近绿色电池或摄像机，按 F 收入背包。");
+    const auto* E=Inventory?Inventory->Find(SelectedItem):nullptr; if(!E) return TEXT("背包为空。靠近物品，按 F 收入背包。");
     FString S=E->Description;
     const int32 Slot=Inventory->SlotIndex(SelectedItem);
     if(!Inventory->CanAssign(SelectedItem)) return S+TEXT("\n\n此物品不占用固定快捷栏，请在背包中使用。");

@@ -12,7 +12,7 @@ int32 UBackpackInventory::Count(FName Id) const { const auto* E=Find(Id); return
 int32 UBackpackInventory::SlotIndex(FName Id) const { return Id.IsNone()?INDEX_NONE:Slots.IndexOfByKey(Id); }
 bool UBackpackInventory::Add(FName Id,const FString& Name,const FString& Description,int32 Amount,bool bHandheld)
 {
-    if(Id.IsNone() || Amount<=0 || Count(Id)>MAX_int32-Amount) return false;
+    if(Id==BatteryId || Id.IsNone() || Amount<=0 || Count(Id)>MAX_int32-Amount) return false;
     if(auto* E=Items.FindByPredicate([Id](const FBackpackEntry& Item){return Item.Id==Id;})) E->Count+=Amount;
     else { FBackpackEntry Entry; Entry.Id=Id; Entry.Name=Name; Entry.Description=Description; Entry.Count=Amount; Entry.bHandheld=bHandheld; Items.Add(Entry); }
     InventoryChanged(this,Id,float(Count(Id))); return true;

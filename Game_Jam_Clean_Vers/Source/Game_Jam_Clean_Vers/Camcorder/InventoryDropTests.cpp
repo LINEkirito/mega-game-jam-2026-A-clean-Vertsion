@@ -1,5 +1,6 @@
 #if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
 #include "Misc/AutomationTest.h"
+#include "Combat/WeaponTestInventory.h"
 #include "Tests/AutomationCommon.h"
 #include "Tests/AutomationEditorCommon.h"
 #include "Engine/Engine.h"
@@ -49,6 +50,7 @@ public:
         switch(Stage++)
         {
         case 0:
+            GiveTestWeapons(E);
             PC->SetPause(false);PC->bShowMouseCursor=false;
             for(TActorIterator<APatrolEnemy> It(World);It;++It)It->SetActorTickEnabled(false);
             // Isolate the round trip from preplaced level supplies (the map also has a 34-round box).
@@ -74,14 +76,11 @@ public:
             Test->TestNotNull(TEXT("Gun equipped"),Combat->ActiveWeapon.Get());
             if(!Combat->ActiveWeapon)return true;
             Gun=Combat->ActiveWeapon;GunId=Gun->InventoryId;Magazine=Gun->Magazine;
-            Batteries=Bag->Count(UBackpackInventory::BatteryId);
-            Test->TestTrue(TEXT("Drop battery from backpack"),E->DropInventoryItem(UBackpackInventory::BatteryId));
-            Test->TestEqual(TEXT("One battery removed"),Bag->Count(UBackpackInventory::BatteryId),Batteries-1);
-            for(TActorIterator<ACamcorderBattery> It(World);It;++It){Place(*It);break;}
-            Test->TestTrue(TEXT("Battery pickup has F prompt while armed"),Combat->InteractionText().Contains(TEXT("[F]")));
+            Test->TestEqual(TEXT("No spare batteries"),Bag->Count(UBackpackInventory::BatteryId),0);
+            Test->TestFalse(TEXT("Cannot drop disabled battery"),E->DropInventoryItem(UBackpackInventory::BatteryId));
             Key(EKeys::F,IE_Pressed);break;
         case 6:
-            Key(EKeys::F,IE_Released);Test->TestEqual(TEXT("F picks battery up while armed"),Bag->Count(UBackpackInventory::BatteryId),Batteries);
+            Key(EKeys::F,IE_Released);Test->TestEqual(TEXT("F cannot acquire a battery"),Bag->Count(UBackpackInventory::BatteryId),0);
             AmmoId=Gun->Spec().Ammo;Bag->Add(AmmoId,TEXT("Test ammo"),TEXT("Drop round trip"),17);AmmoCount=Bag->Count(AmmoId);
             Test->TestTrue(TEXT("Drop reserve ammunition"),E->DropInventoryItem(AmmoId));
             Test->TestEqual(TEXT("Ammo stack removed"),Bag->Count(AmmoId),0);

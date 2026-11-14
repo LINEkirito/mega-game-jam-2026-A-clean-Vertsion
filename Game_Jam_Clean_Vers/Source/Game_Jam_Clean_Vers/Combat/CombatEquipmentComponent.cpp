@@ -65,9 +65,9 @@ bool UCombatEquipmentComponent::TryInteract()
      {It->TryStart(PC);return true;} // One F press cannot also pick up an item.
     if(auto* A=NearbyPickup())
     {
-        if(auto* W=Cast<ATacticalWeapon>(A);W && Equipment->Inventory->SlotIndex(W->InventoryId)==INDEX_NONE)
-        {Equipment->Camcorder->SetNotice(TEXT("快捷栏固定为初始四件道具，不能放入其他武器"));return true;}
-        if(auto* W=Cast<ATacticalWeapon>(A)){if(W->InventoryId.IsNone())W->InventoryId=W->GetFName();Weapons.Add(W->InventoryId,W);Equipment->Inventory->Add(W->InventoryId,W->Spec().Name,TEXT("拾回后恢复原固定快捷槽。左键射击，右键切换瞄准，R 换弹；Q 丢下，保留弹匣。"),1,true);W->Stow();EquipWeapon(W->InventoryId);Equipment->Camcorder->SetNotice(TEXT("武器已拿到手上，正在准备上膛"));}
+        if(auto* W=Cast<ATacticalWeapon>(A);W && Equipment->Inventory->SlotIndex(W->InventoryId)==INDEX_NONE && !Equipment->Inventory->Slots[int32(W->Kind)+1].IsNone())
+        {Equipment->Camcorder->SetNotice(TEXT("此类枪械的快捷槽已绑定，请拾回原来的武器"));return true;}
+        if(auto* W=Cast<ATacticalWeapon>(A)){if(W->InventoryId.IsNone())W->InventoryId=W->GetFName();Weapons.Add(W->InventoryId,W);Equipment->Inventory->Add(W->InventoryId,W->Spec().Name,TEXT("拾回后恢复原固定快捷槽。左键射击，右键切换瞄准，R 换弹；Q 丢下，保留弹匣。"),1,true);Equipment->Inventory->BindStartingWeapon(int32(W->Kind)+1,W->InventoryId);W->Stow();EquipWeapon(W->InventoryId);Equipment->Camcorder->SetNotice(TEXT("武器已拿到手上，正在准备上膛"));}
         else if(auto* Ammo=Cast<ACombatAmmoPickup>(A)){Equipment->Inventory->Add(Ammo->AmmoId(),Ammo->AmmoName(),TEXT("对应枪械的备用弹药；装备枪械后按 R 换弹。"),Ammo->Amount);if(auto* C=Cast<AGame_Jam_Clean_VersCharacter>(Player()->GetPawn()))if(C->ItemInteraction)C->ItemInteraction->Play(Ammo->Mesh);CharacterAudio::Attached(LoadObject<USoundBase>(nullptr,TEXT("/Game/Combat/Audio/Handling/ItemPickup")),Player()->GetPawn()->GetRootComponent(),ECharacterSound::Handling,.5f);Ammo->Destroy();Equipment->Camcorder->SetNotice(TEXT("弹药已收入背包"));}
         Equipment->RefreshBackpack();return true;
     }return false;
@@ -210,18 +210,7 @@ void UCombatEquipmentComponent::TickComponent(float DT,ELevelTick Type,FActorCom
 }
 void UCombatEquipmentComponent::InitializeStartingWeapons()
 {
-    if(!Equipment||!Equipment->Inventory||!Weapons.IsEmpty()||!Equipment->Inventory->Slots[1].IsNone())return;
-    const ETacticalWeaponKind Kinds[]={ETacticalWeaponKind::Pistol,ETacticalWeaponKind::Shotgun,ETacticalWeaponKind::Rifle};
-    for(int32 I=0;I<3;++I){
-        const FTransform Transform(Player()->GetPawn()->GetActorLocation());
-        auto* Gun=GetWorld()->SpawnActorDeferred<ATacticalWeapon>(ATacticalWeapon::StaticClass(),Transform,Player(),nullptr,ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
-        if(!Gun)continue;
-        Gun->Kind=Kinds[I];Gun->FinishSpawning(Transform);Gun->Stow();
-        Weapons.Add(Gun->InventoryId,Gun);
-        Equipment->Inventory->Add(Gun->InventoryId,Gun->Spec().Name,TEXT("左键射击，右键瞄准，R 换弹；Q 丢下。"),1,true);
-        Equipment->Inventory->BindStartingWeapon(I+1,Gun->InventoryId);
-    }
-    Equipment->RefreshBackpack();
+    // Weapons are world pickups on the starting table, never granted at spawn.
 }
 void UCombatEquipmentComponent::InitializeHUD(){HUD=SNew(SCombatHUD).Combat(this);GetWorld()->GetGameViewport()->AddViewportWidgetContent(HUD.ToSharedRef(),11);}
 void UCombatEquipmentComponent::EndPlay(const EEndPlayReason::Type R){if(HUD&&GetWorld()->GetGameViewport())GetWorld()->GetGameViewport()->RemoveViewportWidgetContent(HUD.ToSharedRef());HUD.Reset();for(auto& P:Weapons)if(IsValid(P.Value))P.Value->Destroy();Super::EndPlay(R);}

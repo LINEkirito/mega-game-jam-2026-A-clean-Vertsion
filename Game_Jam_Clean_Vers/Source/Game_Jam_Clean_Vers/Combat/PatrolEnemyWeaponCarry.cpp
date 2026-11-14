@@ -42,9 +42,13 @@ void APatrolEnemy::InitializeWeaponCarry()
   GetMesh()->TickAnimation(1.f,false);GetMesh()->RefreshBoneTransforms();
   HeldWeapon->UpdateNPCGripPose(GetMesh(),NPCBody,1.f,true);NPCBody->RefreshBoneTransforms();
   FTransform Back=HeldWeapon->GetActorTransform();
-  // Seat the receiver against the middle of the back, below the shoulder.
+  // Reference carry: barrel rises past the left shoulder and stock falls toward
+  // the right hip. Keep the broad side flat against the back, independent of
+  // the reaching animation's wrist roll. Pistol rail faces forward at the right
+  // waist so its grip remains above and behind the downward-pointing barrel.
   const FVector BackBarrel=GetActorQuat().RotateVector(Pistol?FVector(0,0,-1):Config->NPCBackCarryMuzzleDirection.GetSafeNormal());
-  Back.SetRotation(FQuat::FindBetweenNormals(HeldWeapon->MuzzleDirection(),BackBarrel)*Back.GetRotation());
+  const FVector RailUp=Pistol?GetActorForwardVector():FVector::CrossProduct(GetActorForwardVector(),BackBarrel).GetSafeNormal();
+  Back.SetRotation(FRotationMatrix::MakeFromXZ(BackBarrel,RailUp).ToQuat());
   Back.SetLocation(GetActorTransform().TransformPosition(Pistol?Config->NPCPistolCarryOffset:Config->NPCBackCarryOffset));
   // Store the mount against the relaxed spine, not the reaching clip's bent
   // torso, otherwise returning to idle rotates the gun off the back plane.
@@ -69,7 +73,7 @@ void APatrolEnemy::ApplyBackCarryPose(const FTransform& AuthoredGun)
   Gun.AddToTranslation(GetActorRightVector()*(GetDefault<UGlobalData>()->NPCWeaponTransferArc*4.f*BackWeight*(1.f-BackWeight)));
  if(IsWeaponInHand())HeldWeapon->SetActorTransform(Gun);
  else Gun=HeldWeapon->GetActorTransform();
- // Retarget the authored reaching arm to the lower back grip. The weapon and
+ // Retarget the authored reaching arm to the carry grip. The weapon and
  // wrist use the same rigid correction, preserving the original finger contact.
  const float ReachWeight=Drawing?FMath::SmoothStep(0.f,.2f,WeaponCarryTime):1.f-FMath::SmoothStep(1.f,1.15f,WeaponCarryTime);
  if(ReachWeight<=0)return;

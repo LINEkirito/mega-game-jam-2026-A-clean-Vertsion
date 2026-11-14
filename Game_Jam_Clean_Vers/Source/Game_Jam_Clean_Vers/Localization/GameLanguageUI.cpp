@@ -1,4 +1,5 @@
 #include "GameLanguageUI.h"
+#include "Game_Jam_Clean_VersCharacter.h"
 #include "Audio/AudioWidgets.h"
 #include "GameFramework/GameModeBase.h"
 #include "Kismet/GameplayStatics.h"
@@ -24,6 +25,7 @@
 #include "Combat/PatrolEnemy.h"
 #include "Combat/StatueTargetComponent.h"
 #include "Camcorder/CamcorderEquipmentComponent.h"
+#include "Camcorder/ShoulderCamcorder.h"
 #include "Camcorder/RecordingTabletComponent.h"
 #include "Camcorder/RecordingLibrary.h"
 #include "Widgets/SBoxPanel.h"
@@ -47,7 +49,7 @@ namespace
    DebugRoot.Reset();
 #endif
    GameFrontend::ReleaseAudio(Player.Get());
-   if(bOpen){bFrontend=false;bPerformance=true;Close();}
+   if(bOpen){bFrontend=false;bPauseMenu=false;bPerformance=true;Close();}
    if(auto* PC=Player.Get())if(auto* V=PC->GetWorld()->GetGameViewport())if(Root)V->RemoveViewportWidgetContent(Root.ToSharedRef());
    Root.Reset();
    for(auto& Pair:Labels){if(auto* S=Pair.Key.Get())S->SetHiddenInGame(Pair.Value.bHidden);if(auto* W=Pair.Value.Widget.Get())W->DestroyComponent();}
@@ -75,7 +77,19 @@ namespace
    if(E.GetKey()==EKeys::F2){if(!E.IsRepeat())ToggleDebug();return true;}
 #endif
    if(E.GetKey()==EKeys::F10){if(!E.IsRepeat()){if(bOpen){if(bFrontend&&bMain)ShowSettings();else {bPerformance=true;Close();}}else Open(true);}return true;}
-   if(bOpen&&E.GetKey()==EKeys::Escape){if(!E.IsRepeat())Close();bEatEscape=true;return true;}
+   if(E.GetKey()==EKeys::Escape)
+   {
+    if(bEatEscape)return true;
+    if(bOpen){if(!E.IsRepeat())Close();bEatEscape=true;return true;}
+    auto* PC=Player.Get();auto* P=PC?Cast<AGame_Jam_Clean_VersCharacter>(PC->GetPawn()):nullptr;
+    auto* Equipment=PC?PC->FindComponentByClass<UCamcorderEquipmentComponent>():nullptr;
+    // Existing contextual Escape actions retain priority (inventory, tablet, viewfinder).
+    if(Equipment&&(Equipment->bBackpackOpen||(Equipment->Tablet&&Equipment->Tablet->bOpen)||(Equipment->Camcorder&&Equipment->Camcorder->bViewfinderRaised)))return false;
+    if(!P||P->Health<=0||P->HasDeathFallStarted()||(Equipment&&Equipment->RecordingLibrary&&Equipment->RecordingLibrary->bRoundEnded))
+    {bEatEscape=true;return true;} // Never let gameplay Escape fall through to PIE's Stop shortcut.
+    if(!E.IsRepeat()){bPauseMenu=true;Open(true);ShowPause();}
+    bEatEscape=true;return true;
+   }
    // Let Slate handle keyboard navigation, but stop other preprocessors from performing gameplay actions.
    if(bOpen)return E.GetKey()!=EKeys::Tab&&E.GetKey()!=EKeys::Enter&&E.GetKey()!=EKeys::SpaceBar&&E.GetKey()!=EKeys::Up&&E.GetKey()!=EKeys::Down&&E.GetKey()!=EKeys::Left&&E.GetKey()!=EKeys::Right;
    return false;
@@ -93,6 +107,12 @@ namespace
   virtual void Tick(float DT,FSlateApplication&,TSharedRef<ICursor>) override
   {
    auto* PC=Player.Get();if(!PC||!PC->GetWorld())return;
+   if(bOpen&&!bFrontend)
+   {
+    auto* P=Cast<AGame_Jam_Clean_VersCharacter>(PC->GetPawn());
+    auto* Equipment=PC->FindComponentByClass<UCamcorderEquipmentComponent>();
+    if(!P||P->Health<=0||P->HasDeathFallStarted()||(Equipment&&Equipment->RecordingLibrary&&Equipment->RecordingLibrary->bRoundEnded))ResumeGame();
+   }
    if(bBoot && GIsAutomationTesting && !(PC->GetWorld()->GetAuthGameMode() && UGameplayStatics::HasOption(PC->GetWorld()->GetAuthGameMode()->OptionsString,TEXT("ShowTitle"))))bBoot=false;
    if(bBoot && PC->GetPawn() && PC->GetWorld()->GetGameViewport()){bBoot=false;bFrontend=true;GameLocalSettings::LoadPerformance();Open(false);ShowMain();GameFrontend::ApplyAudio(PC);}
    ScanTime-=DT;
@@ -153,6 +173,7 @@ namespace
   TSharedPtr<SBorder> PanelHost;
   bool bPerformance=false;
   bool bBoot=true,bFrontend=false,bMain=false,bPausedByMenu=false;
+  bool bPauseMenu=false,bPauseRoot=false;
   TWeakPtr<SWidget> PreviousFocus;
   bool bPreviousUIOnly=false;
   bool bOpen=false,bCursor=false,bEatEscape=false;
@@ -164,7 +185,8 @@ namespace
    auto* Equipment=PC->FindComponentByClass<UCamcorderEquipmentComponent>();
    bPreviousUIOnly=Equipment&&(Equipment->bBackpackOpen||(Equipment->Tablet&&Equipment->Tablet->bOpen)||(Equipment->RecordingLibrary&&Equipment->RecordingLibrary->bRoundEnded));
    App.DismissAllMenus();App.ReleaseAllPointerCapture();
-   bPausedByMenu=!PC->IsPaused() && PC->SetPause(true);
+   // Gameplay menus block player controls, but simulation and recording keep running.
+   bPausedByMenu=bFrontend&&!PC->IsPaused()&&PC->SetPause(true);
    bOpen=true;PC->SetIgnoreMoveInput(true);PC->SetIgnoreLookInput(true);PC->bShowMouseCursor=true;
    if(PC->PlayerInput)PC->PlayerInput->FlushPressedKeys();
    Root=SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(FLinearColor(.008f,.013f,.022f,1.f)).Padding(20).HAlign(HAlign_Center).VAlign(VAlign_Center)
@@ -179,7 +201,28 @@ namespace
   }
   void ShowSettings()
   {
+   bPauseRoot=false;
    bMain=false;PerformancePanel=GameFrontend::Settings(Player.Get(),[this]{Close();},[this]{ShowLanguage();});ShowPerformance();
+  }
+  void ResumeGame()
+  {
+   bPauseMenu=false;bPauseRoot=false;bPerformance=true;Close();
+  }
+  void ShowPause(bool bUnstuckFailed=false)
+  {
+   bPauseRoot=true;
+   PerformancePanel=GameFrontend::Pause([this]{ResumeGame();},[this]{ShowSettings();},[this]
+   {
+    auto* PC=Player.Get();auto* P=PC?Cast<AGame_Jam_Clean_VersCharacter>(PC->GetPawn()):nullptr;
+    ResumeGame();
+    if(P&&P->Health>0&&!P->HasDeathFallStarted()&&!P->ReturnToSpawn()){bPauseMenu=true;Open(true);ShowPause(true);}
+   },[this]
+   {
+    auto* PC=Player.Get();if(!PC)return;
+    ResumeGame();
+    UGameplayStatics::OpenLevel(PC,FName(*UGameplayStatics::GetCurrentLevelName(PC,true)),true,TEXT("ShowTitle"));
+   },bUnstuckFailed);
+   ShowPerformance();
   }
   void ShowMain()
   {
@@ -234,11 +277,17 @@ namespace
   {
    if(!bPerformance&&PerformancePanel){ShowPerformance();return;}
    if(bFrontend){if(!bMain)ShowMain();return;}
+   if(bPauseMenu){if(!bPauseRoot){ShowPause();return;}bPauseMenu=false;bPauseRoot=false;}
    auto* PC=Player.Get();bOpen=false;if(!PC)return;
    if(auto* V=PC->GetWorld()->GetGameViewport())if(Root)V->RemoveViewportWidgetContent(Root.ToSharedRef());Root.Reset();PanelHost.Reset();PerformancePanel.Reset();
    if(bPausedByMenu){PC->SetPause(false);bPausedByMenu=false;}
-   PC->SetIgnoreMoveInput(false);PC->SetIgnoreLookInput(false);PC->bShowMouseCursor=bCursor;
+   PC->SetIgnoreMoveInput(false);PC->SetIgnoreLookInput(false);
    if(PC->PlayerInput)PC->PlayerInput->FlushPressedKeys();
+   // Extraction may finish while this non-pausing menu is open. Keep the
+   // settlement's newly established focus/cursor instead of restoring gameplay.
+   auto* Equipment=PC->FindComponentByClass<UCamcorderEquipmentComponent>();
+   if(Equipment&&Equipment->RecordingLibrary&&Equipment->RecordingLibrary->bRoundEnded)return;
+   PC->bShowMouseCursor=bCursor;
    if(bPreviousUIOnly){FInputModeUIOnly Mode;Mode.SetWidgetToFocus(PreviousFocus.Pin());Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);PC->SetInputMode(Mode);}
    else PC->SetInputMode(FInputModeGameOnly());
    if(FSlateApplication::IsInitialized())

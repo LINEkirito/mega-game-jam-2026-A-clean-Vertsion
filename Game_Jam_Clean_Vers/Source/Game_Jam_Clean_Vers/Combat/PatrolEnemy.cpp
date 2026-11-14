@@ -1,4 +1,5 @@
 #include "PatrolEnemy.h"
+#include "Extraction/ExtractionPoint.h"
 #include "Audio/GameAudio.h"
 #include "Audio/CharacterAudio.h"
 #include "WorldEvents.h"
@@ -191,6 +192,7 @@ void APatrolEnemy::ReleasePartner()
 void APatrolEnemy::SetTarget(AActor* Target)
 {
  if(!IsCombatTargetAlive(Target)||IsProtectedPerson())return;
+ if(auto* Extraction=GetWorld()->GetSubsystem<UExtractionSubsystem>();Extraction&&!Extraction->AllowsPlayerTarget(this,Target))return;
  if(IsActivePoliceGangCrossfire(this,Target)&&(CrossfireCooldown>0||CastChecked<APatrolEnemy>(Target)->CrossfireCooldown>0))return;
  AssaultTarget.Reset();RetaliationTarget.Reset();if(EscalationTarget.Get()!=Target)EscalationTarget.Reset();
  if(CombatTarget!=Target){ReleasePartner();ShotTime=.7f;LostTime=0;}

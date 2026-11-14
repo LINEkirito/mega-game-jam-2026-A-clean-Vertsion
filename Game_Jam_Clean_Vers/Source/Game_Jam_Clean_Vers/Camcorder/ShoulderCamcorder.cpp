@@ -391,10 +391,11 @@ void AShoulderCamcorder::AdjustFocalLength(float DeltaMM)
 bool AShoulderCamcorder::StartRecording()
 {
     if(GetOwner())if(auto* Library=GetOwner()->FindComponentByClass<URecordingLibrary>();Library&&Library->bRoundEnded)return false;
+    if(BatteryPercent<=0) { SetNotice(TEXT("电池耗尽，无法继续拍摄")); return false; }
     if(!bViewfinderRaised || !bHeld) { SetNotice(TEXT("只能在取景状态录像：先按鼠标右键举机")); return false; }
     if(bInBackpack) { SetNotice(TEXT("请先从背包装备摄像机再录像")); return false; }
     if(bRecording) return true;
-    if(!bPowered || BatteryPercent<=0) { SetNotice(TEXT("无法录像：摄像机已关机，请换电池或按 P 开机")); return false; }
+    if(!bPowered) { SetNotice(TEXT("无法录像：摄像机已关机，请按 P 开机")); return false; }
     const FString Folder=FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir()/TEXT("Recordings"));
     if(!IFileManager::Get().MakeDirectory(*Folder,true)) { SetNotice(TEXT("无法创建录像目录")); return false; }
     const FString Path=Folder/FString::Printf(TEXT("Camcorder_%s_%s.avi"),*FDateTime::Now().ToString(TEXT("%Y%m%d_%H%M%S")),*FGuid::NewGuid().ToString(EGuidFormats::Digits).Left(8));
@@ -443,27 +444,24 @@ void AShoulderCamcorder::ConsumeBattery(float Seconds)
     const float Old=BatteryPercent;
     BatteryPercent=FMath::Max(0.f,BatteryPercent-100.f*FMath::Max(0.f,Seconds)/FMath::Max(1.f,FullBatterySeconds));
     for(float Threshold:{50.f,20.f,10.f})
-        if(Old>Threshold && BatteryPercent<=Threshold) SetNotice(FString::Printf(TEXT("电量不足 %.0f%%：按 R 更换电池"),Threshold));
+        if(Old>Threshold && BatteryPercent<=Threshold) SetNotice(FString::Printf(TEXT("电量不足 %.0f%%：请节省拍摄时间"),Threshold));
     if(Old!=BatteryPercent) if(auto* Bus=GetWorld()->GetSubsystem<UDataTransmitter>()) Bus->NotifyChange(this,TEXT("BatteryPercent"),BatteryPercent);
     if(BatteryPercent<=0)
     {
         StopRecording(); bPowered=false; SetViewfinderRaised(false);
-        SetNotice(TEXT("电池耗尽，已结束录像并尝试保存；按 R 换电池。")+Notice);
+        SetNotice(TEXT("电池耗尽，无法继续拍摄；已结束录像并尝试保存。")+Notice);
     }
 }
 void AShoulderCamcorder::TogglePower()
 {
     if(bPowered) { SetViewfinderRaised(false); StopRecording(); bPowered=false; SetNotice(TEXT("摄像机已关机。")+Notice); }
     else if(BatteryPercent>0) { bPowered=true; SetNotice(TEXT("摄像机已开机")); }
-    else SetNotice(TEXT("电池耗尽，请按 R 换电池"));
+    else SetNotice(TEXT("电池耗尽，无法继续拍摄"));
     UpdateScreen();
 }
 bool AShoulderCamcorder::InstallFreshBattery()
 {
-    StopRecording(); BatteryPercent=100.f; bPowered=true;
-    if(auto* Bus=GetWorld()->GetSubsystem<UDataTransmitter>()) Bus->NotifyChange(this,TEXT("BatteryPercent"),BatteryPercent);
-    UpdateScreen();
-    SetNotice(TEXT("已更换电池并开机；右键切换取景，再按左键开始新录像")); return true;
+    return false; // Legacy Blueprint entry point; no refills during a run.
 }
 void AShoulderCamcorder::Tick(float DT)
 {
@@ -523,4 +521,10 @@ void AShoulderCamcorder::DropOnDeath()
  Body->SetPhysicsLinearVelocity(Velocity+Forward*180.f+FVector(0,0,70));
  Body->SetPhysicsAngularVelocityInDegrees(FVector(100,160,70));
  Notice.Empty();
+}
+
+void ACamcorderBattery::BeginPlay()
+{
+    Super::BeginPlay();
+    SetActorHiddenInGame(true);SetActorEnableCollision(false);Destroy();
 }

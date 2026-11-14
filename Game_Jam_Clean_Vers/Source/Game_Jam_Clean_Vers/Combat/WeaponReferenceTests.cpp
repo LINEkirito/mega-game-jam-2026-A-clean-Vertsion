@@ -1,5 +1,6 @@
 #if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
 #include "Misc/AutomationTest.h"
+#include "Combat/WeaponTestInventory.h"
 #include "Tests/AutomationCommon.h"
 #include "Tests/AutomationEditorCommon.h"
 #include "Engine/Engine.h"
@@ -28,16 +29,8 @@ bool FWeaponReferenceCheck::Update()
     auto* Inventory=Equipment->Inventory.Get();
     Test->TestEqual(TEXT("Four quick slots"),Inventory->Slots.Num(),4);
     Test->TestEqual(TEXT("Camera starts in slot one"),Inventory->Slots[0],UBackpackInventory::CameraId);
-    Test->TestEqual(TEXT("Three starting guns"),StartingCombat->Weapons.Num(),3);
-    const ETacticalWeaponKind StartingKinds[]={ETacticalWeaponKind::Pistol,ETacticalWeaponKind::Shotgun,ETacticalWeaponKind::Rifle};
-    for(int32 I=0;I<3;++I){
-        const auto Id=Inventory->Slots[I+1];const auto* Gun=StartingCombat->Weapons.Find(Id);
-        if(Test->TestTrue(TEXT("Quick slot resolves to owned gun"),Gun&&IsValid(*Gun))){
-            Test->TestEqual(TEXT("Starting gun order"),(*Gun)->Kind,StartingKinds[I]);
-            Test->TestEqual(TEXT("One gun per inventory entry"),Inventory->Count(Id),1);
-            Test->TestTrue(TEXT("Starting guns are stowed"),(*Gun)->IsHidden()&&!(*Gun)->bEquipped);
-        }
-    }
+    Test->TestEqual(TEXT("Player starts with no guns"),StartingCombat->Weapons.Num(),0);
+    for(int32 I=1;I<4;++I)Test->TestTrue(TEXT("Weapon slot starts empty"),Inventory->Slots[I].IsNone());
     const auto SlotsBefore=Inventory->Slots;
     Test->TestFalse(TEXT("Battery registration is rejected"),Inventory->Assign(1,UBackpackInventory::BatteryId));
     Inventory->Add(TEXT("Ammo9mm"),TEXT("Ammo"),TEXT("Test"),1);
@@ -49,7 +42,7 @@ bool FWeaponReferenceCheck::Update()
     Equipment->Tablet->SetOpen(true);
     Test->TestFalse(TEXT("Recording review cannot open"),Equipment->Tablet->bOpen);
     StartingCombat->InitializeStartingWeapons();
-    Test->TestEqual(TEXT("Starting loadout cannot duplicate"),StartingCombat->Weapons.Num(),3);
+    Test->TestEqual(TEXT("Initialization never grants guns"),StartingCombat->Weapons.Num(),0);
     for(int32 Kind=0;Kind<3;++Kind)
     {
         const FTransform Spawn(FVector(0,0,700));auto* G=W->SpawnActorDeferred<ATacticalWeapon>(ATacticalWeapon::StaticClass(),Spawn,nullptr,nullptr,ESpawnActorCollisionHandlingMethod::AlwaysSpawn);G->Kind=ETacticalWeaponKind(Kind);G->FinishSpawning(Spawn);

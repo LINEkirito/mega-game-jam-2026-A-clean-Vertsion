@@ -12,6 +12,7 @@
 #include "Data/DataTransmitter.h"
 #include "Localization/GameLanguage.h"
 #include "Misc/AutomationTest.h"
+#include "Combat/WeaponTestInventory.h"
 #include "Tests/AutomationEditorCommon.h"
 #include "Tests/AutomationCommon.h"
 #include "Engine/World.h"
@@ -65,7 +66,7 @@ public:
    for(TActorIterator<APatrolEnemy> It(W);It;++It)It->SetActorTickEnabled(false);
    W->GetSubsystem<UWorldEvents>()->bAutomatic=false;
    GameLanguage::SetEnglish(Slot%2==1);PC->SetControlRotation(FRotator(0,0,0));
-   if(Slot==0)E->EquipCamera();else E->Combat->EquipWeapon(E->Inventory->Slots[Slot]);
+   GiveTestWeapons(E);if(Slot==0)E->EquipCamera();else E->Combat->EquipWeapon(E->Inventory->Slots[Slot]);
    Stage=1;StageTime=Now;return false;
   }
   if(Stage==1){

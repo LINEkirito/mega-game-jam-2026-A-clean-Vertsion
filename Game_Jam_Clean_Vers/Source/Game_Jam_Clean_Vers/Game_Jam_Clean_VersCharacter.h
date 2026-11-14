@@ -65,7 +65,11 @@ public:
     void BeginDeathFall();
     bool IsDeathFallComplete() const { return bDeathFallComplete; }
     bool HasDeathFallStarted() const { return bDeathFalling; }
+    bool ReturnToSpawn();
 private:
+    FVector RoundSpawnLocation=FVector::ZeroVector;
+    bool bSpawnRecorded=false;
+    bool CanReturnToSpawn() const;
     bool bDeathFalling=false,bDeathFallComplete=false;
     float DeathFallTime=0,DeathFallDuration=1.25f,DeathSettleTime=0;
     FVector DeathEyeStart,DeathEyeEnd;

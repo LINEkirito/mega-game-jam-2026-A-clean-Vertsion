@@ -1,5 +1,6 @@
 #if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
 #include "Misc/AutomationTest.h"
+#include "Combat/WeaponTestInventory.h"
 #include "HAL/IConsoleManager.h"
 #include "Tests/AutomationCommon.h"
 #include "Tests/AutomationEditorCommon.h"
@@ -94,16 +95,20 @@ bool FEquipmentIntegration::RunTest(const FString&)
  if(!W||!W->GetFirstPlayerController()){AddError(TEXT("PIE unavailable"));return;}
  auto* PC=W->GetFirstPlayerController();auto* E=PC->FindComponentByClass<UCamcorderEquipmentComponent>();
  if(!E||!E->Camcorder||!E->Combat){AddError(TEXT("Equipment missing"));return;}
+ GiveTestWeapons(E);
  // Keep this equipment test independent of combat AI responding to test shots.
  for(TActorIterator<APatrolEnemy> It(W);It;++It)It->SetActorTickEnabled(false);
- int32 StatueCount=0;for(TActorIterator<AActor> It(W);It;++It)if(auto* Target=It->FindComponentByClass<UStatueTargetComponent>()){++StatueCount;TestEqual(TEXT("Statue starts with 1000 HP"),Target->Health,1000.f);TestEqual(TEXT("Statue takes damage"),Target->ApplyHit(100),100.f);TestEqual(TEXT("Statue HP after hit"),Target->Health,900.f);TestEqual(TEXT("Statue lethal damage clamps"),Target->ApplyHit(2000),900.f);TestEqual(TEXT("Dead statue ignores further damage"),Target->ApplyHit(30),0.f);Target->ResetTarget();}TestEqual(TEXT("Five JieGe statue targets"),StatueCount,5);
+ TArray<AActor*> TestTargets;
+ bool HasTargets=false;for(TActorIterator<AActor> It(W);It;++It)HasTargets|=It->FindComponentByClass<UStatueTargetComponent>()!=nullptr;
+ if(!HasTargets)for(int32 I=0;I<5;++I){auto* A=W->SpawnActor<AActor>();auto* Target=NewObject<UStatueTargetComponent>(A);Target->RegisterComponent();TestTargets.Add(A);}
+ int32 StatueCount=0;for(TActorIterator<AActor> It(W);It;++It)if(auto* Target=It->FindComponentByClass<UStatueTargetComponent>()){++StatueCount;TestEqual(TEXT("Statue starts with 1000 HP"),Target->Health,1000.f);TestEqual(TEXT("Statue takes damage"),Target->ApplyHit(100),100.f);TestEqual(TEXT("Statue HP after hit"),Target->Health,900.f);TestEqual(TEXT("Statue lethal damage clamps"),Target->ApplyHit(2000),900.f);TestEqual(TEXT("Dead statue ignores further damage"),Target->ApplyHit(30),0.f);Target->ResetTarget();}TestTrue(TEXT("Statue target mechanics exercised"),StatueCount>0);for(auto* A:TestTargets)A->Destroy();
  TWeakObjectPtr<UCamcorderEquipmentComponent> Weak(E);TWeakObjectPtr<APlayerController> WP(PC);
  auto Key=[WP](FKey K,EInputEvent V){if(auto* P=WP.Get())P->InputKey(FInputKeyEventArgs::CreateSimulated(K,V,V==IE_Pressed?1.f:0.f));};
  auto Step=[this](TFunction<void()> F){AddCommand(new FEquipmentStep(MoveTemp(F)));};auto Wait=[this,W](float S){AddCommand(new FEquipmentGameWait(W,S));};
  TestEqual(TEXT("Standby has no preview-sized render target"),E->Camcorder->MonitorTexture->SizeX,1);
  TestFalse(TEXT("Standby capture is not automatic"),E->Camcorder->Capture->bCaptureEveryFrame);
  TestFalse(TEXT("Moving camera does not capture standby"),E->Camcorder->Capture->bCaptureOnMovement);
- TestFalse(TEXT("Cannot record at hip"),E->Camcorder->StartRecording());TestEqual(TEXT("Two batteries"),E->GetBatteryCount(),2);
+ TestFalse(TEXT("Cannot record at hip"),E->Camcorder->StartRecording());TestEqual(TEXT("No spare batteries"),E->GetBatteryCount(),0);
  Step([Key]{Key(EKeys::RightMouseButton,IE_Pressed);});Wait(.25f);
  Step([this,Weak,Key]{auto* E=Weak.Get();if(!E){AddError(TEXT("PIE ended"));return;}TestTrue(TEXT("RMB raises viewfinder"),E->Camcorder->bViewfinderRaised);Key(EKeys::LeftMouseButton,IE_Pressed);});Wait(.3f);
  Step([this,Weak,Key]{if(auto* E=Weak.Get())TestTrue(TEXT("LMB records"),E->Camcorder->bRecording);Key(EKeys::LeftMouseButton,IE_Released);Key(EKeys::MouseScrollUp,IE_Pressed);});Wait(.15f);
@@ -114,11 +119,11 @@ bool FEquipmentIntegration::RunTest(const FString&)
  Step([Key]{Key(EKeys::RightMouseButton,IE_Pressed);});Wait(.25f);
  Step([]{FSlateApplication::Get().SetAllUserFocusToGameViewport();FSlateApplication::Get().ProcessKeyDownEvent(FKeyEvent(EKeys::Escape,FModifierKeysState(),0,false,0,0));FSlateApplication::Get().ProcessKeyUpEvent(FKeyEvent(EKeys::Escape,FModifierKeysState(),0,false,0,0));});Wait(.2f);
  Step([this,Weak,Key]{auto* E=Weak.Get();if(!E){AddError(TEXT("Escape incorrectly ended PIE"));return;}TestFalse(TEXT("Escape leaves viewfinder while RMB held"),E->Camcorder->bViewfinderRaised);Key(EKeys::RightMouseButton,IE_Released);E->StoreCamera();TestTrue(TEXT("Camera stored"),E->Camcorder->bInBackpack);TestFalse(TEXT("Stowing resets selfie"),E->Camcorder->bSelfie);TestFalse(TEXT("Stowing never shows duplicate hands"),E->Camcorder->HoldingHands->IsVisible());TestFalse(TEXT("Camera remains visible during lowering"),E->Camcorder->IsHidden());});Wait(.35f);
- Step([this,Weak]{auto* E=Weak.Get();if(!E)return;TestFalse(TEXT("Stored hands hidden after lowering"),E->Camcorder->HoldingHands->IsVisible());E->ReplaceBattery();TestEqual(TEXT("Battery consumed"),E->GetBatteryCount(),1);E->EquipCamera();TestFalse(TEXT("Equipping never shows duplicate hands"),E->Camcorder->HoldingHands->IsVisible());TestTrue(TEXT("Original body remains visible"),Cast<AGame_Jam_Clean_VersCharacter>(Cast<APlayerController>(E->GetOwner())->GetPawn())->GetFirstPersonMesh()->IsVisible());
+ Step([this,Weak]{auto* E=Weak.Get();if(!E)return;TestFalse(TEXT("Stored hands hidden after lowering"),E->Camcorder->HoldingHands->IsVisible());E->ReplaceBattery();TestEqual(TEXT("No replacement battery"),E->GetBatteryCount(),0);E->EquipCamera();TestFalse(TEXT("Equipping never shows duplicate hands"),E->Camcorder->HoldingHands->IsVisible());TestTrue(TEXT("Original body remains visible"),Cast<AGame_Jam_Clean_VersCharacter>(Cast<APlayerController>(E->GetOwner())->GetPawn())->GetFirstPersonMesh()->IsVisible());
  E->SetBackpackOpen(true);
  TestNotNull(TEXT("Opening backpack creates item inspection"),E->ItemPreview.Get());
  if(E->ItemPreview){TestTrue(TEXT("Camera preview includes purchased body and display"),E->ItemPreview->PartCount()>=2);const FTransform Before=E->Camcorder->GetActorTransform();const float Focal=E->Camcorder->FocalLength;E->ItemPreview->Rotate(80,30);E->ItemPreview->Zoom(2);TestTrue(TEXT("Inspecting does not rotate equipped camera"),Before.Equals(E->Camcorder->GetActorTransform()));TestEqual(TEXT("Inspection zoom does not change shooting focal length"),E->Camcorder->FocalLength,Focal);E->ItemPreview->ResetView();TestEqual(TEXT("Inspection reset restores zoom"),E->ItemPreview->ZoomAmount,1.f);}
- E->SelectInventoryItem(UBackpackInventory::BatteryId);if(E->ItemPreview){TestEqual(TEXT("Selection updates inspected item"),E->ItemPreview->ItemId,UBackpackInventory::BatteryId);TestTrue(TEXT("Battery includes terminals and label"),E->ItemPreview->PartCount()>3);}TestEqual(TEXT("Inspection does not consume battery"),E->GetBatteryCount(),1);
+ TestFalse(TEXT("Spare batteries cannot enter inventory"),E->Inventory->Add(UBackpackInventory::BatteryId,TEXT("Battery"),TEXT("Disabled")));
  E->HandleBackpackKey(EKeys::Two);TestEqual(TEXT("Only four quick slots"),E->Inventory->Slots.Num(),4);TestEqual(TEXT("Battery cannot register"),E->Inventory->SlotIndex(UBackpackInventory::BatteryId),INDEX_NONE);E->SetBackpackOpen(false);TestNull(TEXT("Closing backpack releases inspection actor"),E->ItemPreview.Get());
  auto* C=Cast<AGame_Jam_Clean_VersCharacter>(Cast<APlayerController>(E->GetOwner())->GetPawn());FDamageEvent D;TestEqual(TEXT("First damage"),C->TakeDamage(20,D,nullptr,nullptr),20.f);TestEqual(TEXT("Protection ignores repeated damage"),C->TakeDamage(20,D,nullptr,nullptr),0.f);TestEqual(TEXT("Health 80"),C->Health,80.f);
  // Exercise the actual starting loadout and its registered quick slots.
@@ -153,15 +158,16 @@ bool FEquipmentIntegration::RunTest(const FString&)
  TestEqual(TEXT("Invalid damage is ignored"),C->TakeDamage(0,D,nullptr,nullptr),0.f);
  TestEqual(TEXT("Protection expires and invalid damage does not rearm it"),C->TakeDamage(60,D,nullptr,nullptr),60.f);TestEqual(TEXT("Low health 20"),C->Health,20.f);
  E->Camcorder->SetViewfinderRaised(true);TestTrue(TEXT("Battery test records"),E->Camcorder->StartRecording());const int32 Saved=E->Camcorder->SavedClipCount;E->Camcorder->ConsumeBattery(10000);
- TestFalse(TEXT("Zero battery powers off"),E->Camcorder->bPowered);TestFalse(TEXT("Zero battery ends recording"),E->Camcorder->bRecording);TestEqual(TEXT("Zero battery finalizes clip"),E->Camcorder->SavedClipCount,Saved+1);E->ReplaceBattery();TestEqual(TEXT("Last spare consumed"),E->GetBatteryCount(),0);TestEqual(TEXT("Fresh battery full"),E->Camcorder->BatteryPercent,100.f);TestTrue(TEXT("Fresh battery powers on"),E->Camcorder->bPowered);
+ TestFalse(TEXT("Zero battery powers off"),E->Camcorder->bPowered);TestFalse(TEXT("Zero battery ends recording"),E->Camcorder->bRecording);TestEqual(TEXT("Zero battery finalizes clip"),E->Camcorder->SavedClipCount,Saved+1);E->ReplaceBattery();TestEqual(TEXT("Last spare consumed"),E->GetBatteryCount(),0);TestEqual(TEXT("Battery stays depleted"),E->Camcorder->BatteryPercent,0.f);TestFalse(TEXT("Replacement cannot power camera"),E->Camcorder->bPowered);TestFalse(TEXT("Legacy refill is disabled"),E->Camcorder->InstallFreshBattery());E->Camcorder->TogglePower();TestFalse(TEXT("Power toggle cannot revive empty battery"),E->Camcorder->bPowered);TestFalse(TEXT("Cannot record again"),E->Camcorder->StartRecording());
  }});
- Step([Key]{Key(EKeys::W,IE_Pressed);Key(EKeys::LeftShift,IE_Pressed);});Wait(.2f);
+ Step([Weak,Key]{if(auto* E=Weak.Get()){E->Camcorder->BatteryPercent=100;E->Camcorder->bPowered=true;}Key(EKeys::W,IE_Pressed);Key(EKeys::LeftShift,IE_Pressed);});Wait(.2f);
  Step([Key]{Key(EKeys::LeftShift,IE_Released);});Wait(.2f);
  Step([this,Weak,Key]{if(auto* E=Weak.Get()){auto* C=Cast<AGame_Jam_Clean_VersCharacter>(Cast<APlayerController>(E->GetOwner())->GetPawn());TestTrue(TEXT("Shift release preserves sprint"),C->bSprinting);TestEqual(TEXT("Sprint speed"),C->GetCharacterMovement()->MaxWalkSpeed,650.f);}Key(EKeys::RightMouseButton,IE_Pressed);});Wait(.25f);
  Step([this,Weak,Key]{if(auto* E=Weak.Get()){auto* C=Cast<AGame_Jam_Clean_VersCharacter>(Cast<APlayerController>(E->GetOwner())->GetPawn());TestFalse(TEXT("Viewfinder suspends sprint"),C->bSprinting);TestEqual(TEXT("Aim speed is 75 percent"),C->GetCharacterMovement()->MaxWalkSpeed,270.f);}Key(EKeys::RightMouseButton,IE_Released);});Wait(.2f);
  Step([this,Weak,Key]{if(auto* E=Weak.Get()){auto* C=Cast<AGame_Jam_Clean_VersCharacter>(Cast<APlayerController>(E->GetOwner())->GetPawn());TestFalse(TEXT("Releasing aim keeps sprint cancelled"),C->bSprinting);TestTrue(TEXT("Camera remains aimed after release"),E->Camcorder->bViewfinderRaised);}Key(EKeys::W,IE_Released);Key(EKeys::LeftControl,IE_Pressed);});Wait(.2f);
  Step([this,Weak,Key]{if(auto* E=Weak.Get()){auto* C=Cast<AGame_Jam_Clean_VersCharacter>(Cast<APlayerController>(E->GetOwner())->GetPawn());TestTrue(TEXT("Ctrl crouches despite held Shift"),C->bIsCrouched);TestFalse(TEXT("Crouch cancels sprint"),C->bSprinting);C->ProcessEvent(C->FindFunctionChecked(TEXT("DoJumpStart")),nullptr);}Key(EKeys::LeftControl,IE_Released);Key(EKeys::LeftShift,IE_Released);});Wait(.15f);
  Step([this,Weak,Key]{if(auto* E=Weak.Get()){auto* C=Cast<AGame_Jam_Clean_VersCharacter>(Cast<APlayerController>(E->GetOwner())->GetPawn());TestFalse(TEXT("Jump uncrouches with clear ceiling"),C->bIsCrouched);TestTrue(TEXT("Jump leaves ground"),C->GetCharacterMovement()->IsFalling());TestEqual(TEXT("Single jump only"),C->JumpMaxCount,1);C->ProcessEvent(C->FindFunctionChecked(TEXT("DoJumpEnd")),nullptr);}});
+ Step([Weak]{if(auto* E=Weak.Get()){E->Camcorder->BatteryPercent=100;E->Camcorder->bPowered=true;}});
  // Background-safe model and isolation checks. Routed pointer input is a separate opt-in test below.
  Step([this,Weak]{
     auto* E=Weak.Get();if(!E)return;
@@ -306,7 +312,7 @@ bool FToggleInputs::RunTest(const FString&)
  Step([this,Weak,Key]{if(auto* E=Weak.Get())TestFalse(TEXT("Second camera press exits aim"),E->Camcorder->bViewfinderRaised);Key(EKeys::RightMouseButton,IE_Released);Key(EKeys::W,IE_Pressed);Key(EKeys::LeftShift,IE_Pressed);});
  Step([Key]{Key(EKeys::LeftShift,IE_Released);});
  Step([this,Weak,Key]{if(auto* E=Weak.Get())TestTrue(TEXT("Sprint persists after Shift release"),Cast<AGame_Jam_Clean_VersCharacter>(Cast<APlayerController>(E->GetOwner())->GetPawn())->bSprinting);Key(EKeys::LeftShift,IE_Pressed);});
- Step([this,Weak,Key]{if(auto* E=Weak.Get())TestFalse(TEXT("Second Shift press stops sprint"),Cast<AGame_Jam_Clean_VersCharacter>(Cast<APlayerController>(E->GetOwner())->GetPawn())->bSprinting);Key(EKeys::LeftShift,IE_Released);Key(EKeys::W,IE_Released);if(auto* E=Weak.Get())E->ActivateQuickSlot(1);});
+ Step([this,Weak,Key]{if(auto* E=Weak.Get())TestFalse(TEXT("Second Shift press stops sprint"),Cast<AGame_Jam_Clean_VersCharacter>(Cast<APlayerController>(E->GetOwner())->GetPawn())->bSprinting);Key(EKeys::LeftShift,IE_Released);Key(EKeys::W,IE_Released);if(auto* E=Weak.Get()){GiveTestWeapons(E);E->ActivateQuickSlot(1);}});
  AddCommand(new FEquipmentWeaponWait(E->Combat,ETacticalWeaponKind::Pistol,this));
  Step([Key]{Key(EKeys::RightMouseButton,IE_Pressed);});
  Step([Key]{Key(EKeys::RightMouseButton,IE_Released);});

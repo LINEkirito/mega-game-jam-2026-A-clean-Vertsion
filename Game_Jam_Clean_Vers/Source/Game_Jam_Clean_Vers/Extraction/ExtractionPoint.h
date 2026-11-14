@@ -4,6 +4,7 @@
 #include "Subsystems/WorldSubsystem.h"
 #include "ExtractionPoint.generated.h"
 
+class APatrolEnemy;
 class AExtractionPoint;
 class AGame_Jam_Clean_VersCharacter;
 
@@ -17,7 +18,21 @@ public:
  void Release(AExtractionPoint* Point);
  UFUNCTION(BlueprintPure) AExtractionPoint* GetActivePoint() const { return ActivePoint.Get(); }
  UFUNCTION(BlueprintPure) AGame_Jam_Clean_VersCharacter* GetExtractingPlayer() const;
+ bool IsResponder(const APatrolEnemy* Enemy) const;
+ bool AllowsPlayerTarget(const APatrolEnemy* Enemy, const AActor* Target) const;
+ void RegisterPassenger(APatrolEnemy* Enemy);
+ void UpdateResponse(float DeltaSeconds);
+ UFUNCTION(BlueprintPure) int32 GetWaveNumber() const { return WaveNumber; }
+ UFUNCTION(BlueprintPure) int32 GetLivingResponders() const;
 private:
+ friend class FExtractionFlowCheck;
+ friend class FExtractionSpawnCheck;
+ friend class FConvoyCheck;
+ void StopResponse();
+ UPROPERTY(Transient) TArray<TWeakObjectPtr<APatrolEnemy>> Responders;
+ UPROPERTY(Transient) TArray<TWeakObjectPtr<class AExtractionConvoyCar>> Cars;
+ float SpawnRetry=0;
+ int32 WaveNumber=0;
  UPROPERTY(Transient) TWeakObjectPtr<AExtractionPoint> ActivePoint;
 };
 
@@ -51,9 +66,10 @@ public:
  void Cancel();
  FString StatusText() const;
 private:
+ friend class FConvoyCheck;
  friend class FExtractionRulesTest;
  friend class FExtractionFlowCheck;
- bool bAudioPlayerInRange=false;
+ friend class FExtractionSpawnCheck;
  float NoticeSeconds=0.f;
  FString Notice;
  TSharedPtr<class SWidget> Overlay;
