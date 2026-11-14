@@ -6,6 +6,9 @@
 #include "Frontend/GameFrontend.h"
 #include "Frontend/LocalUserSettings.h"
 #include "Frontend/RunScoreHistoryPanel.h"
+#if WITH_EDITOR
+#include "Frontend/EventDebugOverlay.h"
+#endif
 #include "Kismet/KismetSystemLibrary.h"
 #include "Performance/GamePerformanceSettings.h"
 #include "Widgets/Layout/SScaleBox.h"
@@ -39,6 +42,10 @@ namespace
   virtual ~FLanguageInput() override {Shutdown();}
   void Shutdown()
   {
+#if WITH_EDITOR
+   if(auto* PC=Player.Get())if(auto* V=PC->GetWorld()->GetGameViewport())if(DebugRoot)V->RemoveViewportWidgetContent(DebugRoot.ToSharedRef());
+   DebugRoot.Reset();
+#endif
    GameFrontend::ReleaseAudio(Player.Get());
    if(bOpen){bFrontend=false;bPerformance=true;Close();}
    if(auto* PC=Player.Get())if(auto* V=PC->GetWorld()->GetGameViewport())if(Root)V->RemoveViewportWidgetContent(Root.ToSharedRef());
@@ -64,6 +71,9 @@ namespace
   virtual bool HandleKeyDownEvent(FSlateApplication&,const FKeyEvent& E) override
   {
    if(!InGameWindow())return false;
+#if WITH_EDITOR
+   if(E.GetKey()==EKeys::F2){if(!E.IsRepeat())ToggleDebug();return true;}
+#endif
    if(E.GetKey()==EKeys::F10){if(!E.IsRepeat()){if(bOpen){if(bFrontend&&bMain)ShowSettings();else {bPerformance=true;Close();}}else Open(true);}return true;}
    if(bOpen&&E.GetKey()==EKeys::Escape){if(!E.IsRepeat())Close();bEatEscape=true;return true;}
    // Let Slate handle keyboard navigation, but stop other preprocessors from performing gameplay actions.
@@ -75,6 +85,9 @@ namespace
    if(E.GetKey()==EKeys::Escape&&bEatEscape){bEatEscape=false;return true;}
    if(!InGameWindow())return false;
    const FKey Key=E.GetKey();
+#if WITH_EDITOR
+   if(Key==EKeys::F2)return true;
+#endif
    return Key==EKeys::F10||(bOpen&&Key!=EKeys::Tab&&Key!=EKeys::Enter&&Key!=EKeys::SpaceBar&&Key!=EKeys::Up&&Key!=EKeys::Down&&Key!=EKeys::Left&&Key!=EKeys::Right);
   }
   virtual void Tick(float DT,FSlateApplication&,TSharedRef<ICursor>) override
@@ -122,6 +135,17 @@ namespace
    }
   }
  private:
+#if WITH_EDITOR
+  TSharedPtr<SWidget> DebugRoot;
+  void ToggleDebug()
+  {
+   auto* PC=Player.Get();auto* V=PC?PC->GetWorld()->GetGameViewport():nullptr;if(!V)return;
+   if(DebugRoot){V->RemoveViewportWidgetContent(DebugRoot.ToSharedRef());DebugRoot.Reset();return;}
+   DebugRoot=SNew(SOverlay).Visibility(EVisibility::HitTestInvisible)
+    +SOverlay::Slot().HAlign(HAlign_Right).VAlign(VAlign_Top).Padding(0,12,12,0)[EventDebug::MakeOverlay(PC)];
+   V->AddViewportWidgetContent(DebugRoot.ToSharedRef(),1500);
+  }
+#endif
   struct FLabel {TWeakObjectPtr<UWidgetComponent> Widget;bool bHidden=false;};
   TMap<TWeakObjectPtr<UTextRenderComponent>,FLabel> Labels;
   TWeakObjectPtr<APlayerController> Player;

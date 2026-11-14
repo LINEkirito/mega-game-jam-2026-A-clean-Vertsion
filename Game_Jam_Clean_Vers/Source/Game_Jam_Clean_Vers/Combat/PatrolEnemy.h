@@ -23,6 +23,7 @@ public:
  virtual void EndPlay(const EEndPlayReason::Type Reason) override;
  virtual void Tick(float DT) override;
  float ShotHitChance(const AActor* Target) const;
+ float CrossfireCooldown=0.f;
  virtual float TakeDamage(float Damage,const FDamageEvent& Event,AController* Instigator,AActor* Causer) override;
  UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="NPC") ENPCRole NPCRole=ENPCRole::GangMember;
  UPROPERTY(VisibleAnywhere,BlueprintReadOnly,Category="NPC") ENPCRole IdentityRole=ENPCRole::GangMember;
@@ -62,6 +63,7 @@ public:
  UFUNCTION() void WitnessViolence(AActor* Victim,APawn* Attacker,bool ProtectedVictim);
  UFUNCTION(BlueprintImplementableEvent,Category="NPC") void OnActivityChanged(ENPCActivity NewActivity);
 private:
+ friend class UPoliceReinforcements;
  friend class FExtractionFlowCheck;
  bool TickExtractionResponse(float DT);
  bool bRespondingToExtraction=false;
@@ -81,6 +83,8 @@ private:
  void TickWeaponCarry(float DT);
  void DropDeathAmmo();
  friend class UWorldEvents;
+ friend class FStreetEventCycleCheck;
+ friend class FStreetEventVisualCheck;
  friend class FNPCStreetConflictCheck;
  friend class FFilmingEventMatrixCheck;
  TWeakObjectPtr<APatrolEnemy> AssaultTarget,RetaliationTarget,EscalationTarget,CivilianAggressor;

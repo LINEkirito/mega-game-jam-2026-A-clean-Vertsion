@@ -19,6 +19,12 @@ struct FStreetEventRecord {
  UPROPERTY(VisibleAnywhere,BlueprintReadOnly) FVector Location=FVector::ZeroVector;
  UPROPERTY() TArray<TWeakObjectPtr<APatrolEnemy>> Participants;
  float Started=0, PerformingSince=0;
+ float Duration=60.f, ExpiresAt=0.f;
+ bool bHasPerformed=false,bScheduled=false;
+#if WITH_EDITOR
+ float DebugEndedAt=0;
+ FString DebugEndReason;
+#endif
  bool bClaimed=false;
 };
 
@@ -41,9 +47,20 @@ public:
  void ObserveCombat(APatrolEnemy* NPC,APatrolEnemy* Target);
  bool Claim(int32 Id);
  const FStreetEventRecord* Find(int32 Id) const;
+#if WITH_EDITOR
+ const TArray<EStreetEvent>& DebugPendingEvents() const {return PendingEvents;}
+ float DebugNextAttempt() const {return NextAttempt;}
+ float DebugRetryAttempt() const {return RetryAttempt;}
+#endif
 private:
  int32 NextId=1;
  float NextAttempt=12;
- bool bWarStarted=false,bMassacreStarted=false;
+ friend class FStreetEventCycleCheck;
+ friend class FStreetEventVisualCheck;
+ TArray<EStreetEvent> PendingEvents;
+ TArray<TWeakObjectPtr<APatrolEnemy>> PreparedCast;
+ float RetryAttempt=0;
+ bool bStartingScheduled=false;
+ bool PrepareScheduledCast(EStreetEvent Kind);
  TMap<TWeakObjectPtr<APatrolEnemy>,float> EscapeCooldown;
 };

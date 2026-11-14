@@ -29,6 +29,17 @@
 #include "EngineUtils.h"
 #include "Sound/SoundBase.h"
 
+namespace
+{
+ bool IsActivePoliceGangCrossfire(const APatrolEnemy* Shooter,const AActor* Target)
+ {
+  const auto* Other=Cast<APatrolEnemy>(Target);
+  return IsValid(Other)&&Other->Health>0&&
+   ((Shooter->NPCRole==ENPCRole::Police&&Other->IsGang())||
+    (Shooter->IsGang()&&Other->NPCRole==ENPCRole::Police));
+ }
+}
+
 APatrolEnemy::APatrolEnemy()
 {
  const auto* Config=GetDefault<UGlobalData>();Health=Config->EnemyHealth;SightAngle=Config->EnemySightAngle;SightRange=Config->EnemySightRange;PatrolRadius=Config->NPCPatrolRadius;
@@ -180,6 +191,7 @@ void APatrolEnemy::ReleasePartner()
 void APatrolEnemy::SetTarget(AActor* Target)
 {
  if(!IsCombatTargetAlive(Target)||IsProtectedPerson())return;
+ if(IsActivePoliceGangCrossfire(this,Target)&&(CrossfireCooldown>0||CastChecked<APatrolEnemy>(Target)->CrossfireCooldown>0))return;
  AssaultTarget.Reset();RetaliationTarget.Reset();if(EscalationTarget.Get()!=Target)EscalationTarget.Reset();
  if(CombatTarget!=Target){ReleasePartner();ShotTime=.7f;LostTime=0;}
  CombatTarget=Target;LastKnown=Target->GetActorLocation();SetActivity(ENPCActivity::Combat);
@@ -269,9 +281,17 @@ float APatrolEnemy::TakeDamage(float Damage,const FDamageEvent&,AController* Eve
    ||(IsGangRole(IdentityRole)&&NPC->IdentityRole==ENPCRole::Police);
   if(Crossfire)
   {
-   const float HealthFloor=FMath::Max(0.f,GetDefault<UGlobalData>()->NPCInjuryHealth)+1.f;
-   Damage=FMath::Min(Damage,FMath::Max(0.f,Health-HealthFloor));
-   if(Damage<=0)return 0;
+   // Never revive a player-downed NPC. Living combatants recover a small buffer
+   // before a low-damage hit so every later hit still reaches the event bus.
+   if(NPCRole==ENPCRole::Injured)return 0;
+   const auto* Rules=GetDefault<UGlobalData>();
+   const float HealthFloor=FMath::Max(0.f,Rules->NPCInjuryHealth)+1.f;
+   Damage=FMath::Min(Damage*FMath::Clamp(Rules->PoliceGangDamageScale,.001f,1.f),FMath::Max(.01f,Rules->PoliceGangMaxHitDamage));
+   if(Health-Damage<HealthFloor)
+   {
+    Health=HealthFloor+FMath::Max(Damage,FMath::Max(1.f,Rules->PoliceGangRecoveryHealth));
+    GetWorld()->GetSubsystem<UDataTransmitter>()->NotifyChange(this,TEXT("Health"),Health);
+   }
   }
  }
  const float Applied=FMath::Min(Damage,Health);Health-=Applied;
@@ -415,7 +435,7 @@ void APatrolEnemy::TickSocial(float DT)
  if(Distance>110){
   if(!IsGang())return;
   if(MoveRetry<=0){MoveRetry=1;MoveTo(Other->GetActorLocation(),45);}
-  if(StateTime>(StreetEventId?30.f:10.f)){ReleasePartner();SocialCooldown=6;SetActivity(ENPCActivity::Idle);}return;
+  if(!StreetEventId&&StateTime>10.f){ReleasePartner();SocialCooldown=6;SetActivity(ENPCActivity::Idle);}return;
  }
  if(auto* AI=Cast<AAIController>(GetController()))AI->StopMovement();
  // Start the paired clip only once both characters face each other.
@@ -425,6 +445,8 @@ void APatrolEnemy::TickSocial(float DT)
  }
  if(!bSocialArrived){bSocialArrived=true;StateTime=0;}
  if(Activity==ENPCActivity::Trade){
+  // Scheduled trading continues until the director's deadline; count it once there.
+  if(StreetEventId)return;
   if(StateTime>FMath::Max(3.f,CurrentAnimation?CurrentAnimation->GetPlayLength():0.f)){++CompletedTrades;++Other->CompletedTrades;Say(TEXT("DEAL."));Other->Say(TEXT("DEAL."));GetWorld()->GetSubsystem<UDataTransmitter>()->NotifyChange(this,TEXT("Trades"),CompletedTrades);ReleasePartner();SocialCooldown=12;SetActivity(ENPCActivity::Idle);}
  }else if(IsGang()){
   if(Activity==ENPCActivity::Threaten){if(SpeechTime<=0)Say(TEXT("PAY UP!"));if(StateTime>FMath::Max(2.f,CurrentAnimation?CurrentAnimation->GetPlayLength():0.f)){SetActivity(ENPCActivity::Beat);bMeleeApplied=false;}}
@@ -447,6 +469,7 @@ float APatrolEnemy::ShotHitChance(const AActor* Target) const
 void APatrolEnemy::TickCombat(float DT)
 {
  if(!IsCombatTargetAlive(CombatTarget)){CombatTarget=nullptr;EscalationTarget.Reset();SetActivity(ENPCActivity::Idle);return;}
+ const bool Crossfire=IsActivePoliceGangCrossfire(this,CombatTarget);
  const bool Seen=CanSeeActor(CombatTarget,false);
  if(Seen)
  {
@@ -457,7 +480,7 @@ void APatrolEnemy::TickCombat(float DT)
   {if(MoveRetry<=0){MoveRetry=.35f;MoveTo(LastKnown,MovementConfig->NPCCombatStopDistance);}}
   else {if(auto* AI=Cast<AAIController>(GetController()))AI->StopMovement();bMoving=false;}
  }
- else {GetCharacterMovement()->MaxWalkSpeed=GetDefault<UGlobalData>()->NPCSearchSpeed;LostTime+=DT;if(MoveRetry<=0){MoveRetry=1;MoveTo(LastKnown);}if(LostTime>8){CombatTarget=nullptr;EscalationTarget.Reset();PriorityOffender.Reset();SetActivity(ENPCActivity::Idle);return;}}
+ else {GetCharacterMovement()->MaxWalkSpeed=GetDefault<UGlobalData>()->NPCSearchSpeed;LostTime+=DT;if(MoveRetry<=0){MoveRetry=1;MoveTo(LastKnown);}if(LostTime>8&&!Crossfire){CombatTarget=nullptr;EscalationTarget.Reset();PriorityOffender.Reset();SetActivity(ENPCActivity::Idle);return;}}
  // Keep the authored holding pose during combat turns. Its barrel may be
  // offset from the capsule's forward axis, especially for one-handed pistols.
  bTurning=false;
@@ -488,7 +511,8 @@ void APatrolEnemy::TickCombat(float DT)
   if(Side.IsNearlyZero())Side=FVector::RightVector;
   const auto* TargetCharacter=Cast<ACharacter>(CombatTarget);
   const float Radius=TargetCharacter?TargetCharacter->GetCapsuleComponent()->GetScaledCapsuleRadius():60.f;
-  ShotAim+=Side*(Radius+100.f)*(FMath::RandBool()?1.f:-1.f);
+  ShotAim+=Side*(Radius+(Crossfire?FMath::FRandRange(200.f,450.f):100.f))*(FMath::RandBool()?1.f:-1.f);
+  if(Crossfire)ShotAim.Z+=FMath::FRandRange(-120.f,180.f);
  }
  const int32 Pellets=Spec.Pellets;
  auto* Bus=GetWorld()->GetSubsystem<UDataTransmitter>();Bus->ReportGunshot(this,Start);
@@ -574,7 +598,10 @@ void APatrolEnemy::TickPatrol(float DT)
  }
  if(Activity==ENPCActivity::Flee)
  {
-  PanicTime-=DT;
+  const auto* Escape=StreetEventId?GetWorld()->GetSubsystem<UWorldEvents>()->Find(StreetEventId):nullptr;
+  if(Escape&&Escape->bActive&&Escape->Kind==EStreetEvent::CivilianEscape)
+   PanicTime=FMath::Max(.1f,Escape->ExpiresAt-GetWorld()->GetTimeSeconds());
+  else PanicTime-=DT;
   if(PanicTime<=0){if(AI)AI->StopMovement();bMoving=false;GetCharacterMovement()->MaxWalkSpeed=GetDefault<UGlobalData>()->NPCWalkSpeed;SetActivity(ENPCActivity::Idle);return;}
   if(bMoving&&(!AI||AI->GetMoveStatus()!=EPathFollowingStatus::Moving||MoveTimeout<=0)){if(AI)AI->StopMovement();bMoving=false;MoveRetry=.25f;}
   if(!bMoving&&MoveRetry<=0){MoveRetry=1;ChooseDestination(true);}
@@ -656,6 +683,7 @@ void APatrolEnemy::Tick(float DT)
 {
  Super::Tick(DT);if(Health<=0)return;TurnDelta=0;StateTime+=DT;DecisionTime-=DT;MoveRetry-=DT;MoveTimeout-=DT;ShotTime-=DT;SocialCooldown-=DT;SpeechTime-=DT;CivilianResponseCooldown-=DT;
  AudioHurtCooldown=FMath::Max(0.f,AudioHurtCooldown-DT);
+ CrossfireCooldown=FMath::Max(0.f,CrossfireCooldown-DT);
  const FVector AudioPosition=GetActorLocation();
  const float Travel=bAudioPositionReady?FVector::Dist2D(AudioPosition,AudioLastPosition):0.f;
  AudioLastPosition=AudioPosition;bAudioPositionReady=true;
@@ -673,6 +701,12 @@ void APatrolEnemy::Tick(float DT)
  if(SpeechTime<=0)Speech->SetVisibility(false);
  if(HeldWeapon){
   HeldWeapon->AdvanceHandling(DT);
+  // Sustain faction firefights while retaining the normal reload/chamber cycle.
+  if(Activity==ENPCActivity::Combat&&IsActivePoliceGangCrossfire(this,CombatTarget)&&AmmoReserve&&!HeldWeapon->bChambered)
+  {
+   const auto Spec=HeldWeapon->Spec();
+   if(AmmoReserve->Count(Spec.Ammo)==0)AmmoReserve->Add(Spec.Ammo,TEXT("NPC ammunition"),TEXT("Personal reserve"),Spec.Capacity);
+  }
   if(WeaponCarry==ENPCWeaponCarry::Drawn&&!AssaultTarget.IsValid()&&!HeldWeapon->bChambered&&HeldWeapon->Handling==EWeaponHandling::Idle&&ReloadAnimation)HeldWeapon->StartReload(AmmoReserve);
   if(HeldWeapon->IsReloading()){
    bTurning=false;bMoving=false;if(auto* AI=Cast<AAIController>(GetController()))AI->StopMovement();

@@ -56,8 +56,8 @@ bool FNPCBehaviorCheck::Update()
  Test->TestEqual(TEXT("Police versus player accuracy"),Officer->ShotHitChance(Player),1.f);
  for(auto* Criminal:{Gang,Boss}){
   Test->TestEqual(TEXT("Gang including boss versus player accuracy"),Criminal->ShotHitChance(Player),.7f);
-  Test->TestEqual(TEXT("Gang including boss versus police accuracy"),Criminal->ShotHitChance(Officer),.3f);
-  Test->TestEqual(TEXT("Police versus gang including boss accuracy"),Officer->ShotHitChance(Criminal),.3f);
+  Test->TestEqual(TEXT("Gang including boss versus police accuracy"),Criminal->ShotHitChance(Officer),.08f);
+  Test->TestEqual(TEXT("Police versus gang including boss accuracy"),Officer->ShotHitChance(Criminal),.08f);
  }
  for(auto Kind:{ETacticalWeaponKind::Pistol,ETacticalWeaponKind::Rifle,ETacticalWeaponKind::Shotgun}){
   const auto Previous=Boss->HeldWeapon->Kind;Boss->HeldWeapon->Kind=Kind;
@@ -81,9 +81,9 @@ bool FNPCBehaviorCheck::Update()
  Hit(Civilian,Gang->GetController(),Gang,12);
  Test->TestEqual(TEXT("Gang beating civilian triggers intervention"),Officer->CombatTarget.Get(),static_cast<AActor*>(Gang));
  const float PoliceHealth=Officer->Health;
- Test->TestEqual(TEXT("Gang can damage police through unified damage entry"),Hit(Officer,Gang->GetController(),Gang,3),3.f);
- Test->TestEqual(TEXT("Police lose health when hit by gang"),Officer->Health,PoliceHealth-3);
- Test->TestEqual(TEXT("Boss can damage police"),Hit(Officer,Boss->GetController(),Boss,3),3.f);
+ Test->TestEqual(TEXT("Gang can damage police through unified damage entry"),Hit(Officer,Gang->GetController(),Gang,3),3.f*Rules->PoliceGangDamageScale);
+ Test->TestEqual(TEXT("Police lose health when hit by gang"),Officer->Health,PoliceHealth-3.f*Rules->PoliceGangDamageScale);
+ Test->TestEqual(TEXT("Boss can damage police"),Hit(Officer,Boss->GetController(),Boss,3),3.f*Rules->PoliceGangDamageScale);
  Hit(Merchant,PC,Player,5);
  Test->TestEqual(TEXT("Player attacking protected merchant overrides gang target"),Officer->CombatTarget.Get(),static_cast<AActor*>(Player));
  Bus->ReportGunshot(Boss,Boss->GetActorLocation(),6000);

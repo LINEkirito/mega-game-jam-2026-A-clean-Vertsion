@@ -10,6 +10,8 @@
 #include "PatrolEnemy.h"
 #include "Data/GlobalData.h"
 #include "Data/DataTransmitter.h"
+#include "WorldEvents.h"
+#include "Camcorder/BackpackInventory.h"
 
 DEFINE_LATENT_AUTOMATION_COMMAND_ONE_PARAMETER(FPoliceGangNonlethalCheck,FAutomationTestBase*,Test);
 bool FPoliceGangNonlethalCheck::Update()
@@ -41,10 +43,15 @@ bool FPoliceGangNonlethalCheck::Update()
    auto* Attacker=Spawn(PoliceVictim?GangRole:ENPCRole::Police);
    const auto OriginalRole=Victim->NPCRole;
    Victim->Health=Floor+100;
-   Test->TestEqual(TEXT("Ordinary crossfire still damages"),Hit(Victim,1,Attacker->GetController(),Attacker),1.f);
-   Hit(Victim,10000,Attacker->GetController(),Attacker,true);
-   Test->TestEqual(TEXT("Lethal head hit stops above injury threshold"),Victim->Health,Floor);
-   for(int32 I=0;I<16;++I)Test->TestEqual(TEXT("Repeated pellets cannot lower health further"),Hit(Victim,10000,nullptr,Attacker),0.f);
+   Test->TestEqual(TEXT("Crossfire damage is scaled down"),Hit(Victim,1,Attacker->GetController(),Attacker),GetDefault<UGlobalData>()->PoliceGangDamageScale);
+   Victim->Health=Floor;
+   const float Cap=GetDefault<UGlobalData>()->PoliceGangMaxHitDamage;
+   Test->TestEqual(TEXT("Head hits respect low damage cap"),Hit(Victim,10000,Attacker->GetController(),Attacker,true),Cap);
+   Test->TestTrue(TEXT("Low health receives a small recovery buffer"),Victim->Health>Floor);
+   for(int32 I=0;I<64;++I){
+    Test->TestEqual(TEXT("Repeated pellets keep dealing positive damage"),Hit(Victim,10000,nullptr,Attacker),Cap);
+    Test->TestTrue(TEXT("Crossfire remains above injury threshold"),Victim->Health>=Floor);
+   }
    Test->TestEqual(TEXT("Crossfire preserves combat role"),Victim->NPCRole,OriginalRole);
    Test->TestTrue(TEXT("Crossfire never enters injured or dead activity"),Victim->Activity!=ENPCActivity::Injured&&Victim->Activity!=ENPCActivity::Dead);
    Hit(Victim,Victim->Health-Injury,PC,PC->GetPawn());
@@ -55,6 +62,34 @@ bool FPoliceGangNonlethalCheck::Update()
    Hit(Victim,10000,PC,PC->GetPawn());
    Test->TestEqual(TEXT("Player can still kill"),Victim->Health,0.f);
   }
+ }
+ auto* Events=W->GetSubsystem<UWorldEvents>();
+ TGuardValue<bool> Automatic(Events->bAutomatic,false);
+ auto* Officer=Spawn(ENPCRole::Police);auto* Gang=Spawn(ENPCRole::GangMember);
+ const int32 Id=Events->BeginEvent(EStreetEvent::GangShootout,{Officer,Gang});
+ auto* Record=Events->Events.FindByPredicate([Id](const FStreetEventRecord& E){return E.Id==Id;});
+ if(Test->TestNotNull(TEXT("Shootout event exists"),Record)){
+  Test->TestTrue(TEXT("Shootout lasts two to three minutes"),Record->Duration>=120&&Record->Duration<=180);
+  Officer->CombatTarget=Gang;Gang->CombatTarget=Officer;
+  Officer->Activity=Gang->Activity=ENPCActivity::Combat;Officer->bCombat=Gang->bCombat=true;
+  const auto Spec=Officer->HeldWeapon->Spec();
+  Officer->AmmoReserve->Remove(Spec.Ammo,Officer->AmmoReserve->Count(Spec.Ammo));
+  Officer->HeldWeapon->bChambered=false;Officer->Tick(.01f);
+  Test->TestTrue(TEXT("Crossfire replenishes exhausted reserve"),Officer->AmmoReserve->Count(Spec.Ammo)>0||Officer->HeldWeapon->IsReloading());
+  Record->bHasPerformed=true;Record->ExpiresAt=W->GetTimeSeconds()+1;Events->Tick(0);
+  Test->TestTrue(TEXT("Still active before deadline"),Events->Find(Id)->bActive);
+  Record->ExpiresAt=W->GetTimeSeconds()-1;Events->Tick(0);
+  Test->TestFalse(TEXT("Event expires at sampled duration"),Events->Find(Id)->bActive);
+  Test->TestNull(TEXT("Police actually stop shooting"),Officer->CombatTarget.Get());
+  Test->TestNull(TEXT("Gang actually stops shooting"),Gang->CombatTarget.Get());
+  Test->TestFalse(TEXT("Police leave combat state"),Officer->bCombat);
+  Test->TestEqual(TEXT("Cooldown prevents immediate re-entry"),Officer->CrossfireCooldown,18.f);
+  Officer->HearGunshot(Gang,Gang->GetActorLocation(),6000);
+  Test->TestNull(TEXT("Residual gunfire does not restart the ended event"),Officer->CombatTarget.Get());
+  Test->TestEqual(TEXT("Ended occurrence releases gang"),Gang->StreetEventId,0);
+  Officer->CrossfireCooldown=Gang->CrossfireCooldown=0;
+  const int32 Next=Events->BeginEvent(EStreetEvent::GangShootout,{Officer,Gang});
+  Test->TestTrue(TEXT("Later occurrence has a fresh identity"),Next>Id);Events->EndEvent(Next);
  }
  for(auto* N:Actors)N->Destroy();return true;
 }
