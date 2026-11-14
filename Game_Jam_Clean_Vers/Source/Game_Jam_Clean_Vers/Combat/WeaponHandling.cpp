@@ -123,6 +123,7 @@ void ATacticalWeapon::SetBasePose()
 }
 void ATacticalWeapon::Equip(AGame_Jam_Clean_VersCharacter* C)
 {
+    if(C)ApplyAppearanceSkin(TEXT("Director"));
     // Warm all randomized shot variants during the draw, before the first shot.
     if(C)UGameplayStatics::PrimeSound(Sounds.FindRef(Kind==ETacticalWeaponKind::Pistol?TEXT("PistolFire"):Kind==ETacticalWeaponKind::Rifle?TEXT("RifleFire"):TEXT("ShotgunFire")));
     if(!C)return;Holder=C;C->GetFirstPersonMesh()->SetAbsolute(false,false,false);bOriginalVisible=C->GetFirstPersonMesh()->IsVisible();C->GetFirstPersonMesh()->SetVisibility(true,false);Body->SetSimulatePhysics(false);Body->SetCollisionEnabled(ECollisionEnabled::NoCollision);SetActorHiddenInGame(false);bEquipped=true;C->GetFirstPersonMesh()->PrimaryComponentTick.TickGroup=TG_PostUpdateWork;C->GetFirstPersonMesh()->AddTickPrerequisiteActor(this);if(auto* Controller=C->GetController())if(auto* Equipment=Controller->FindComponentByClass<UCombatEquipmentComponent>())C->GetFirstPersonMesh()->AddTickPrerequisiteComponent(Equipment);RenderArms->SetVisibility(false);Label->SetVisibility(false);SetBasePose();BeginHandling(EWeaponHandling::Equip,bPackPresentation?1.4f:.5f);Sound(TEXT("Equip"),.45f);
@@ -193,7 +194,11 @@ void ATacticalWeapon::DropMagazine()
 {
     if(auto* Debris=GetWorld()->SpawnActor<AWeaponDebris>())
     {
-        if(bPackPresentation&&PackMagazineMesh->GetSkeletalMeshAsset())Debris->InitializeSkeletal(PackMagazineMesh->GetSkeletalMeshAsset(),PackMagazineMesh->GetComponentTransform(),GetActorRotation().RotateVector(FVector(-10,-45,-70)));
+        if(bPackPresentation&&PackMagazineMesh->GetSkeletalMeshAsset())
+        {
+            Debris->InitializeSkeletal(PackMagazineMesh->GetSkeletalMeshAsset(),PackMagazineMesh->GetComponentTransform(),GetActorRotation().RotateVector(FVector(-10,-45,-70)));
+            for(int32 Slot=0;Slot<PackMagazineMesh->GetNumMaterials();++Slot)Debris->SkeletalVisual->SetMaterial(Slot,PackMagazineMesh->GetMaterial(Slot));
+        }
         else Debris->Initialize(MagazineVisual->GetStaticMesh(),MagazineVisual->GetComponentTransform(),GetActorRotation().RotateVector(FVector(-10,-45,-70)),true);
     }
     // Preserve unused cartridges as backpack ammo; the discarded mesh is not a second inventory copy.

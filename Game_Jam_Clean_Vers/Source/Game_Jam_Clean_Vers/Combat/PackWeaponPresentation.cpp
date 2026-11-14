@@ -17,11 +17,28 @@
 #include "Engine/SkeletalMesh.h"
 #include "Sound/SoundBase.h"
 #include "Kismet/GameplayStatics.h"
+#include "Materials/MaterialInterface.h"
 
 namespace PackPresentation
 {
 const TCHAR* Root=TEXT("/Game/KINEMATION/TacticalShooterPack/");
 FString Type(ETacticalWeaponKind K){return K==ETacticalWeaponKind::Rifle?TEXT("TR15"):K==ETacticalWeaponKind::Pistol?TEXT("WK-11_Viper"):TEXT("Herrington_11-87");}
+}
+void ATacticalWeapon::ApplyAppearanceSkin(const TCHAR* Faction)
+{
+    // Per-instance surface paint preserves meshes, authored animation and optic glass.
+    for(UMeshComponent* Component : {static_cast<UMeshComponent*>(PackWeaponMesh.Get()),static_cast<UMeshComponent*>(PackMagazineMesh.Get()),static_cast<UMeshComponent*>(Optic.Get())})
+    {
+        if(!Component)continue;
+        for(int32 Slot=0;Slot<Component->GetNumMaterials();++Slot)
+        {
+            auto* Current=Component->GetMaterial(Slot);if(!Current)continue;
+            FString Name=Current->GetName();
+            for(const TCHAR* Suffix : {TEXT("_Director"),TEXT("_Gang"),TEXT("_Police")})Name.RemoveFromEnd(Suffix);
+            if(Name.Contains(TEXT("Reticle"))||Name.Contains(TEXT("Lens")))continue;
+            if(auto* Paint=LoadObject<UMaterialInterface>(nullptr,*(FString(TEXT("/Game/AppearanceSkins/Weapons/"))+Name+TEXT("_")+Faction)))Component->SetMaterial(Slot,Paint);
+        }
+    }
 }
 UAnimSequence* ATacticalWeapon::PackAnimation(const FString& Group,const FString& Action)
 {
@@ -55,6 +72,7 @@ void ATacticalWeapon::SetupPackPresentation()
     auto* Mesh=LoadObject<USkeletalMesh>(nullptr,*(FString(PackPresentation::Root)+TEXT("Weapons/")+Type+TEXT("/")+MeshName));
     bPackPresentation=Mesh!=nullptr;if(!bPackPresentation)return;
     if(Kind==ETacticalWeaponKind::Shotgun)bPumpMode=false;
+    PackWeaponMesh->EmptyOverrideMaterials();
     PackWeaponMesh->SetSkeletalMeshAsset(Mesh);PackWeaponMesh->SetRelativeRotation(FRotator(0,-90,0));PackWeaponMesh->SetDisablePostProcessBlueprint(true);
     SamplePackAnimation(PackWeaponMesh,PackAnimation(TEXT("Weapon"),TEXT("Idle")),0);
     if(Kind==ETacticalWeaponKind::Shotgun)PackWeaponMesh->HideBoneByName(TEXT("Suppressor"),EPhysBodyOp::PBO_None);
@@ -62,6 +80,7 @@ void ATacticalWeapon::SetupPackPresentation()
     ScopeLens->SetVisibility(false);
     const bool Rifle=Kind==ETacticalWeaponKind::Rifle,Pistol=Kind==ETacticalWeaponKind::Pistol;
     const FString MagPath=Rifle?TEXT("Weapons/TR15/Attachments/Magazine/SKM_Mag_TR15"):Pistol?TEXT("Weapons/WK-11_Viper/Magazine/SKM_Mag_WK-11_Viper"):TEXT("");
+    PackMagazineMesh->EmptyOverrideMaterials();
     PackMagazineMesh->SetSkeletalMeshAsset(MagPath.IsEmpty()?nullptr:LoadObject<USkeletalMesh>(nullptr,*(FString(PackPresentation::Root)+MagPath)));
     PackMagazineMesh->AttachToComponent(PackWeaponMesh,FAttachmentTransformRules::SnapToTargetNotIncludingScale,Rifle?TEXT("Magazine"):TEXT("MagazineSocket"));
     PackMagazineMesh->SetRelativeRotation(Rifle?FRotator(0,0,90):FRotator::ZeroRotator);
@@ -80,6 +99,7 @@ void ATacticalWeapon::SetupPackPresentation()
     }
     const FString Fire=Rifle?TEXT("SFX/TR15/Semi/SC_TR15_Fire_Unsuppressed_Semi"):Pistol?TEXT("SFX/WK-11_Viper/S_WK-11_Viper_Shot_1_With_Tail_Cue"):TEXT("SFX/Herrington_11-87/Fire/SC_Herrington_11-87_Semi_Unsuppressed");
     Sounds.Add(Rifle?TEXT("RifleFire"):Pistol?TEXT("PistolFire"):TEXT("ShotgunFire"),LoadObject<USoundBase>(nullptr,*(FString(PackPresentation::Root)+Fire)));
+    ApplyAppearanceSkin(TEXT("Director"));
 }
 void ATacticalWeapon::UpdatePackPose(float DT,bool ADS,float Kick)
 {

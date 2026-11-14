@@ -1,5 +1,6 @@
 ﻿#include "TacticalWeapon.h"
 #include "Components/BoxComponent.h"
+#include "PatrolEnemy.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/PoseableMeshComponent.h"
 #include "Components/TextRenderComponent.h"
@@ -10,6 +11,7 @@ void ATacticalWeapon::EquipForNPC(USkeletalMeshComponent* CharacterMesh)
 {
  if(!CharacterMesh)return;
  Stow();bNPCEquipped=true;SetOwner(CharacterMesh->GetOwner());SetActorHiddenInGame(false);
+ if(const auto* NPC=Cast<APatrolEnemy>(CharacterMesh->GetOwner()))ApplyAppearanceSkin(NPC->IdentityRole==ENPCRole::Police?TEXT("Police"):TEXT("Gang"));
  Body->SetSimulatePhysics(false);Body->SetCollisionEnabled(ECollisionEnabled::NoCollision);Body->SetCanEverAffectNavigation(false);
  Label->SetVisibility(false);Hands->SetVisibility(false);RenderArms->SetVisibility(false);ScopeLens->SetVisibility(false);
  if(bPackPresentation){

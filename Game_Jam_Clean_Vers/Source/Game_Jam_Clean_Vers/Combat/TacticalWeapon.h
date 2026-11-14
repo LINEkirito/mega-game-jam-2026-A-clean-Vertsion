@@ -104,6 +104,7 @@ public:
 private:
     void SetupModel();
     void SetupPackPresentation();
+    void ApplyAppearanceSkin(const TCHAR* Faction);
     void UpdatePackPose(float DT,bool bADS,float Kick);
     float PackChargeDuration();
     UAnimSequence* PackAnimation(const FString& Group,const FString& Action);
