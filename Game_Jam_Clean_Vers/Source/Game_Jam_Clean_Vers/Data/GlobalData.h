@@ -62,8 +62,8 @@ public:
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Gang",meta=(ClampMin="0",ClampMax="360")) float GangSightAngle=180.f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Weapon",meta=(ClampMin="0")) int32 NPCSpareMagazines=3;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC") float AimedThreatSeconds=1.f;
- UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Movement") float NPCWalkSpeed=110.f;
- UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Movement") float NPCCombatAdvanceSpeed=95.f;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Movement") float NPCWalkSpeed=180.f;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Movement") float NPCCombatAdvanceSpeed=180.f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Movement") float NPCCombatStopDistance=260.f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Movement") float NPCSearchSpeed=300.f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Weapon") int32 RifleCapacity=30;

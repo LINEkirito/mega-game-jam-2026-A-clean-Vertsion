@@ -20,6 +20,7 @@
 #include "CombatEquipmentComponent.h"
 #include "Camcorder/BackpackInventory.h"
 #include "NPCMotionAnimInstance.h"
+#include "Animation/AnimSequence.h"
 #include "Engine/DamageEvents.h"
 #include "WorldEvents.h"
 
@@ -197,7 +198,9 @@ bool FNPCBehaviorCheck::Update()
  if(Test->TestNotNull(TEXT("Combat retains native animation blending"),Motion))
  {
   Test->TestNull(TEXT("Full-body locomotion has no masked holding override"),Motion->UpperBodyPose.Get());
-  Test->TestTrue(TEXT("Combat gait follows actual slow walking speed"),Motion->PlaybackRate>.45f&&Motion->PlaybackRate<.6f);
+  Test->TestTrue(TEXT("Slow combat movement keeps natural cadence"),Motion->PlaybackRate>=.75f);
+  const float GaitReference=Motion->Sequence&&Motion->Sequence->GetName()==TEXT("NPC_A_Pistol_Aim_Walk_Right")?147.66f:183.33f;
+  Test->TestTrue(FString::Printf(TEXT("Slow combat stride matches velocity (%s)"),*GetNameSafe(Motion->Sequence)),FMath::IsNearlyEqual(Motion->PlaybackRate*Motion->StrideWeight,95.f/GaitReference,.01f));
   // This fixture has no navigation floor. Test repeated firing at rest separately
   // from the real-path walking check, so a failed MoveTo cannot change the gait.
   MovePlayer(200);AimedGang->GetCharacterMovement()->Velocity=FVector::ZeroVector;AimedGang->Tick(1.f);

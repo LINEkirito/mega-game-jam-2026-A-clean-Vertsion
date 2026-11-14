@@ -112,6 +112,11 @@ void APatrolEnemy::BeginPlay()
   {ENPCActivity::Threaten,TEXT("AS_Taunt_Fist_01")},{ENPCActivity::Beat,TEXT("Manny_A_Melee")},{ENPCActivity::Trade,TEXT("AS_Greetings_FormalHandShake")},
   {ENPCActivity::Counterattack,TEXT("Manny_A_Melee")},{ENPCActivity::Meeting,TEXT("AS_Standing_Talking_01")},{ENPCActivity::CameraDismiss,TEXT("AS_Gestures_Pointing_Forward")},{ENPCActivity::Command,TEXT("AS_Gestures_Pointing_Forward")},{ENPCActivity::Injured,TEXT("Manny_SK_Martial_Anim")},{ENPCActivity::Flee,TEXT("Manny_A_UnarmedSprint")}};
  for(const auto& Pair:Defaults)if(!ActivityAnimations.Contains(Pair.Key))if(auto* Anim=LoadObject<UAnimSequence>(nullptr,*(FString(TEXT("/Game/Combat/NPC/Authored/"))+Pair.Value)))ActivityAnimations.Add(Pair.Key,Anim);
+ // The old retargeted unarmed sprint carries a tilted, ~55 degree root offset.
+ // Use the existing Manny-compatible running cycle; preserve explicit custom clips.
+ if(auto* FleeClip=ActivityAnimations.Find(ENPCActivity::Flee);FleeClip&&*FleeClip&&(*FleeClip)->GetName()==TEXT("Manny_A_UnarmedSprint"))
+  if(auto* Jog=LoadObject<UAnimSequence>(nullptr,TEXT("/Game/Characters/Mannequins/Anims/Unarmed/Jog/MF_Unarmed_Jog_Fwd")))
+   *FleeClip=Jog;
  if(IsProtectedPerson())if(auto* Cower=LoadObject<UAnimSequence>(nullptr,TEXT("/Game/Combat/NPC/Authored/AS_Defeat_Beg_01")))ActivityAnimations.Add(ENPCActivity::Threaten,Cower);
  if(!ScreamSound)ScreamSound=LoadObject<USoundBase>(nullptr,TEXT("/Game/Combat/NPC/Audio/Scream"));
  if(!HelpSound)HelpSound=LoadObject<USoundBase>(nullptr,TEXT("/Game/Combat/NPC/Audio/Help"));
@@ -590,7 +595,10 @@ void APatrolEnemy::SetMotion()
  // farther from its end pose. Give only those clip boundaries more blend time.
  Motion->PoseBlendDuration=HeldWeapon&&HeldWeapon->Kind==ETacticalWeaponKind::Pistol&&
   (IsWeaponTransitioning()||CurrentAnimation==DrawWeaponAnimation||CurrentAnimation==HolsterWeaponAnimation)?.35f:.18f;
- const float Speed=GetVelocity().Size2D();const bool Moving=Speed>5;
+ const float Speed=GetVelocity().Size2D();
+ // Hysteresis prevents avoidance/braking jitter from repeatedly restarting the gait.
+ const bool Moving=Speed>(Motion->bLocomotion?15.f:25.f);
+ Motion->StrideIdle=nullptr;Motion->StrideWeight=1.f;
  const bool Armed=HeldWeapon&&WeaponCarry==ENPCWeaponCarry::Drawn;
  if(IsWeaponTransitioning())
  {
@@ -603,7 +611,13 @@ void APatrolEnemy::SetMotion()
  const bool Reloading=HeldWeapon&&HeldWeapon->IsReloading()&&ReloadAnimation;
  if(Reloading){Anim=ReloadAnimation;Loop=WeaponKind==ETacticalWeaponKind::Shotgun;}
  else if(bTurning&&!Moving){Anim=ActiveTurn;Loop=false;}
- else if(Activity==ENPCActivity::Flee||Activity==ENPCActivity::PursueMelee){if(Moving){if(auto* Found=ActivityAnimations.Find(ENPCActivity::Flee))Anim=*Found;ReferenceSpeed=461.07f;}else Anim=UnarmedIdle;}
+ else if(Activity==ENPCActivity::Flee||Activity==ENPCActivity::PursueMelee)
+ {
+  if(!Moving)Anim=UnarmedIdle;
+  else if(Speed>(CurrentAnimation==ActivityAnimations.FindRef(ENPCActivity::Flee)?280.f:330.f))
+  {if(auto* Found=ActivityAnimations.Find(ENPCActivity::Flee))Anim=*Found;ReferenceSpeed=Anim&&Anim->GetName()==TEXT("MF_Unarmed_Jog_Fwd")?600.34f:461.07f;}
+  else Anim=UnarmedWalk;
+ }
  else if(!Moving)
  {
   const bool Social=Activity==ENPCActivity::Trade||Activity==ENPCActivity::Threaten;
@@ -613,7 +627,7 @@ void APatrolEnemy::SetMotion()
  {
   if(Armed)
   {
-   if(Moving&&Speed>180&&Run){Anim=Run;ReferenceSpeed=687.48f;}
+   if(Moving&&Speed>(CurrentAnimation==Run?380.f:430.f)&&Run){Anim=Run;ReferenceSpeed=687.48f;}
    else if(Moving&&Activity==ENPCActivity::Combat&&AimWalk)
    {
     const float Angle=FMath::RadiansToDegrees(FMath::Atan2(FVector::DotProduct(GetVelocity(),GetActorRightVector()),FVector::DotProduct(GetVelocity(),GetActorForwardVector())));
@@ -628,7 +642,13 @@ void APatrolEnemy::SetMotion()
  }
  CurrentAnimation=Anim;Motion->Sequence=Anim;Motion->UpperBodyPose=nullptr;
  Motion->ExplicitTime=bTurning&&!Moving?TurnTime:-1.f;
- Motion->bLoop=Loop;Motion->bLocomotion=Moving&&!Reloading;Motion->PlaybackRate=Reloading?1.f:Moving?FMath::Clamp(Speed/ReferenceSpeed,.05f,2.f):1.f;
+ Motion->bLoop=Loop;Motion->bLocomotion=Moving&&!Reloading;
+ Motion->PlaybackRate=Motion->bLocomotion?FMath::Clamp(Speed/ReferenceSpeed,.75f,2.f):1.f;
+ if(Motion->bLocomotion)
+ {
+  Motion->StrideIdle=Armed?Idle.Get():UnarmedIdle.Get();
+  Motion->StrideWeight=FMath::Clamp(Speed/(ReferenceSpeed*Motion->PlaybackRate),0.f,1.f);
+ }
 }
 void APatrolEnemy::Tick(float DT)
 {

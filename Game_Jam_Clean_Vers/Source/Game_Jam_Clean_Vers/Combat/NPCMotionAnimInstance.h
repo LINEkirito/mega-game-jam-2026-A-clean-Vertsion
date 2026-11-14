@@ -17,6 +17,9 @@ public:
  bool bLoop=true;
  bool bLocomotion=false;
  float PoseBlendDuration=.18f;
+ // The owning NPC retains the idle asset; this is only a per-frame pose input.
+ UAnimSequence* StrideIdle=nullptr;
+ float StrideWeight=1.f;
 protected:
  virtual FAnimInstanceProxy* CreateAnimInstanceProxy() override;
  virtual void DestroyAnimInstanceProxy(FAnimInstanceProxy* Proxy) override;

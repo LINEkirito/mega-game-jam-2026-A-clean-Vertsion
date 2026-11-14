@@ -62,6 +62,7 @@ public:
  UFUNCTION() void WitnessViolence(AActor* Victim,APawn* Attacker,bool ProtectedVictim);
  UFUNCTION(BlueprintImplementableEvent,Category="NPC") void OnActivityChanged(ENPCActivity NewActivity);
 private:
+ friend class FNPCLocomotionCheck;
  friend class FNPCWeaponCarryCheck;
  UPROPERTY() TObjectPtr<class UAnimSequence> DrawWeaponAnimation;
  UPROPERTY() TObjectPtr<class UAnimSequence> HolsterWeaponAnimation;

@@ -8,6 +8,8 @@ namespace NPCMotion
 struct FProxy : FAnimInstanceProxy
 {
  UAnimSequence* Sequence=nullptr;
+ UAnimSequence* StrideIdle=nullptr;
+ float StrideWeight=1.f;
  float Time=0,BlendTime=1,BlendDuration=.18f;
  bool CaptureBlend=false;
  bool Turning=false;
@@ -18,6 +20,7 @@ struct FProxy : FAnimInstanceProxy
  {
   FAnimInstanceProxy::PreUpdate(Instance,DT);
   auto* Motion=CastChecked<UNPCMotionAnimInstance>(Instance);
+  StrideIdle=Motion->StrideIdle;StrideWeight=Motion->StrideWeight;
   Turning=Motion->ExplicitTime>=0;
   if(Sequence!=Motion->Sequence)
   {
@@ -36,6 +39,13 @@ struct FProxy : FAnimInstanceProxy
   if(!Sequence)return true;
   if(CaptureBlend){BlendFrom=LastPose;CaptureBlend=false;}
   FAnimationPoseData Data(Output);Sequence->GetAnimationPose(Data,FAnimExtractContext(Time,false));
+  if(StrideIdle&&StrideWeight<1.f)
+  {
+   FPoseContext Idle(Output);Idle.ResetToRefPose();
+   FAnimationPoseData IdleData(Idle);StrideIdle->GetAnimationPose(IdleData,FAnimExtractContext(0.,false));
+   for(FCompactPoseBoneIndex B:Output.Pose.ForEachBoneIndex())
+   {FTransform T;T.Blend(Idle.Pose[B],Output.Pose[B],StrideWeight);Output.Pose[B]=T;}
+  }
   // Navigation owns world displacement and yaw. Never apply the authored root twice.
   if(Turning)Output.Pose[FCompactPoseBoneIndex(0)]=FTransform::Identity;
   else {auto& Root=Output.Pose[FCompactPoseBoneIndex(0)];const float Height=Root.GetTranslation().Z;Root.SetTranslation(FVector(0,0,Height));}
