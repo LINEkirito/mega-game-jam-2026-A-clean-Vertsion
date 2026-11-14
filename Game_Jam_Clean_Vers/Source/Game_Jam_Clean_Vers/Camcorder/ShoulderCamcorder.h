@@ -2,6 +2,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "CamcorderVideoWriter.h"
+#include "CamcorderFrameReadback.h"
 #include "ShoulderCamcorder.generated.h"
 
 class UBoxComponent;
@@ -56,6 +57,7 @@ public:
     UFUNCTION(BlueprintCallable, Category="Camcorder") bool CanInteract(APlayerController* Player) const;
     UFUNCTION(BlueprintCallable, Category="Camcorder") void PickUp(APlayerController* Player);
     UFUNCTION(BlueprintCallable, Category="Camcorder") void PutDown();
+    void DropOnDeath();
     bool DropFromInventory(APlayerController* Player);
     UFUNCTION(BlueprintCallable, Category="Camcorder") bool StoreInBackpack(APlayerController* Player);
     UFUNCTION(BlueprintCallable, Category="Camcorder") bool StartRecording();
@@ -79,6 +81,7 @@ private:
     bool bOriginalMeshVisible=true;
     void SetHoldingHandsVisible(bool bVisible);
     TUniquePtr<FCamcorderVideoWriter> Writer;
+    TUniquePtr<FCamcorderFrameReadback> FrameReadback;
     float EquipProgress=0.f, LookProgress=0.f, AnimationClock=0.f, SprintBlend=0.f;
     float LoweringTime=0.f;
     bool bLowering=false,bStoreAfterLowering=false;

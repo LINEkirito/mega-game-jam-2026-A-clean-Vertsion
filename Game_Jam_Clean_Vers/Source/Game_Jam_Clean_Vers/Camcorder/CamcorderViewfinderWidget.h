@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include "Localization/GameLanguage.h"
 #include "Widgets/SLeafWidget.h"
 #include "Rendering/DrawElements.h"
@@ -49,8 +49,8 @@ public:
         Box(CX-97*S,ZoomY,194*S*(C->FocalLength-18.f)/82.f,7*S,White);
         Box(CX-100*S+194*S*(C->FocalLength-18.f)/82.f,ZoomY-3*S,6*S,13*S,White);
         Text(Margin,ZoomY-7*S,FString::Printf(TEXT("%.0f mm"),C->FocalLength),22,White);
-        Text(W-Margin-220*S,ZoomY-7*S,TEXT("640×360  /  15 FPS"),19,White);
-        Text(Margin,H-Margin-18*S,TEXT("右键切换取景  ·  左键录像  ·  V 自拍/前拍  ·  滚轮变焦  ·  退格键结束并结算"),17,White);
+        Text(W-Margin-260*S,ZoomY-7*S,TEXT("1280×720 / 15 FPS"),19,White);
+        Text(Margin,H-Margin-18*S,TEXT("右键切换取景  ·  左键录像  ·  V 自拍/前拍  ·  滚轮变焦"),17,White);
         return Layer+2;
     }
 private:

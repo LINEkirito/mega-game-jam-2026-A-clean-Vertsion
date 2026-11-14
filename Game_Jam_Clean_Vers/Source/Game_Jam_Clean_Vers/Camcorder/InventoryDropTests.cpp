@@ -14,6 +14,7 @@
 #include "Combat/CombatEquipmentComponent.h"
 #include "Combat/TacticalWeapon.h"
 #include "Combat/PatrolEnemy.h"
+#include "Localization/GameLanguage.h"
 #include "Components/PrimitiveComponent.h"
 #include "Framework/Application/SlateApplication.h"
 
@@ -48,6 +49,7 @@ public:
         switch(Stage++)
         {
         case 0:
+            PC->SetPause(false);PC->bShowMouseCursor=false;
             for(TActorIterator<APatrolEnemy> It(World);It;++It)It->SetActorTickEnabled(false);
             // Isolate the round trip from preplaced level supplies (the map also has a 34-round box).
             for(TActorIterator<ACombatAmmoPickup> It(World);It;++It)It->Destroy();
@@ -63,6 +65,7 @@ public:
             Place(E->Camcorder);Key(EKeys::E,IE_Pressed);break;
         case 3:
             Key(EKeys::E,IE_Released);Test->TestEqual(TEXT("E does not pick up"),Bag->Count(UBackpackInventory::CameraId),0);
+            Test->TestTrue(TEXT("Camera pickup has F prompt"),Combat->InteractionText().Contains(TEXT("[F]")));
             Key(EKeys::F,IE_Pressed);Next=World->GetTimeSeconds()+3;break;
         case 4:
             Key(EKeys::F,IE_Released);Test->TestTrue(TEXT("F picks camera up"),E->Camcorder->bHeld);
@@ -75,6 +78,7 @@ public:
             Test->TestTrue(TEXT("Drop battery from backpack"),E->DropInventoryItem(UBackpackInventory::BatteryId));
             Test->TestEqual(TEXT("One battery removed"),Bag->Count(UBackpackInventory::BatteryId),Batteries-1);
             for(TActorIterator<ACamcorderBattery> It(World);It;++It){Place(*It);break;}
+            Test->TestTrue(TEXT("Battery pickup has F prompt while armed"),Combat->InteractionText().Contains(TEXT("[F]")));
             Key(EKeys::F,IE_Pressed);break;
         case 6:
             Key(EKeys::F,IE_Released);Test->TestEqual(TEXT("F picks battery up while armed"),Bag->Count(UBackpackInventory::BatteryId),Batteries);
@@ -83,7 +87,7 @@ public:
             Test->TestEqual(TEXT("Ammo stack removed"),Bag->Count(AmmoId),0);
             for(TActorIterator<ACombatAmmoPickup> It(World);It;++It)if(It->AmmoId()==AmmoId){Test->TestEqual(TEXT("Ammo count preserved"),It->Amount,AmmoCount);Place(*It);break;}
             break;
-        case 7: Key(EKeys::F,IE_Pressed);break;
+        case 7: Test->TestTrue(TEXT("Ammo pickup has F prompt"),Combat->InteractionText().Contains(TEXT("[F]")));Key(EKeys::F,IE_Pressed);break;
         case 8:
             Key(EKeys::F,IE_Released);Test->TestEqual(TEXT("Ammo recovered"),Bag->Count(AmmoId),AmmoCount);
             E->SetBackpackOpen(true);E->ShowAssignmentMenu(Slots[2]);
@@ -99,7 +103,7 @@ public:
             Test->TestTrue(TEXT("Fixed slots preserved"),Bag->Slots==Slots);
             // Keep the other dropped weapon out of the proximity query.
             for(TActorIterator<ATacticalWeapon> It(World);It;++It)if(It->InventoryId==Slots[2])It->SetActorLocation(FVector(0,0,-40000));
-            Place(Gun.Get());Key(EKeys::F,IE_Pressed);Next=World->GetTimeSeconds()+3;break;
+            Place(Gun.Get());Test->TestTrue(TEXT("Gun pickup has F prompt"),Combat->InteractionText().Contains(TEXT("[F]")));Key(EKeys::F,IE_Pressed);Next=World->GetTimeSeconds()+3;break;
         default:
             Key(EKeys::F,IE_Released);Test->TestEqual(TEXT("F restores gun ownership"),Bag->Count(GunId),1);
             Test->TestTrue(TEXT("Picked gun equipped"),Combat->ActiveWeapon==Gun.Get());

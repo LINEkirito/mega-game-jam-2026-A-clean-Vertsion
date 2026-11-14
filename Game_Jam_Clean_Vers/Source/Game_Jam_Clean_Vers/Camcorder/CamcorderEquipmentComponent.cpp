@@ -1,4 +1,4 @@
-#include "CamcorderEquipmentComponent.h"
+﻿#include "CamcorderEquipmentComponent.h"
 #include "Audio/CharacterAudio.h"
 #include "RecordingLibrary.h"
 #include "RecordingTabletComponent.h"
@@ -15,7 +15,6 @@
 #include "CamcorderViewfinderWidget.h"
 #include "Engine/World.h"
 #include "Engine/GameViewportClient.h"
-#include "Engine/TextureRenderTarget2D.h"
 #include "EngineUtils.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/Pawn.h"
@@ -23,12 +22,9 @@
 #include "InputCoreTypes.h"
 #include "Widgets/SOverlay.h"
 #include "Widgets/SBoxPanel.h"
-#include "Widgets/Images/SImage.h"
 #include "Widgets/Layout/SBorder.h"
-#include "Widgets/Layout/SBox.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Localization/GameLanguage.h"
-#include "Widgets/Notifications/SProgressBar.h"
 #include "Styling/CoreStyle.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Framework/Application/IInputProcessor.h"
@@ -41,12 +37,6 @@ public:
     virtual void Tick(const float,FSlateApplication&,TSharedRef<ICursor>) override {}
     virtual bool HandleKeyDownEvent(FSlateApplication&,const FKeyEvent& Event) override
     {
-        if(Event.GetKey()==EKeys::BackSpace){
-            if(auto* E=Owner.Get();E&&E->RecordingLibrary){
-                if(!Event.IsRepeat())E->RecordingLibrary->EndRound(false);
-                return true;
-            }
-        }
         if(Event.GetKey()!=EKeys::Escape) return false;
         if(bCapturedEscape) return true;
         if(auto* E=Owner.Get())
@@ -112,6 +102,12 @@ ACamcorderBattery* UCamcorderEquipmentComponent::NearbyBattery() const
         Best=*It; Dist2=D;
     }
     return Best;
+}
+FString UCamcorderEquipmentComponent::PickupPrompt() const
+{
+ if(NearbyBattery())return GameLanguage::Display(TEXT("[F] 拾取 · 摄像机电池"));
+ if(Camcorder&&!Camcorder->bHeld&&!Camcorder->IsPresenting()&&!Camcorder->bInBackpack&&CanUse())return GameLanguage::Display(TEXT("[F] 拾取 · 摄像机"));
+ return FString();
 }
 void UCamcorderEquipmentComponent::CollectBattery()
 {
@@ -190,8 +186,6 @@ void UCamcorderEquipmentComponent::TickComponent(float DT,ELevelTick Type,FActor
 void UCamcorderEquipmentComponent::CreateHUD()
 {
     if(!GetWorld()->GetGameViewport() || !Camcorder) return;
-    MonitorBrush.SetResourceObject(Camcorder->MonitorTexture);
-    MonitorBrush.ImageSize=FVector2D(320,180); MonitorBrush.DrawAs=ESlateBrushDrawType::Image;
     const TWeakObjectPtr<UCamcorderEquipmentComponent> WeakThis(this);
     auto Text=[WeakThis](int32 Kind)->FText
     {
@@ -199,9 +193,6 @@ void UCamcorderEquipmentComponent::CreateHUD()
         FString S;
         switch(Kind)
         {
-        case 0: S=C->bInBackpack?TEXT("■ BAG  摄像机在背包中"):(C->bPowered?(C->bRecording?TEXT("● REC  录像中"):TEXT("● LIVE  待机预览")):TEXT("■ OFF  已关机")); break;
-        case 1: S=FString::Printf(TEXT("电量 %.0f%%   电池 %d 块   焦距 %.0f mm"),C->BatteryPercent,E->GetBatteryCount(),C->FocalLength); break;
-        case 2: S=FString::Printf(TEXT("本段 %02d:%02d   已保存 %d 段"),int32(C->RecordingSeconds)/60,int32(C->RecordingSeconds)%60,C->SavedClipCount); break;
         case 3: S=C->bInBackpack?TEXT("1 装备摄像机  |  I 打开背包"):(E->CanUse()?(C->bHeld?TEXT("右键切换 举机取景  |  Q 丢下  |  B 收入背包"):TEXT("F 拾取摄像机")):TEXT("摄像机已放下：靠近后按 F 拾取")); break;
         case 4: S=C->Notice; break;
         case 5: S=E->NearbyBattery()?TEXT("附近有电池：按 F 拾取"):TEXT("F 拾取附近绿色电池  |  初始携带 2 块备用电池"); break;
@@ -209,26 +200,15 @@ void UCamcorderEquipmentComponent::CreateHUD()
         return FText::FromString(S);
     };
     const auto Font=FCoreStyle::GetDefaultFontStyle("Regular",16);
-    const auto Small=FCoreStyle::GetDefaultFontStyle("Regular",14);
     HUD=SNew(SOverlay)
-    +SOverlay::Slot().HAlign(HAlign_Right).VAlign(VAlign_Top).Padding(16)
-    [ SNew(SBorder).Visibility_Lambda([WeakThis]{auto* E=WeakThis.Get();return E && ((E->Camcorder && E->Camcorder->bViewfinderRaised) || (E->Combat && E->Combat->ActiveWeapon))?EVisibility::Collapsed:EVisibility::HitTestInvisible;}).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(FLinearColor(.015f,.02f,.025f,.94f)).Padding(10)
-      [ SNew(SVerticalBox)
-        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,5)[SNew(SLocalizedTextBlock).Font(Font).ColorAndOpacity(FLinearColor(.95f,.25f,.15f)).Text_Lambda([Text]{return Text(0);})]
-        +SVerticalBox::Slot().AutoHeight()[SNew(SBox).WidthOverride(320).HeightOverride(180)
-          [SNew(SImage).Image(&MonitorBrush).ColorAndOpacity_Lambda([WeakThis]{auto* E=WeakThis.Get(); return E && E->Camcorder && E->Camcorder->bPowered && !E->Camcorder->bInBackpack?FLinearColor::White:FLinearColor::Black;})]]
-        +SVerticalBox::Slot().AutoHeight().Padding(0,6,0,3)[SNew(SLocalizedTextBlock).Font(Small).Text_Lambda([Text]{return Text(1);})]
-        +SVerticalBox::Slot().AutoHeight()[SNew(SProgressBar).Percent_Lambda([WeakThis]{auto* E=WeakThis.Get();return TOptional<float>(E && E->Camcorder?E->Camcorder->BatteryPercent/100.f:0.f);})]
-        +SVerticalBox::Slot().AutoHeight().Padding(0,4,0,0)[SNew(SLocalizedTextBlock).Font(Small).Text_Lambda([Text]{return Text(2);})]
-      ] ]
     +SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Bottom).Padding(22,22,22,90)
-    [ SNew(SBorder).Visibility_Lambda([WeakThis]{auto* E=WeakThis.Get();return E && ((E->Camcorder && E->Camcorder->bViewfinderRaised) || (E->Combat && E->Combat->ActiveWeapon))?EVisibility::Collapsed:EVisibility::HitTestInvisible;}).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(FLinearColor(.01f,.015f,.02f,.88f)).Padding(12)
+    [ SNew(SBorder).Visibility_Lambda([WeakThis]{auto* E=WeakThis.Get();return E && ((E->RecordingLibrary && E->RecordingLibrary->bRoundEnded) || (E->Camcorder && E->Camcorder->bViewfinderRaised) || (E->Combat && E->Combat->ActiveWeapon))?EVisibility::Collapsed:EVisibility::HitTestInvisible;}).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(FLinearColor(.01f,.015f,.02f,.88f)).Padding(12)
       [SNew(SVerticalBox)
        +SVerticalBox::Slot().AutoHeight().Padding(0,2)[SNew(SLocalizedTextBlock).Font(Font).ColorAndOpacity(FLinearColor(.4f,.9f,1)).Text_Lambda([Text]{return Text(3);})]
        +SVerticalBox::Slot().AutoHeight().Padding(0,2)[SNew(SLocalizedTextBlock).Font(Font).Text(FText::FromString(TEXT("V 自拍/前拍  |  左键开始/停止录像  |  鼠标转向 / 滚轮变焦  |  Esc 放下取景")))]
        +SVerticalBox::Slot().AutoHeight().Padding(0,2)[SNew(SLocalizedTextBlock).Font(Font).Text(FText::FromString(TEXT("R 更换电池  |  P 开关机  |  WASD 移动  |  鼠标环顾  |  Space 跳跃")))]
        +SVerticalBox::Slot().AutoHeight().Padding(0,2)[SNew(SLocalizedTextBlock).Font(Font).Text_Lambda([Text]{return Text(5);})]
-       +SVerticalBox::Slot().AutoHeight().Padding(0,2)[SNew(SLocalizedTextBlock).Font(Font).Text(FText::FromString(TEXT("I 背包  |  1–4 快捷槽  |  Backspace 结束并结算")))]
+       +SVerticalBox::Slot().AutoHeight().Padding(0,2)[SNew(SLocalizedTextBlock).Font(Font).Text(FText::FromString(TEXT("I 背包  |  1–4 快捷槽")))]
        +SVerticalBox::Slot().AutoHeight()[SNew(SLocalizedTextBlock).Font(Font).WrapTextAt(700).ColorAndOpacity(FLinearColor(1,.8f,.25f)).Text_Lambda([Text]{return Text(4);})]
       ] ]
     +SOverlay::Slot()[SNew(SCamcorderViewfinder).Equipment(WeakThis)];

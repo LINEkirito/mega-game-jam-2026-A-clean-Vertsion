@@ -46,6 +46,7 @@ public:
     UFUNCTION(BlueprintCallable, Category="Inventory") void UseSelectedItem();
     UFUNCTION(BlueprintCallable, Category="Inventory") bool DropInventoryItem(FName Id);
     UFUNCTION(BlueprintCallable, Category="Inventory") void DropActiveQuickSlot();
+    FString PickupPrompt() const;
     void CancelViewfinder();
     void ShowAssignmentMenu(FName Id);
     bool HandleBackpackKey(const FKey& Key);
@@ -61,7 +62,6 @@ public:
     void RefreshItemPreview();
 private:
     TSharedPtr<SWidget> HUD;
-    FSlateBrush MonitorBrush;
     TSharedPtr<SWidget> BackpackHUD;
     TSharedPtr<SVerticalBox> InventoryList;
     bool bPreviousCursor=false;

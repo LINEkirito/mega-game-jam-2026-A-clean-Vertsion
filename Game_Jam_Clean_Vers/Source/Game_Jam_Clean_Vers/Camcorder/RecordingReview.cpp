@@ -1,4 +1,5 @@
 #include "RecordingReview.h"
+#include "Audio/AudioWidgets.h"
 #include "RecordingLibrary.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/Layout/SBorder.h"
@@ -39,8 +40,8 @@ void SRecordingReview::LoadThumbnail(int32 Index){
  auto* L=Library.Get();if(!L||!Thumbnails.IsValidIndex(Index)||Thumbnails[Index]->bLoaded)return;
  auto& T=*Thumbnails[Index];T.bLoaded=true;FCamcorderPlayback Reader;TArray<uint8> Pixels;
  if(Reader.Open(L->Clips[Index].Path)&&Reader.ReadFrame(0,Pixels)){
-  TArray64<uint8> Data;Data.Append(Pixels.GetData(),Pixels.Num());T.Texture.Reset(UTexture2D::CreateTransient(640,360,PF_B8G8R8A8,NAME_None,Data));
-  if(T.Texture.IsValid()){T.Texture->SRGB=true;T.Texture->UpdateResource();T.Brush.SetResourceObject(T.Texture.Get());T.Brush.ImageSize=FVector2D(640,360);T.Brush.DrawAs=ESlateBrushDrawType::Image;++LoadedThumbnails;}
+  TArray64<uint8> Data;Data.Append(Pixels.GetData(),Pixels.Num());T.Texture.Reset(UTexture2D::CreateTransient(Reader.GetWidth(),Reader.GetHeight(),PF_B8G8R8A8,NAME_None,Data));
+  if(T.Texture.IsValid()){T.Texture->SRGB=true;T.Texture->UpdateResource();T.Brush.SetResourceObject(T.Texture.Get());T.Brush.ImageSize=FVector2D(Reader.GetWidth(),Reader.GetHeight());T.Brush.DrawAs=ESlateBrushDrawType::Image;++LoadedThumbnails;}
  }
 }
 void SRecordingReview::PlayClip(int32 Index){
@@ -49,9 +50,10 @@ void SRecordingReview::PlayClip(int32 Index){
  Phase=ERecordingReviewPhase::Review;SelectedClip=Index;PlaybackSeconds=0;LastFrame=INDEX_NONE;PlaybackError.Reset();bHoldFast=false;
  bPlaying=Playback.Open(L->Clips[Index].Path);Duration=bPlaying?Playback.NumFrames()/15.f:0;
  if(!bPlaying){PlaybackError=TEXT("该录像无法读取，评分记录仍保留。可选择下一段。");}
- if(!VideoTexture.IsValid()){
-  TArray64<uint8> Black;Black.SetNumZeroed(640*360*4);for(int32 I=3;I<Black.Num();I+=4)Black[I]=255;
-  VideoTexture.Reset(UTexture2D::CreateTransient(640,360,PF_B8G8R8A8,NAME_None,Black));VideoTexture->SRGB=true;VideoTexture->UpdateResource();VideoBrush.SetResourceObject(VideoTexture.Get());VideoBrush.ImageSize=FVector2D(640,360);VideoBrush.DrawAs=ESlateBrushDrawType::Image;
+ const int32 Width=bPlaying?Playback.GetWidth():640,Height=bPlaying?Playback.GetHeight():360;
+ if(!VideoTexture.IsValid() || VideoTexture->GetSizeX()!=Width || VideoTexture->GetSizeY()!=Height){
+  TArray64<uint8> Black;Black.SetNumZeroed(Width*Height*4);for(int32 I=3;I<Black.Num();I+=4)Black[I]=255;
+  VideoTexture.Reset(UTexture2D::CreateTransient(Width,Height,PF_B8G8R8A8,NAME_None,Black));VideoTexture->SRGB=true;VideoTexture->UpdateResource();VideoBrush.SetResourceObject(VideoTexture.Get());VideoBrush.ImageSize=FVector2D(Width,Height);VideoBrush.DrawAs=ESlateBrushDrawType::Image;
  }
  UpdateFrame();Build();
 }
@@ -62,7 +64,7 @@ void SRecordingReview::UpdateFrame(){
  const int32 Frame=FMath::Clamp(FMath::FloorToInt(PlaybackSeconds*15),0,Playback.NumFrames()-1);if(Frame==LastFrame)return;
  TArray<uint8> Pixels;if(!Playback.ReadFrame(Frame,Pixels)){bPlaying=false;PlaybackError=TEXT("录像帧读取失败，评分记录仍保留。");return;}
  auto* Bytes=new uint8[Pixels.Num()];FMemory::Memcpy(Bytes,Pixels.GetData(),Pixels.Num());
- auto* Region=new FUpdateTextureRegion2D(0,0,0,0,640,360);VideoTexture->UpdateTextureRegions(0,1,Region,640*4,4,Bytes,[](uint8* Data,const FUpdateTextureRegion2D* R){delete[] Data;delete R;});LastFrame=Frame;
+ auto* Region=new FUpdateTextureRegion2D(0,0,0,0,Playback.GetWidth(),Playback.GetHeight());VideoTexture->UpdateTextureRegions(0,1,Region,Playback.GetWidth()*4,4,Bytes,[](uint8* Data,const FUpdateTextureRegion2D* R){delete[] Data;delete R;});LastFrame=Frame;
 }
 void SRecordingReview::Tick(const FGeometry& G,double Now,float DT){
  SCompoundWidget::Tick(G,Now,DT);auto* L=Library.Get();if(!L)return;
@@ -92,13 +94,14 @@ void SRecordingReview::Build(){
  auto Root=SNew(SVerticalBox);
  const FString Title=Phase==ERecordingReviewPhase::Overview?TEXT("本局拍摄总览"):Phase==ERecordingReviewPhase::Review?TEXT("录像回看 · 评分说明"):TEXT("本局评分明细");
  Root->AddSlot().AutoHeight().Padding(0,0,0,10)[ReviewText(Title,34)];
- Root->AddSlot().AutoHeight().Padding(0,0,0,16)[ReviewText(FString::Printf(TEXT("%s   |   %d 段录像   |   本局总分 %d"),L->bEndedByDeath?TEXT("死亡结算"):TEXT("主动结束"),L->Clips.Num(),L->RoundScore),22,FLinearColor(.4f,.9f,.75f))];
+ Root->AddSlot().AutoHeight().Padding(0,0,0,16)[ReviewText(FString::Printf(TEXT("%s   |   %d 段录像   |   本局总分 %.1f"),L->bEndedByDeath?TEXT("死亡结算"):TEXT("成功撤离"),L->Clips.Num(),L->RoundScore),22,FLinearColor(.4f,.9f,.75f))];
+ Root->AddSlot().AutoHeight().Padding(0,0,0,12)[ReviewText(L->bEndedByDeath?TEXT("死亡：最终分数 × 0.5；录像原始评分保持不变。"):TEXT("成功撤离：保留 100% 分数。"),18,FLinearColor(.8f,.85f,.9f))];
  if(Phase==ERecordingReviewPhase::Overview){
   auto Grid=SNew(SUniformGridPanel).SlotPadding(FMargin(6));
   for(int32 I=0;I<Revealed;++I){const auto& C=L->Clips[I];auto Card=SNew(SVerticalBox);
    Card->AddSlot().AutoHeight()[SNew(SBox).WidthOverride(264).HeightOverride(148.5f)[SNew(SImage).Image(&Thumbnails[I]->Brush)]];
    Card->AddSlot().AutoHeight().Padding(8)[ReviewText(FString::Printf(TEXT("录像 %02d   %02d:%02d"),I+1,int32(C.Seconds)/60,int32(C.Seconds)%60),19)];
-   Grid->AddSlot(I%5,I/5)[SNew(SButton).IsFocusable(false).ContentPadding(4).OnClicked_Lambda([this,I]{PlayClip(I);return FReply::Handled();})[Card]];
+   Grid->AddSlot(I%5,I/5)[SNew(SAudioButton).IsFocusable(false).ContentPadding(4).OnClicked_Lambda([this,I]{PlayClip(I);return FReply::Handled();})[Card]];
   }
   Root->AddSlot().FillHeight(1)[SNew(SScrollBox)+SScrollBox::Slot()[Grid]];
   Root->AddSlot().AutoHeight().Padding(0,12)[ReviewText(TEXT("按拍摄顺序展示首帧，随后自动连续回看。点击任意录像可直接播放。"),20)];
@@ -108,7 +111,7 @@ void SRecordingReview::Build(){
    +SOverlay::Slot()[SNew(SImage).Image(&VideoBrush)]
    +SOverlay::Slot()[SNew(SRecordingScoreOutline).Review(SharedThis(this))]]];
   Video->AddSlot().AutoHeight().Padding(0,8)[SNew(SLocalizedTextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",20)).Text_Lambda([this]{return FText::FromString(FString::Printf(TEXT("录像 %02d   %.1f / %.1f 秒   ·   %d×   %s"),SelectedClip+1,PlaybackSeconds,Duration,GetPlaybackRate(),bPlaying?TEXT("播放中"):TEXT("暂停")));})];
-  Video->AddSlot().AutoHeight()[SNew(SSlider).IsFocusable(false).Value_Lambda([this]{return Duration>0?PlaybackSeconds/Duration:0.f;}).OnValueChanged_Lambda([this](float V){Seek(V);})];
+  Video->AddSlot().AutoHeight()[SNew(SAudioSlider).IsFocusable(false).Value_Lambda([this]{return Duration>0?PlaybackSeconds/Duration:0.f;}).OnValueChanged_Lambda([this](float V){Seek(V);})];
   Video->AddSlot().AutoHeight().Padding(0,8)[SNew(SBox).HeightOverride(64)[SNew(SScrollBox)+SScrollBox::Slot()[SNew(SLocalizedTextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",18)).ColorAndOpacity(FLinearColor(1,.78f,.35f)).AutoWrapText(true).Text_Lambda([this]{
    if(!PlaybackError.IsEmpty())return FText::FromString(PlaybackError);FString Text;if(auto* Lib=Library.Get())if(Lib->Clips.IsValidIndex(SelectedClip))for(const auto& M:Lib->Clips[SelectedClip].ScoreMoments)if(M.Seconds<=PlaybackSeconds&&M.Seconds+2>=PlaybackSeconds)Text+=M.Subject+TEXT(" · ")+M.Explanation+TEXT("\n");return FText::FromString(Text);
   })]]];
@@ -123,22 +126,25 @@ void SRecordingReview::Build(){
   Details->AddSlot().FillHeight(1)[SNew(SScrollBox)+SScrollBox::Slot()[Entries]];
   Body->AddSlot().FillWidth(1).Padding(24,0)[Details];Root->AddSlot().FillHeight(1)[Body];
   auto Controls=SNew(SHorizontalBox);
-  auto Button=[&](const FString& Label,TFunction<void()> Action){Controls->AddSlot().AutoWidth().Padding(0,0,12,0)[SNew(SButton).IsFocusable(false).ContentPadding(FMargin(14,8)).OnClicked_Lambda([Action]{Action();return FReply::Handled();})[SNew(SLocalizedTextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",18)).Text(FText::FromString(Label))]];};
+  auto Button=[&](const FString& Label,TFunction<void()> Action){Controls->AddSlot().AutoWidth().Padding(0,0,12,0)[SNew(SAudioButton).IsFocusable(false).ContentPadding(FMargin(14,8)).OnClicked_Lambda([Action]{Action();return FReply::Handled();})[SNew(SLocalizedTextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",18)).Text(FText::FromString(Label))]];};
   Button(TEXT("← 上一段"),[this]{PlayClip(FMath::Max(0,SelectedClip-1));});Button(TEXT("播放 / 暂停"),[this]{TogglePause();});Button(TEXT("下一段 →"),[this]{PlayClip(SelectedClip+1);});for(int Rate:{1,2,4})Button(FString::Printf(TEXT("%d×"),Rate),[this,Rate]{SetPlaybackRate(Rate);});Button(TEXT("跳过回看 · 总分"),[this]{ShowSummary();});
   Root->AddSlot().AutoHeight().Padding(0,12)[Controls];
   Root->AddSlot().AutoHeight()[ReviewText(TEXT("空格暂停 · 1/2/4切换倍速 · 左右键切换录像 · 按住画面临时2倍速，松开恢复1倍速"),17,FLinearColor(.65f,.72f,.8f))];
  }else{
   auto Scroll=SNew(SVerticalBox);TMap<FString,int32> Categories;for(const auto& C:L->Clips)for(const auto& M:C.ScoreMoments)Categories.FindOrAdd(M.Category)+=M.Points;
-  const TCHAR* CategoryNames[]={TEXT("长镜头"),TEXT("事件连续入镜"),TEXT("NPC首次入镜"),TEXT("NPC累计时长"),TEXT("NPC不同行为"),TEXT("不同事件种类"),TEXT("同类事件累计时长"),TEXT("不同区域"),TEXT("行人入镜扣分"),TEXT("警察入镜扣分"),TEXT("Logo入镜扣分")};
+  const TCHAR* CategoryNames[]={TEXT("长镜头"),TEXT("事件连续入镜"),TEXT("NPC首次入镜"),TEXT("NPC累计时长"),TEXT("NPC不同行为"),TEXT("死亡瞬间"),TEXT("不同事件种类"),TEXT("同类事件累计时长"),TEXT("不同区域"),TEXT("行人入镜扣分"),TEXT("警察入镜扣分"),TEXT("Logo入镜扣分")};
   for(const TCHAR* Category:CategoryNames)Scroll->AddSlot().AutoHeight().Padding(0,3)[ReviewText(FString::Printf(TEXT("%s：%+d 分"),Category,Categories.FindRef(Category)),22)];
   Scroll->AddSlot().AutoHeight().Padding(0,16)[ReviewText(TEXT("各档奖励逐档相加。事件时长分按Level 1/2/3乘1/2/3；新事件种类固定+5。NPC默认1倍。扣分与奖励同时结算，不把负分截成0。"),20,FLinearColor(.6f,.85f,.9f))];
   for(int32 I=0;I<L->Clips.Num();++I){const auto& C=L->Clips[I];
-   Scroll->AddSlot().AutoHeight().Padding(0,14)[SNew(SButton).IsFocusable(false).OnClicked_Lambda([this,I]{PlayClip(I);return FReply::Handled();})[ReviewText(FString::Printf(TEXT("录像 %02d · %02d:%02d · 得分 %+d · 点击重看"),I+1,int32(C.Seconds)/60,int32(C.Seconds)%60,C.Score),24)]];
+   Scroll->AddSlot().AutoHeight().Padding(0,14)[SNew(SAudioButton).IsFocusable(false).OnClicked_Lambda([this,I]{PlayClip(I);return FReply::Handled();})[ReviewText(FString::Printf(TEXT("录像 %02d · %02d:%02d · 得分 %+d · 点击重看"),I+1,int32(C.Seconds)/60,int32(C.Seconds)%60,C.Score),24)]];
    for(const auto& Evidence:C.RecordingEvidence)Scroll->AddSlot().AutoHeight().Padding(16,3)[ReviewText(Evidence,17,FLinearColor(.65f,.72f,.8f))];
    for(const auto& Detail:C.ScoreDetails)Scroll->AddSlot().AutoHeight().Padding(16,3)[ReviewText(Detail,19)];
   }
   if(L->Clips.IsEmpty())Scroll->AddSlot().AutoHeight().Padding(0,24)[ReviewText(TEXT("没有成功保存的录像，本局得分0。"),24)];
   Root->AddSlot().FillHeight(1)[SNew(SScrollBox)+SScrollBox::Slot()[Scroll]];
+  Root->AddSlot().AutoHeight().HAlign(HAlign_Right).Padding(0,12)
+   [SNew(SAudioButton).ContentPadding(FMargin(28,12)).OnClicked_Lambda([Weak=Library]{if(auto* Lib=Weak.Get())Lib->ReturnToTitle();return FReply::Handled();})
+    [SNew(SLocalizedTextBlock).Text(FText::FromString(TEXT("返回标题界面"))).Font(FCoreStyle::GetDefaultFontStyle("Regular",22))]];
  }
  ChildSlot[SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(FLinearColor(.01f,.017f,.026f,.98f)).Padding(20)
   [SNew(SScaleBox).Stretch(EStretch::ScaleToFit)[SNew(SBox).WidthOverride(1460).HeightOverride(820)[Root]]]];

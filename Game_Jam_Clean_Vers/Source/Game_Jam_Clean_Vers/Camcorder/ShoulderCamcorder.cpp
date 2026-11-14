@@ -1,4 +1,5 @@
 #include "ShoulderCamcorder.h"
+#include "Audio/GameAudio.h"
 #include "Audio/CharacterAudio.h"
 #include "RecordingLibrary.h"
 #include "Data/GlobalData.h"
@@ -6,6 +7,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "Data/DataTransmitter.h"
 #include "CamcorderVideoWriter.h"
+#include "CamcorderFrameReadback.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Camera/CameraComponent.h"
 #include "Components/BoxComponent.h"
@@ -103,9 +105,11 @@ void AShoulderCamcorder::BeginPlay()
     CameraMesh->TickAnimation(0.f,false);
     CameraMesh->RefreshBoneTransforms();
     MonitorTexture=NewObject<UTextureRenderTarget2D>(this);
-    MonitorTexture->RenderTargetFormat=RTF_RGBA8;
+    // JPEG and Slate expect display-encoded bytes, not linear-light RGB.
+    MonitorTexture->RenderTargetFormat=RTF_RGBA8_SRGB;
+    MonitorTexture->TargetGamma=2.2f;
     MonitorTexture->ClearColor=FLinearColor::Black;
-    MonitorTexture->InitAutoFormat(640,360);
+    MonitorTexture->InitAutoFormat(1,1); // No standby feed; allocate HD only when recording.
     MonitorTexture->UpdateResourceImmediate(true);
     Capture->TextureTarget=MonitorTexture; Capture->HiddenActors.Add(this);
     ScreenMaterial=DisplayScreen->CreateAndSetMaterialInstanceDynamic(0);
@@ -137,7 +141,7 @@ void AShoulderCamcorder::PickUp(APlayerController* Player)
     if(!bHeld && !bInBackpack && !CanInteract(Player)) return;
     bInBackpack=false; SetActorHiddenInGame(false);
     Body->SetSimulatePhysics(false); Body->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-    CharacterAudio::Attached(LoadObject<USoundBase>(nullptr,TEXT("/Game/Combat/Audio/Handling/Equip")),GetRootComponent(),ECharacterSound::Handling,.4f);
+    GameAudio::Handling(this,TEXT("CameraSwitch"));
     bLowering=false;LoweringTime=0;EquipProgress=0;LookProgress=0;AnimationClock=0;Holder=Player; bHeld=true; AimOffset=FRotator::ZeroRotator;
     SetHoldingHandsVisible(true);
     AimPivot->SetRelativeRotation(AimOffset);
@@ -307,7 +311,7 @@ void AShoulderCamcorder::UpdateScreen()
 {
     if(ScreenMaterial)
     {
-        ScreenMaterial->SetScalarParameterValue(TEXT("ScreenPower"),bPowered?1.f:0.f);
+        ScreenMaterial->SetScalarParameterValue(TEXT("ScreenPower"),bPowered && bRecording?1.f:0.f);
         ScreenMaterial->SetScalarParameterValue(TEXT("IsRecording"),bRecording?1.f:0.f);
         ScreenMaterial->SetScalarParameterValue(TEXT("1bar"),BatteryPercent>0?1.f:0.f);
         ScreenMaterial->SetScalarParameterValue(TEXT("2bar"),BatteryPercent>33?1.f:0.f);
@@ -334,6 +338,7 @@ void AShoulderCamcorder::ToggleSelfie()
 
     UpdateHeldPose(0);
     if(WantedSelfie && !bSelfie) return;
+    GameAudio::Handling(this,TEXT("CameraSwitch"));
     SetNotice(bSelfie?TEXT("自拍镜头：画面内目标按原规则计分；V 切回前拍"):TEXT("已切回前拍镜头"));
 }
 void AShoulderCamcorder::ToggleViewfinder() { SetViewfinderRaised(!bViewfinderRaised); }
@@ -343,8 +348,9 @@ void AShoulderCamcorder::SetViewfinderRaised(bool bRaised)
     if(bRaised && (!bHeld || bInBackpack || bLowering || !Holder || !bPowered || EquipProgress<1.f))
     { SetNotice(TEXT("请先装备并开启摄像机，再按右键举机取景")); return; }
     bViewfinderRaised=bRaised;
+    if(bRaised)GameAudio::Handling(this,TEXT("CameraRaise"));
     CameraMesh->SetVisibility(!bRaised); DisplayScreen->SetVisibility(!bRaised);
-    if(bRaised) { Holder->SetViewTargetWithBlend(this,.43f); SetNotice(TEXT("移动鼠标调整镜头，滚轮变焦；左键开始/停止录像，Esc 放下取景；Backspace 结束并结算")); }
+    if(bRaised) { Holder->SetViewTargetWithBlend(this,.43f); SetNotice(TEXT("移动鼠标调整镜头，滚轮变焦；左键开始/停止录像，Esc 放下取景")); }
     else
     {
         StopRecording();
@@ -393,8 +399,10 @@ bool AShoulderCamcorder::StartRecording()
     if(!IFileManager::Get().MakeDirectory(*Folder,true)) { SetNotice(TEXT("无法创建录像目录")); return false; }
     const FString Path=Folder/FString::Printf(TEXT("Camcorder_%s_%s.avi"),*FDateTime::Now().ToString(TEXT("%Y%m%d_%H%M%S")),*FGuid::NewGuid().ToString(EGuidFormats::Digits).Left(8));
     Writer=MakeUnique<FCamcorderVideoWriter>();
-    if(!Writer->Open(Path,640,360,15)) { Writer.Reset(); SetNotice(TEXT("录像文件创建失败，请检查磁盘空间")); return false; }
-    LastRecordingPath=Path; RecordingSeconds=0; LastScheduledFrame=-1; bCaptureReadFailed=false; bRecording=true;
+    if(!Writer->Open(Path,1280,720,15)) { Writer.Reset(); SetNotice(TEXT("录像文件创建失败，请检查磁盘空间")); return false; }
+    MonitorTexture->ResizeTarget(1280,720);
+    FrameReadback=MakeUnique<FCamcorderFrameReadback>();
+    LastRecordingPath=Path; CaptureClock=0; RecordingSeconds=0; LastScheduledFrame=-1; bCaptureReadFailed=false; bRecording=true;
     if(GetOwner())if(auto* Library=GetOwner()->FindComponentByClass<URecordingLibrary>())Library->BeginClip(this);
     Capture->CaptureScene(); SampleRecording();
     UpdateScreen();
@@ -405,11 +413,9 @@ void AShoulderCamcorder::SampleRecording()
     if(!Writer || !MonitorTexture) return;
     const int32 FrameIndex=FMath::FloorToInt(RecordingSeconds*15.f);
     if(FrameIndex<=LastScheduledFrame) return;
-    TArray<FColor> Pixels;
-    FReadSurfaceDataFlags Flags(RCM_UNorm); Flags.SetLinearToGamma(false);
-    if(!MonitorTexture->GameThread_GetRenderTargetResource()->ReadPixels(Pixels,Flags)) { bCaptureReadFailed=true; return; }
-    if(Writer->Enqueue(MoveTemp(Pixels),FrameIndex)) {
+    if(FrameReadback && FrameReadback->Schedule(MonitorTexture->GameThread_GetRenderTargetResource(),FrameIndex)) {
         LastScheduledFrame=FrameIndex;
+        // Score the captured pose now, not the later GPU completion pose.
         if(GetOwner())if(auto* Library=GetOwner()->FindComponentByClass<URecordingLibrary>())Library->Sample(this);
     }
 }
@@ -418,10 +424,13 @@ void AShoulderCamcorder::StopRecording()
     if(!bRecording || !Writer) return;
     // Include the final captured frame before committing exposure and finalizing the video.
     if(Capture){Capture->CaptureScene();SampleRecording();}
+    if(FrameReadback) { FrameReadback->Pump(*Writer,true); bCaptureReadFailed|=FrameReadback->HasFailed(); }
+    FrameReadback.Reset();
     bRecording=false;
     Writer->Finish(FMath::Max(1,FMath::CeilToInt(RecordingSeconds*15.f)));
     const bool bOK=!Writer->HasFailed() && Writer->GetFrameCount()>0 && !bCaptureReadFailed;
     Writer.Reset();
+    MonitorTexture->ResizeTarget(1,1);
     if(GetOwner())if(auto* Library=GetOwner()->FindComponentByClass<URecordingLibrary>())Library->FinishClip(this,bOK);
     UpdateScreen();
     if(bOK) { ++SavedClipCount; SetNotice(TEXT("录像已保存：Saved/Recordings/")+FPaths::GetCleanFilename(LastRecordingPath)); }
@@ -468,10 +477,16 @@ void AShoulderCamcorder::Tick(float DT)
         if(!IsValid(Holder) || !Holder->GetPawn()) PutDown(); else UpdateHeldPose(DT);
     }
     if(bRecording) RecordingSeconds+=DT;
-    CaptureClock+=DT;
-    if(bPowered && CaptureClock>=1.f/30.f)
+    if(bRecording && FrameReadback && Writer)
     {
-        CaptureClock=0; Capture->CaptureScene();
+        FrameReadback->Pump(*Writer);
+        bCaptureReadFailed|=FrameReadback->HasFailed();
+    }
+    // The viewfinder uses the main view; scene capture is exclusively for recording.
+    if(bRecording) CaptureClock+=DT;
+    if(bPowered && bRecording && CaptureClock>=1.f/15.f)
+    {
+        CaptureClock=FMath::Fmod(CaptureClock,1.f/15.f); Capture->CaptureScene();
         if(bRecording) SampleRecording();
     }
     if(bRecording && (bCaptureReadFailed || (Writer && Writer->HasFailed()))) StopRecording();
@@ -496,4 +511,16 @@ ACamcorderBattery::ACamcorderBattery()
     Detail(TEXT("BatteryLabel"),FVector(0,-50.5f,0),FVector(.8,.015,.7),FLinearColor(.16f,.2f,.22f));
     Detail(TEXT("HousingSeam"),FVector(0,0,35),FVector(1.01,1.01,.018),FLinearColor(.006f,.008f,.01f));
     for(int32 I=0;I<4;++I)Detail(*FString::Printf(TEXT("ChargeLED%d"),I),FVector(-27+I*18,-52,20),FVector(.11,.02,.05),FLinearColor(.1f,.8f,.3f));
+}
+
+void AShoulderCamcorder::DropOnDeath()
+{
+ if(!bHeld&&!bLowering)return;
+ auto* PC=Holder.Get();
+ const FVector Velocity=PC&&PC->GetPawn()?PC->GetPawn()->GetVelocity():FVector::ZeroVector;
+ const FVector Forward=PC?FRotator(0,PC->GetControlRotation().Yaw,0).Vector():GetActorForwardVector();
+ BeginLowering(false);FinishLowering();
+ Body->SetPhysicsLinearVelocity(Velocity+Forward*180.f+FVector(0,0,70));
+ Body->SetPhysicsAngularVelocityInDegrees(FVector(100,160,70));
+ Notice.Empty();
 }

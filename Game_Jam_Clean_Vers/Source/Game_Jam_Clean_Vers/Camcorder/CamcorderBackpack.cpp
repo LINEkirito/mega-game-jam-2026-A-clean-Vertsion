@@ -1,4 +1,5 @@
 #include "CamcorderEquipmentComponent.h"
+#include "Audio/AudioWidgets.h"
 #include "RecordingTabletComponent.h"
 #include "BackpackInventory.h"
 #include "InventoryItemPreview.h"
@@ -160,9 +161,10 @@ void UCamcorderEquipmentComponent::ShowAssignmentMenu(FName Id)
     if(!bBackpackOpen || !Inventory || Inventory->Count(Id)==0) return;
     SelectInventoryItem(Id);
     const TWeakObjectPtr<UCamcorderEquipmentComponent> Weak(this);
+    FSlateApplication::Get().PlaySound(GameAudio::UISound(TEXT("UI_Click")));
     FMenuBuilder Menu(true,nullptr);
     Menu.AddMenuEntry(GameLanguage::Text(TEXT("丢下")),GameLanguage::Text(TEXT("丢下此物品（弹药整组，电池一块）")),FSlateIcon(),
-        FUIAction(FExecuteAction::CreateLambda([Weak,Id]{if(auto* E=Weak.Get()) E->DropInventoryItem(Id);})));
+        FUIAction(FExecuteAction::CreateLambda([Weak,Id]{FSlateApplication::Get().PlaySound(GameAudio::UISound(TEXT("UI_Click")));if(auto* E=Weak.Get()) E->DropInventoryItem(Id);})));
     FSlateApplication::Get().PushMenu(BackpackHUD.ToSharedRef(),FWidgetPath(),Menu.MakeWidget(),
         FSlateApplication::Get().GetCursorPos(),FPopupTransitionEffect(FPopupTransitionEffect::ContextMenu));
 }
@@ -259,7 +261,7 @@ void UCamcorderEquipmentComponent::RefreshBackpack()
         [SNew(SBorder).Padding(0).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
          .BorderBackgroundColor_Lambda([Weak,Id]{auto* E=Weak.Get();return E && E->SelectedItem==Id?FLinearColor(.08f,.4f,.48f):FLinearColor(.06f,.09f,.13f);})
          .OnMouseButtonDown_Lambda([Weak,Id](const FGeometry&,const FPointerEvent& Event){if(Event.GetEffectingButton()==EKeys::RightMouseButton){if(auto* E=Weak.Get())E->ShowAssignmentMenu(Id);return FReply::Handled();}return FReply::Unhandled();})
-         [SNew(SButton).ButtonStyle(FCoreStyle::Get(),"NoBorder").ContentPadding(FMargin(16)).IsFocusable(false)
+         [SNew(SAudioButton).ButtonStyle(FCoreStyle::Get(),"NoBorder").ContentPadding(FMargin(16)).IsFocusable(false)
           .OnClicked_Lambda([Weak,Id]{if(auto* E=Weak.Get()) E->SelectInventoryItem(Id); return FReply::Handled();})
           [SNew(SLocalizedTextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",18)).WrapTextAt(230).Text_Lambda([Weak,Id]{auto* E=Weak.Get();return FText::FromString(E?FString::Printf(TEXT("%s  ×%d\n左键查看 · 右键丢下"),*E->ItemTitle(Id),E->Inventory->Count(Id)):TEXT(""));})]]];
     }
@@ -271,7 +273,7 @@ void UCamcorderEquipmentComponent::CreateBackpackHUD()
     const TWeakObjectPtr<UCamcorderEquipmentComponent> Weak(this);
     const auto Font=FCoreStyle::GetDefaultFontStyle("Regular",18);
     auto Label=[Font](const FString& Text){return SNew(SLocalizedTextBlock).Font(Font).Text(FText::FromString(Text));};
-    auto Button=[Label](const FString& Text,TFunction<void()> Action){return SNew(SButton).IsFocusable(false).ContentPadding(FMargin(16,10)).OnClicked_Lambda([Action]{Action();return FReply::Handled();})[Label(Text)];};
+    auto Button=[Label](const FString& Text,TFunction<void()> Action){return SNew(SAudioButton).IsFocusable(false).ContentPadding(FMargin(16,10)).OnClicked_Lambda([Action]{Action();return FReply::Handled();})[Label(Text)];};
     auto Bar=SNew(SHorizontalBox);
     auto Slots=SNew(SHorizontalBox);
     for(int32 I=0;I<UBackpackInventory::QuickSlotCount;++I)
@@ -279,7 +281,7 @@ void UCamcorderEquipmentComponent::CreateBackpackHUD()
         Bar->AddSlot().AutoWidth().Padding(3)[SNew(SBorder).Padding(10).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
             .BorderBackgroundColor_Lambda([Weak,I]{auto* E=Weak.Get();return E && E->Inventory->ActiveSlot==I?FLinearColor(.07f,.35f,.42f,.95f):FLinearColor(.02f,.03f,.05f,.95f);})
             [SNew(SLocalizedTextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",14)).WrapTextAt(270).Text_Lambda([Weak,I]{auto* E=Weak.Get();return FText::FromString(E?E->SlotTitle(I):TEXT(""));})]];
-        Slots->AddSlot().FillWidth(1).Padding(3)[SNew(SButton).IsFocusable(false).ContentPadding(8)
+        Slots->AddSlot().FillWidth(1).Padding(3)[SNew(SAudioButton).IsFocusable(false).ContentPadding(8)
             .OnClicked_Lambda([Weak,I]{if(auto* E=Weak.Get()) E->AssignQuickSlot(I);return FReply::Handled();})
             [SNew(SLocalizedTextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",14)).AutoWrapText(true).Text_Lambda([Weak,I]{auto* E=Weak.Get();return FText::FromString(E?E->SlotTitle(I):TEXT(""));})]];
     }

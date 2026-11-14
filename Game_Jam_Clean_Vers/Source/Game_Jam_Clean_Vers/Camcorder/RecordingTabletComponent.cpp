@@ -1,4 +1,5 @@
 #include "RecordingTabletComponent.h"
+#include "Audio/AudioWidgets.h"
 #include "RecordingLibrary.h"
 #include "RecordingTabletDisplay.h"
 #include "CamcorderEquipmentComponent.h"
@@ -98,9 +99,14 @@ void URecordingTabletComponent::UpdateFrame(){
  if(Frame==LastFrame||!VideoTexture||Playback.NumFrames()==0)return;
  TArray<uint8> Pixels;
  if(!Playback.ReadFrame(Frame,Pixels)){bPlaying=false;PlaybackStatus=TEXT("录像帧读取失败");return;}
+ if(VideoTexture->GetSizeX()!=Playback.GetWidth() || VideoTexture->GetSizeY()!=Playback.GetHeight()){
+  VideoTexture=UTexture2D::CreateTransient(Playback.GetWidth(),Playback.GetHeight(),PF_B8G8R8A8);
+  VideoTexture->SRGB=true;VideoTexture->UpdateResource();VideoBrush.SetResourceObject(VideoTexture);
+  VideoBrush.ImageSize=FVector2D(Playback.GetWidth(),Playback.GetHeight());
+ }
  auto* Bytes=new uint8[Pixels.Num()];FMemory::Memcpy(Bytes,Pixels.GetData(),Pixels.Num());
- auto* Region=new FUpdateTextureRegion2D(0,0,0,0,640,360);
- VideoTexture->UpdateTextureRegions(0,1,Region,640*4,4,Bytes,[](uint8* Data,const FUpdateTextureRegion2D* R){delete[] Data;delete R;});LastFrame=Frame;
+ auto* Region=new FUpdateTextureRegion2D(0,0,0,0,Playback.GetWidth(),Playback.GetHeight());
+ VideoTexture->UpdateTextureRegions(0,1,Region,Playback.GetWidth()*4,4,Bytes,[](uint8* Data,const FUpdateTextureRegion2D* R){delete[] Data;delete R;});LastFrame=Frame;
 }
 void URecordingTabletComponent::TickComponent(float DT,ELevelTick Type,FActorComponentTickFunction* Fn){
  Super::TickComponent(DT,Type,Fn);if(!bOpen)return;
@@ -117,7 +123,7 @@ void URecordingTabletComponent::BuildUI(){
  const auto Font=FCoreStyle::GetDefaultFontStyle("Regular",16),Small=FCoreStyle::GetDefaultFontStyle("Regular",13);
  auto List=SNew(SVerticalBox);
  for(int32 I=0;I<L->Clips.Num();++I){const auto& Clip=L->Clips[I];
-  List->AddSlot().AutoHeight().Padding(0,0,0,8)[SNew(SButton).OnClicked_Lambda([W,I]{if(auto* T=W.Get())T->SelectClip(I);return FReply::Handled();})
+  List->AddSlot().AutoHeight().Padding(0,0,0,8)[SNew(SAudioButton).OnClicked_Lambda([W,I]{if(auto* T=W.Get())T->SelectClip(I);return FReply::Handled();})
    [SNew(SVerticalBox)
     +SVerticalBox::Slot().AutoHeight()[SNew(SLocalizedTextBlock).Font(Font).ColorAndOpacity(I==SelectedClip?FLinearColor(.2f,.85f,1):FLinearColor::White).Text(FText::FromString(FString::Printf(TEXT("录像 %02d   %02d:%02d"),I+1,int32(Clip.Seconds)/60,int32(Clip.Seconds)%60)))]
     +SVerticalBox::Slot().AutoHeight().Padding(0,5)[SNew(SLocalizedTextBlock).Font(Small).Text(FText::FromString(FString::Printf(TEXT("评分 %d   ·   %d 人"),Clip.Score,Clip.People.Num())))]]];
@@ -130,9 +136,9 @@ void URecordingTabletComponent::BuildUI(){
 
  auto Detail=SNew(SVerticalBox);
  Detail->AddSlot().AutoHeight()[SNew(SBox).HeightOverride(345)[SNew(SScaleBox).Stretch(EStretch::ScaleToFit)[SNew(SBox).WidthOverride(640).HeightOverride(360)[SNew(SImage).Image(&VideoBrush).ColorAndOpacity_Lambda([W]{auto* T=W.Get();return T&&T->LastFrame>=0?FLinearColor::White:FLinearColor::Black;})]]]];
- Detail->AddSlot().AutoHeight().Padding(0,6)[SNew(SSlider).Value_Lambda([W]{auto* T=W.Get();return T?T->PlaybackSeconds/FMath::Max(.01f,T->Playback.NumFrames()/15.f):0.f;}).OnValueChanged_Lambda([W](float V){if(auto* T=W.Get())T->Seek(V);})];
+ Detail->AddSlot().AutoHeight().Padding(0,6)[SNew(SAudioSlider).Value_Lambda([W]{auto* T=W.Get();return T?T->PlaybackSeconds/FMath::Max(.01f,T->Playback.NumFrames()/15.f):0.f;}).OnValueChanged_Lambda([W](float V){if(auto* T=W.Get())T->Seek(V);})];
  auto Controls=SNew(SHorizontalBox);
- Controls->AddSlot().AutoWidth()[SNew(SButton).OnClicked_Lambda([W]{if(auto* T=W.Get())T->TogglePlayback();return FReply::Handled();})[SNew(SLocalizedTextBlock).Text_Lambda([W]{auto* T=W.Get();return FText::FromString(T&&T->bPlaying?TEXT("暂停"):TEXT("播放 / 重播"));})]];
+ Controls->AddSlot().AutoWidth()[SNew(SAudioButton).OnClicked_Lambda([W]{if(auto* T=W.Get())T->TogglePlayback();return FReply::Handled();})[SNew(SLocalizedTextBlock).Text_Lambda([W]{auto* T=W.Get();return FText::FromString(T&&T->bPlaying?TEXT("暂停"):TEXT("播放 / 重播"));})]];
  Controls->AddSlot().FillWidth(1).Padding(12,0)[SNew(SLocalizedTextBlock).Font(Small).Text_Lambda([W]{auto* T=W.Get();return T?FText::FromString(FString::Printf(TEXT("%s  %.1f / %.1f 秒"),*T->PlaybackStatus,T->PlaybackSeconds,T->Playback.NumFrames()/15.f)):FText::GetEmpty();})];
  Detail->AddSlot().AutoHeight()[Controls];
  Detail->AddSlot().AutoHeight().Padding(0,12,0,6)[SNew(SLocalizedTextBlock).Font(Font).ColorAndOpacity(FLinearColor(.35f,.9f,.72f)).Text(FText::FromString(Score))];
@@ -142,7 +148,7 @@ void URecordingTabletComponent::BuildUI(){
  Columns->AddSlot().FillWidth(1)[Detail];
  auto Header=SNew(SHorizontalBox);
  Header->AddSlot().FillWidth(1)[SNew(SLocalizedTextBlock).Font(FCoreStyle::GetDefaultFontStyle("Bold",23)).Text(FText::FromString(TEXT("现场影像  /  本次进场")))];
- Header->AddSlot().AutoWidth()[SNew(SButton).OnClicked_Lambda([W]{if(auto* T=W.Get())T->SetOpen(false);return FReply::Handled();})[SNew(SLocalizedTextBlock).Text(FText::FromString(TEXT("关闭  Esc")))]];
+ Header->AddSlot().AutoWidth()[SNew(SAudioButton).OnClicked_Lambda([W]{if(auto* T=W.Get())T->SetOpen(false);return FReply::Handled();})[SNew(SLocalizedTextBlock).Text(FText::FromString(TEXT("关闭  Esc")))]];
  auto Screen=SNew(SVerticalBox);
  Screen->AddSlot().AutoHeight()[Header];
  Screen->AddSlot().AutoHeight().Padding(0,10)[SNew(SLocalizedTextBlock).Font(Small).Text(FText::FromString(FString::Printf(TEXT("已保存 %d 段  ·  按策划案累计计分 · 事件 Level 1/2/3＝1/2/3 倍"),L->Clips.Num())))];

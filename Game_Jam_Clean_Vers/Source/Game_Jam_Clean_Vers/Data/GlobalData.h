@@ -6,11 +6,15 @@ UCLASS(Config=Game,DefaultConfig,BlueprintType)
 class GAME_JAM_CLEAN_VERS_API UGlobalData:public UObject {
  GENERATED_BODY()
 public:
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Extraction",meta=(ClampMin="1",Units="cm")) float ExtractionRadius=300.f;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Extraction",meta=(ClampMin="0.1",Units="s")) float ExtractionSeconds=15.f;
  // Maximum audible distance in cm, including the inner radius. Per-source state stays on audio components.
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Audio",meta=(ClampMin="100",Units="cm")) float VoiceAudibleDistance=1800.f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Audio",meta=(ClampMin="100",Units="cm")) float FootstepAudibleDistance=1000.f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Audio",meta=(ClampMin="100",Units="cm")) float HandlingAudibleDistance=800.f;
- UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Audio",meta=(ClampMin="100",Units="cm")) float GunshotAudibleDistance=4500.f;
+  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Audio",meta=(ClampMin="100",Units="cm")) float GunshotAudibleDistance=4500.f;
+  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Audio",meta=(ClampMin="1",ClampMax="100")) float PlayerGunshotPriority=50.f;
+  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Audio",meta=(ClampMin="1",ClampMax="16")) int32 PlayerGunshotMaxVoices=8;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Audio",meta=(ClampMin="100",Units="cm")) float ImpactAudibleDistance=1200.f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Events") bool bEnableStreetEvents=true;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Events",meta=(ClampMin="1")) float EventAttemptSeconds=18;
@@ -72,6 +76,7 @@ public:
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Weapon") float RecoilScale=.5f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Weapon") float SpreadScale=.5f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Weapon|ADS",meta=(ClampMin="0")) float RifleADSOpticClearance=10.f;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Weapon|ADS",meta=(ClampMin="0")) float ShotgunADSSightClearance=8.f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Weapon|LowLook",meta=(ClampMin="-85",ClampMax="0",Units="deg")) float PistolMinimumHoldPitch=-55.f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Weapon|LowLook",meta=(ClampMin="-85",ClampMax="0",Units="deg")) float ShotgunMinimumHoldPitch=-48.f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Weapon|LowLook",meta=(ClampMin="-85",ClampMax="0",Units="deg")) float RifleMinimumHoldPitch=-50.f;

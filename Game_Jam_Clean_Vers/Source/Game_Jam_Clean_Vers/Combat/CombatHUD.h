@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include "Localization/GameLanguage.h"
 #include "Widgets/SLeafWidget.h"
 #include "UObject/StrongObjectPtr.h"
@@ -55,14 +55,14 @@ public:
             if(SplatterTexture.IsValid())for(const FVector2D P:{FVector2D(-85*S,-80*S),FVector2D(W-150*S,-95*S),FVector2D(W-160*S,H-140*S)})
                 FSlateDrawElement::MakeBox(Out,L,G.ToPaintGeometry(FVector2D(260*S,260*S),FSlateLayoutTransform(P)),&SplatterBrush,ESlateDrawEffect::None,FLinearColor(1,1,1,BloodAlpha));
         }
+        if(C->Health<=0)return L+2;
         Text(25*S,18*S,FString::Printf(TEXT("HP %.0f / 100"),C->Health),18);Box(25*S,47*S,180*S,8*S,FLinearColor(.1f,.1f,.1f,.8f));Box(25*S,47*S,180*S*C->Health/100,8*S,C->Health<=30?FLinearColor(1,.15f,.1f):FLinearColor(.3f,.8f,.6f));
         // Reserve the empty strip below health; weapon, viewfinder and shortcut UI live elsewhere.
         Box(25*S,65*S,104*S,26*S,FLinearColor(.015f,.022f,.03f,.65f));
         Text(33*S,68*S,FrameRateText,14,FLinearColor(.75f,.85f,.85f));
-        Text(25*S,98*S,TEXT("L 语言"),14,FLinearColor(.75f,.85f,.85f));
-        if(C->Health<=0){Text(W*.5f-80*S,H*.45f,TEXT("你已死亡"),40,FLinearColor(1,.2f,.15f));return L+2;}
+        Text(25*S,98*S,TEXT("F10 设置 / 语言"),14,FLinearColor(.75f,.85f,.85f));
         if(E->Equipment->bBackpackOpen)return L+2;
-        const FString Prompt=E->InteractionText();if(!Prompt.IsEmpty())Text(W*.5f-120*S,H*.65f,Prompt,20,FLinearColor(.5f,1,1));
+        const FString Prompt=E->InteractionText();if(!Prompt.IsEmpty()){Box(W*.5f-235*S,H*.65f-8*S,470*S,45*S,FLinearColor(.015f,.025f,.03f,.94f));FSlateDrawElement::MakeText(Out,L+1,G.ToPaintGeometry(SZ,FSlateLayoutTransform(FVector2D(W*.5f-220*S,H*.65f))),Prompt,GameLanguage::FittedFont(Prompt,FMath::RoundToInt(20*S),440*S),ESlateDrawEffect::None,FLinearColor(.5f,1,1));}
         if(auto* Gun=E->ActiveWeapon.Get())
         {
             if(!E->bADS){const float Gap=10*S;Box(W*.5f-Gap-8*S,H*.5f,8*S,1.5f,FLinearColor::White);Box(W*.5f+Gap,H*.5f,8*S,1.5f,FLinearColor::White);Box(W*.5f,H*.5f-Gap-8*S,1.5f,8*S,FLinearColor::White);Box(W*.5f,H*.5f+Gap,1.5f,8*S,FLinearColor::White);}
@@ -81,7 +81,7 @@ public:
             else if(Gun->Kind==ETacticalWeaponKind::Shotgun)Text(X,145*S,TEXT("逐发装填 · 半自动"),15);
             Text(25*S,H-197*S,TEXT("左键 射击 · 右键切换 瞄准 · R 换弹"),17);
             Text(25*S,H-171*S,TEXT("Q 丢下 · B 收枪 · T 战术灯 · 滚轮 切装备"),16);
-            Text(25*S,H-145*S,TEXT("I 背包 · 1–4 快捷槽 · E/F 拾取"),16);
+            Text(25*S,H-145*S,TEXT("I 背包 · 1–4 快捷槽 · F 拾取"),16);
             Text(25*S,H-119*S,TEXT("Shift 切换跑步 · Ctrl 蹲起 · Space 跳跃"),16);
             if(E->bReloading){Box(W*.5f-90*S,H*.73f,180*S,5*S,FLinearColor(.1f,.1f,.1f,.8f));Box(W*.5f-90*S,H*.73f,180*S*E->ReloadProgress(),5*S,FLinearColor(.4f,.9f,1));}
             if(E->EquipRemaining>0)Text(W*.5f-70*S,H*.68f,TEXT("装备中…"),22);

@@ -1,5 +1,7 @@
-#include "Game_Jam_Clean_VersCharacter.h"
+﻿#include "Game_Jam_Clean_VersCharacter.h"
+#include "Frontend/GameFrontend.h"
 #include "Audio/CharacterAudio.h"
+#include "Audio/GameAudio.h"
 #include "Camcorder/ItemInteractionComponent.h"
 #include "Data/GlobalData.h"
 // Copyright Epic Games, Inc. All Rights Reserved.
@@ -78,8 +80,14 @@ FVector AGame_Jam_Clean_VersCharacter::BodyCameraOffset() const
     // Lean over the body when looking at the feet. This keeps shoulders and upper
     // arms outside the near view without cutting geometry or changing selfies.
     const float Lean=38.f*DeepLook*DeepLook*(3.f-2.f*DeepLook);
-    // Follow the crouched head; give the near view clearance from the elbows when looking down.
-    return FVector(22+Lean-20*CrouchViewAlpha*(1-LookingDown),0,72-12*CrouchViewAlpha+CrouchCameraOffset);
+    // The kneeling idle and crouch locomotion have different torso positions.
+    // Match the body's idle/walk blend: the moving shoulders rise and lean in
+    // front of the old kneeling eye, clipping every camera-relative equipment rig.
+    // Use a stable eye frame, not the animated head's per-step oscillation.
+    const float CrouchMove=FMath::Clamp(GetVelocity().Size2D()/60.f,0.f,1.f)*CrouchViewAlpha;
+    const float IdleForward=22+Lean-20*CrouchViewAlpha*(1-LookingDown);
+    return FVector(FMath::Lerp(IdleForward,FMath::Max(IdleForward,52.f),CrouchMove),
+        0,72-12*CrouchViewAlpha+20*CrouchMove+CrouchCameraOffset);
 }
 void AGame_Jam_Clean_VersCharacter::BeginPlay(){Super::BeginPlay();
 FirstPersonCameraComponent->AttachToComponent(GetCapsuleComponent(),FAttachmentTransformRules::KeepWorldTransform);FirstPersonCameraComponent->SetRelativeLocation(FVector(22,0,72));FirstPersonCameraComponent->SetRelativeRotation(FRotator::ZeroRotator);
@@ -114,6 +122,7 @@ LastFootstepLocation=GetActorLocation();GetCharacterMovement()->MaxWalkSpeed=360
 void AGame_Jam_Clean_VersCharacter::Tick(float DT)
 {
     Super::Tick(DT);
+    if(bDeathFalling){TickDeathFall(DT);return;}
     CrouchViewAlpha=FMath::FInterpTo(CrouchViewAlpha,bIsCrouched?1.f:0.f,DT,12.f);
     CrouchCameraOffset=FMath::FInterpTo(CrouchCameraOffset,0.f,DT,10.f);
     FirstPersonCameraComponent->SetRelativeLocation(BodyCameraOffset());
@@ -160,7 +169,7 @@ float AGame_Jam_Clean_VersCharacter::TakeDamage(float D,const FDamageEvent&,ACon
     const float Now=GetWorld()->GetTimeSeconds();if(D<=0||Health<=0||Now<ProtectionUntil)return 0;
     const float Applied=FMath::Min(Health,D);Health-=Applied;ProtectionUntil=Health>0?Now+GetDefault<UGlobalData>()->DamageProtectionSeconds:-1;DamageFlash=1.2f;
     if(auto* Bus=GetWorld()->GetSubsystem<UDataTransmitter>()) Bus->NotifyChange(this,TEXT("Health"),Health);
-    if(HurtSound)CharacterAudio::Attached(HurtSound,GetRootComponent(),ECharacterSound::Voice,.6f);
+    if(Health>0)GameAudio::PlayerHurt(this);
     if(Health<=0){GetCharacterMovement()->DisableMovement();if(auto* PC=Cast<APlayerController>(GetController())){if(auto* E=PC->FindComponentByClass<UCamcorderEquipmentComponent>()){E->SetBackpackOpen(false);if(E->Camcorder){E->Camcorder->SetViewfinderRaised(false);E->Camcorder->StopRecording();}}}}
     return Applied;
 }
@@ -213,13 +222,14 @@ void AGame_Jam_Clean_VersCharacter::DoAim(float Yaw, float Pitch)
 	if (GetController())
 	{
 		// pass the rotation inputs
-		AddControllerYawInput(Yaw);
+		const float Sensitivity=GameFrontend::Sensitivity();
+		AddControllerYawInput(Yaw*Sensitivity);
 		const auto* PC=Cast<APlayerController>(GetController());
 		const auto* Equipment=PC?PC->FindComponentByClass<UCamcorderEquipmentComponent>():nullptr;
 		const bool Selfie=Equipment&&Equipment->Camcorder&&Equipment->Camcorder->bSelfie;
 		// The reverse lens pitches opposite to its orbit. Compensate only here,
 		// so mouse-up still looks up, just like the forward camera.
-		AddControllerPitchInput(Selfie?-Pitch:Pitch);
+		AddControllerPitchInput((Selfie?-Pitch:Pitch)*Sensitivity);
 	}
 }
 
@@ -245,4 +255,47 @@ void AGame_Jam_Clean_VersCharacter::DoJumpEnd()
 {
 	// pass StopJumping to the character
 	StopJumping();
+}
+
+void AGame_Jam_Clean_VersCharacter::BeginDeathFall()
+{
+    if(bDeathFalling)return;
+    bDeathFalling=true;bSprintRequested=false;bSprinting=false;
+    GameAudio::PlayerDeath(this);
+    GetCharacterMovement()->StopMovementImmediately();GetCharacterMovement()->DisableMovement();
+    DeathEyeStart=FirstPersonCameraComponent->GetComponentLocation();
+    DeathEyeRotation=FirstPersonCameraComponent->GetComponentQuat();
+    FirstPersonCameraComponent->bUsePawnControlRotation=false;
+    FirstPersonCameraComponent->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
+    // Keep the eye above the floor, including crouched deaths and sloping ground.
+    FCollisionQueryParams Query(SCENE_QUERY_STAT(PlayerDeathFloor),false,this);FHitResult Floor;
+    const FVector Base=GetActorLocation();
+    DeathEyeEnd=FVector(DeathEyeStart.X,DeathEyeStart.Y,Base.Z-GetCapsuleComponent()->GetScaledCapsuleHalfHeight()+18.f);
+    if(GetWorld()->LineTraceSingleByChannel(Floor,Base,Base-FVector(0,0,300),ECC_Visibility,Query))DeathEyeEnd.Z=Floor.ImpactPoint.Z+18.f;
+    // Reuse the mannequin physics asset for a complete collapse, not its short hit reactions.
+    // Keep the owner's headless body and shoulder cutouts out of the falling first-person view.
+    TArray<UMeshComponent*> Meshes;GetComponents(Meshes);
+    for(auto* BodyPart:Meshes)BodyPart->SetOwnerNoSee(true);
+    GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    GetMesh()->SetCollisionProfileName(TEXT("Ragdoll"));
+    GetMesh()->SetSimulatePhysics(true);
+    GetMesh()->WakeAllRigidBodies();
+    GetMesh()->AddImpulse(-GetActorForwardVector()*100.f,TEXT("pelvis"),true);
+    FirstPersonMesh->PrimaryComponentTick.TickGroup=TG_PostPhysics;
+}
+void AGame_Jam_Clean_VersCharacter::TickDeathFall(float DT)
+{
+    DamageFlash=FMath::Max(0.f,DamageFlash-DT);
+    DeathFallTime+=DT;
+    const bool Settled=GetMesh()->GetPhysicsLinearVelocity(TEXT("pelvis")).Size()<25.f;
+    DeathSettleTime=Settled?DeathSettleTime+DT:0.f;
+    // A bounded fallback also handles deaths above a ledge without trapping the player.
+    bDeathFallComplete|=DeathFallTime>=DeathFallDuration&&(DeathSettleTime>=.18f||DeathFallTime>=2.75f);
+    const float T=FMath::Clamp(DeathFallTime/FMath::Max(.01f,DeathFallDuration),0.f,1.f);
+    const float Ease=T*T*(3.f-2.f*T);
+    FVector Eye=FMath::Lerp(DeathEyeStart,DeathEyeEnd,Ease);
+    FCollisionQueryParams Query(SCENE_QUERY_STAT(PlayerDeathEye),false,this);FHitResult Hit;
+    if(GetWorld()->SweepSingleByChannel(Hit,FirstPersonCameraComponent->GetComponentLocation(),Eye,FQuat::Identity,ECC_Camera,FCollisionShape::MakeSphere(8.f),Query)&&!Hit.bStartPenetrating)Eye=Hit.Location;
+    const FQuat EndRotation=FRotator(8.f,DeathEyeRotation.Rotator().Yaw,68.f).Quaternion();
+    FirstPersonCameraComponent->SetWorldLocationAndRotation(Eye,FQuat::Slerp(DeathEyeRotation,EndRotation,Ease));
 }

@@ -7,13 +7,28 @@
 #include "Engine/SkeletalMesh.h"
 #include "Rendering/SkeletalMeshRenderData.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/CapsuleComponent.h"
 #include "GameFramework/PlayerController.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "Game_Jam_Clean_VersCharacter.h"
 #include "CombatEquipmentComponent.h"
 #include "TacticalWeapon.h"
 #include "Camcorder/CamcorderEquipmentComponent.h"
 #include "Camcorder/BackpackInventory.h"
 
+DEFINE_LATENT_AUTOMATION_COMMAND_ONE_PARAMETER(FPrepareFullBodyCheck, FAutomationTestBase*, Test);
+bool FPrepareFullBodyCheck::Update()
+{
+    UWorld* World=nullptr;for(const auto& C:GEngine->GetWorldContexts())if(C.WorldType==EWorldType::PIE){World=C.World();break;}
+    auto* PC=World?World->GetFirstPlayerController():nullptr;
+    auto* Player=PC?Cast<AGame_Jam_Clean_VersCharacter>(PC->GetPawn()):nullptr;
+    if(!Player){Test->AddError(TEXT("No player for pose fixture"));return true;}
+    Player->DisableInput(PC);PC->SetIgnoreMoveInput(true);PC->SetIgnoreLookInput(true);
+    Player->GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Pawn,ECR_Ignore);
+    Player->GetCharacterMovement()->StopMovementImmediately();Player->UnCrouch();Player->Health=1000000.f;
+    PC->SetControlRotation(FRotator(0,Player->GetActorRotation().Yaw,0));
+    return true;
+}
 DEFINE_LATENT_AUTOMATION_COMMAND_ONE_PARAMETER(FPlayerFullBodyCheck, FAutomationTestBase*, Test);
 bool FPlayerFullBodyCheck::Update()
 {
@@ -22,6 +37,7 @@ bool FPlayerFullBodyCheck::Update()
     auto* PC=World?World->GetFirstPlayerController():nullptr;
     auto* Player=PC?Cast<AGame_Jam_Clean_VersCharacter>(PC->GetPawn()):nullptr;
     if(!Player){Test->AddError(TEXT("No player in PIE"));return true;}
+    Test->AddInfo(FString::Printf(TEXT("Pose fixture velocity %s crouched %d eye %s"),*Player->GetVelocity().ToString(),Player->bIsCrouched,*Player->GetActorLocation().ToString()));
     auto* Mesh=Player->GetFirstPersonMesh();
     auto* Template=LoadObject<USkeletalMesh>(nullptr,TEXT("/Game/KINEMATION/TacticalShooterPack/Character/Operator/UE5/SKM_Operator_Mono"));
     auto* Asset=Mesh->GetSkeletalMeshAsset();
@@ -68,7 +84,7 @@ bool FPlayerFullBodyCheck::Update()
     {
         auto* Gun=Entry.Value.Get();Combat->ActiveWeapon=Gun;Gun->Equip(Player);Gun->AdvanceHandling(5.f);
         for(bool ADS:{false,true})
-        for(float Pitch:{-85.f,-70.f,-65.f,-45.f,-25.f,0.f,65.f,85.f})
+        for(float Pitch:{-85.f,-70.f,-65.f,-45.f,-25.f,0.f,65.f,75.f,80.f,85.f})
         {
             // This synchronous sweep does not tick the pawn's yaw-follow logic.
             // Keep view yaw aligned with its current body, even on rotated spawns.
@@ -148,6 +164,6 @@ public:
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlayerFullBodyTest,"Game.Characters.PlayerFullBody",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
 bool FPlayerFullBodyTest::RunTest(const FString&)
 {
-    AddCommand(new FStartPIECommand(false));AddCommand(new FWaitLatentCommand(2));AddCommand(new FPlayerFullBodyCheck(this));AddCommand(new FPlayerCrouchBodyCheck(this));AddCommand(new FEndPlayMapCommand());return true;
+    AddCommand(new FStartPIECommand(false));AddCommand(new FWaitLatentCommand(2));AddCommand(new FPrepareFullBodyCheck(this));AddCommand(new FWaitLatentCommand(1));AddCommand(new FPlayerFullBodyCheck(this));AddCommand(new FPlayerCrouchBodyCheck(this));AddCommand(new FEndPlayMapCommand());return true;
 }
 #endif

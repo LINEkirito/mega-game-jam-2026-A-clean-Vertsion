@@ -20,6 +20,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "Engine/StaticMesh.h"
 #include "Sound/SoundBase.h"
+#include "Sound/SoundConcurrency.h"
 #include "NiagaraFunctionLibrary.h"
 #include "NiagaraSystem.h"
 #include "Components/SceneCaptureComponent2D.h"
@@ -122,6 +123,8 @@ void ATacticalWeapon::SetBasePose()
 }
 void ATacticalWeapon::Equip(AGame_Jam_Clean_VersCharacter* C)
 {
+    // Warm all randomized shot variants during the draw, before the first shot.
+    if(C)UGameplayStatics::PrimeSound(Sounds.FindRef(Kind==ETacticalWeaponKind::Pistol?TEXT("PistolFire"):Kind==ETacticalWeaponKind::Rifle?TEXT("RifleFire"):TEXT("ShotgunFire")));
     if(!C)return;Holder=C;C->GetFirstPersonMesh()->SetAbsolute(false,false,false);bOriginalVisible=C->GetFirstPersonMesh()->IsVisible();C->GetFirstPersonMesh()->SetVisibility(true,false);Body->SetSimulatePhysics(false);Body->SetCollisionEnabled(ECollisionEnabled::NoCollision);SetActorHiddenInGame(false);bEquipped=true;C->GetFirstPersonMesh()->PrimaryComponentTick.TickGroup=TG_PostUpdateWork;C->GetFirstPersonMesh()->AddTickPrerequisiteActor(this);if(auto* Controller=C->GetController())if(auto* Equipment=Controller->FindComponentByClass<UCombatEquipmentComponent>())C->GetFirstPersonMesh()->AddTickPrerequisiteComponent(Equipment);RenderArms->SetVisibility(false);Label->SetVisibility(false);SetBasePose();BeginHandling(EWeaponHandling::Equip,bPackPresentation?1.4f:.5f);Sound(TEXT("Equip"),.45f);
 }
 void ATacticalWeapon::CancelHandling()
@@ -150,7 +153,41 @@ bool ATacticalWeapon::StartReload(UBackpackInventory* Inventory)
     BeginHandling(Kind==ETacticalWeaponKind::Shotgun?EWeaponHandling::ShellStart:EWeaponHandling::MagazineReload,Kind==ETacticalWeaponKind::Shotgun?(bPackEmptyReload?2.666667f:.666667f):Spec().Reload);Sound(TEXT("Cloth"),.3f);return true;
 }
 void ATacticalWeapon::RequestReloadEnd(){if(Handling==EWeaponHandling::ShellInsert||Handling==EWeaponHandling::ShellStart)bReloadEnd=true;}
-void ATacticalWeapon::Sound(FName Name,float Volume){if(bPackPresentation&&!bNPCEquipped&&(Name.ToString().Contains(TEXT("MagIn"))||Name.ToString().Contains(TEXT("MagOut"))||Name.ToString().Contains(TEXT("Charge"))||Name==TEXT("ShotgunShell")))return;if(auto* S=Sounds.FindRef(Name).Get())CharacterAudio::Attached(S,WeaponVisual,Name.ToString().EndsWith(TEXT("Fire"))?ECharacterSound::Gunshot:ECharacterSound::Handling,Volume);}
+void ATacticalWeapon::Sound(FName Name,float Volume)
+{
+    const FString Key=Name.ToString();
+    if(bPackPresentation&&!bNPCEquipped&&(Key.Contains(TEXT("MagIn"))||Key.Contains(TEXT("MagOut"))||Key.Contains(TEXT("Charge"))||Name==TEXT("ShotgunShell")))return;
+    auto* S=Sounds.FindRef(Name).Get();if(!S)return;
+    const bool Gunshot=Key.EndsWith(TEXT("Fire"));
+    if(Gunshot&&bEquipped&&!bNPCEquipped)
+    {
+        // Set priority BEFORE Play: with the default 32 voices, ordinary NPC
+        // sounds could otherwise evict the player's shot on its first update.
+        // Keep volume and distance attenuation independent of voice allocation.
+        auto* Audio=NewObject<UAudioComponent>(this);
+        Audio->bAutoActivate=false;Audio->bAutoDestroy=true;
+        Audio->bStopWhenOwnerDestroyed=true;
+        Audio->bAllowSpatialization=true;Audio->bOverrideAttenuation=true;
+        Audio->AttenuationOverrides=CharacterAudio::Settings(ECharacterSound::Gunshot);
+        Audio->bOverridePriority=true;
+        Audio->Priority=FMath::Clamp(GetDefault<UGlobalData>()->PlayerGunshotPriority,1.f,100.f);
+        if(!PlayerFireConcurrency)
+        {
+            PlayerFireConcurrency=NewObject<USoundConcurrency>(this);
+            auto& Settings=PlayerFireConcurrency->Concurrency;
+            Settings.MaxCount=FMath::Clamp(GetDefault<UGlobalData>()->PlayerGunshotMaxVoices,1,16);
+            Settings.bLimitToOwner=true;
+            Settings.ResolutionRule=EMaxConcurrentResolutionRule::StopOldest;
+            Settings.VoiceStealReleaseTime=.03f;
+        }
+        // Long shot tails must not fill the whole mixer during automatic fire.
+        // Fade the oldest tail, never reject a newly fired round.
+        Audio->ConcurrencySet.Add(PlayerFireConcurrency);
+        Audio->SetupAttachment(WeaponVisual);Audio->SetSound(S);
+        Audio->SetVolumeMultiplier(Volume);Audio->RegisterComponent();Audio->Play();
+    }
+    else CharacterAudio::Attached(S,WeaponVisual,Gunshot?ECharacterSound::Gunshot:ECharacterSound::Handling,Volume);
+}
 void ATacticalWeapon::EventAt(float Old,float Now,float At,int32 Bit,TFunctionRef<void()> Event){if(!(HandlingEvents&(1u<<Bit))&&Now>=At){HandlingEvents|=1u<<Bit;Event();}}
 void ATacticalWeapon::DropMagazine()
 {

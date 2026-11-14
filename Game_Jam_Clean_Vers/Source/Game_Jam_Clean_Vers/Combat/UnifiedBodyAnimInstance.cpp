@@ -29,11 +29,12 @@ struct FProxy : FAnimInstanceProxy
     FTransform Wrists[2];
     FTransform MeshWorld;
     bool Active=false;
+    bool Dead=false;
     bool ApplyHand[2]={false,false};
     float Time=0;
     float LowAimAlpha=0;
     bool Pistol=false;
-    bool StableWeaponAim=false;
+    bool SupportWristTargets=false;
     float CrouchAlpha=0,CrouchPhase=0,CrouchMoveAlpha=0,CrouchDirectionAlpha=0;
     TWeakObjectPtr<UAnimSequence> CrouchIdle,CrouchMoveA,CrouchMoveB;
     FVector BodyRight,BodyForward;
@@ -53,7 +54,8 @@ struct FProxy : FAnimInstanceProxy
             const auto& Local=Body->GetBoneSpaceTransforms();
             for(int32 B=0;B<Local.Num();++B)BodyLocalPose.Add(Body->GetBoneName(B),Local[B]);
         }
-        if(!PC)return;
+        Dead=Character&&Character->HasDeathFallStarted();
+        if(Dead||!PC)return;
         MeshWorld=Instance->GetSkelMeshComponent()->GetComponentTransform();
         BodyRight=MeshWorld.InverseTransformVectorNoScale(Character->GetActorRightVector());
         BodyForward=MeshWorld.InverseTransformVectorNoScale(Character->GetActorForwardVector());
@@ -61,8 +63,11 @@ struct FProxy : FAnimInstanceProxy
         auto* Combat=PC->FindComponentByClass<UCombatEquipmentComponent>();
         auto* Gun=Combat?Combat->GetPresentationWeapon():nullptr;
         Pistol=Gun&&Gun->Kind==ETacticalWeaponKind::Pistol;
-        StableWeaponAim=Gun&&Gun->HasStableADSPose();
         CrouchAlpha=FMath::FInterpTo(CrouchAlpha,Character->bIsCrouched?1.f:0.f,DT,12.f);
+        // Crouch locomotion lifts and advances the eye-relative equipment frame.
+        // Support both wrists with the torso/clavicles for cameras as well as
+        // guns, rather than letting the two-bone arm solver stop short of them.
+        SupportWristTargets=(Gun&&Gun->HasStableADSPose())||CrouchAlpha>.001f;
         if(CrouchAlpha>.001f)
         {
             auto* BodyInstance=CastChecked<UUnifiedBodyAnimInstance>(Instance);
@@ -145,6 +150,7 @@ struct FProxy : FAnimInstanceProxy
         const auto& Ref=Bones.GetReferenceSkeleton();
         for(FCompactPoseBoneIndex B:Output.Pose.ForEachBoneIndex())
             if(const auto* Local=BodyLocalPose.Find(Ref.GetBoneName(Bones.MakeMeshPoseIndex(B).GetInt())))Output.Pose[B]=*Local;
+        if(Dead)return true;
         if(CrouchAlpha>.001f && CrouchIdle.IsValid() && CrouchMoveA.IsValid() && CrouchMoveB.IsValid())
         {
             FPoseContext Idle(Output),MoveA(Output),MoveB(Output);
@@ -233,7 +239,7 @@ struct FProxy : FAnimInstanceProxy
                 if(!TowardLens.IsNearlyZero())SetRotation(Head,FQuat::FindBetweenNormals(Forward,TowardLens)*HeadPose.GetRotation());
             }
         }
-        if(StableWeaponAim)
+        if(SupportWristTargets)
         {
             // Let the torso support the stationary ADS rig instead of pulling
             // the gun into the eye. CCD over the spine preserves all bone lengths
@@ -271,7 +277,7 @@ struct FProxy : FAnimInstanceProxy
             const auto Lower=Index(Side==0?TEXT("lowerarm_l"):TEXT("lowerarm_r"));
             const auto Hand=Index(Side==0?TEXT("hand_l"):TEXT("hand_r"));
             if(Upper.GetInt()<0||Lower.GetInt()<0||Hand.GetInt()<0)continue;
-            if(StableWeaponAim)
+            if(SupportWristTargets)
             {
                 // Raising the rifle can also need the shoulder girdle. Rotate
                 // the clavicle only enough to restore reach, without stretching.

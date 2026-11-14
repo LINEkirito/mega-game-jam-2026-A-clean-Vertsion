@@ -21,13 +21,25 @@ FQuat FCharacterSecondaryMotion::ConstrainSwing(const FVector& Origin,const FVec
  };
  // Calibrate contact against the whole authored segment, not just its tip.
  // This preserves intentional roots touching skin without disabling mid-strand contact.
- TArray<float,TInlineAllocator<24>> Radii;
- for(const auto& C:Colliders)Radii.Add(FMath::Min(C.Radius,FMath::Max(0.f,Distance(Origin+Rest,C)-.2f)));
+ // Every point of the rotating strand travels at most this chord length
+ // along the shortest quaternion arc. Distance to a capsule segment cannot
+ // shrink by more than that, so distant colliders cannot affect any sweep step.
+ const double Angle=Swing.AngularDistance(FQuat::Identity);
+ const double MaxTravel=2.0*Rest.Size()*FMath::Sin(Angle*.5)+.001;
+ struct FCandidate { int32 Index; float Radius; };
+ TArray<FCandidate,TInlineAllocator<24>> Candidates;
+ for(int32 I=0;I<Colliders.Num();++I)
+ {
+  const double RestDistance=Distance(Origin+Rest,Colliders[I]);
+  const float Radius=FMath::Min(Colliders[I].Radius,FMath::Max(0.f,RestDistance-.2f));
+  if(Radius>0&&RestDistance-MaxTravel<=Radius)Candidates.Add({I,Radius});
+ }
+ if(Candidates.IsEmpty())return Swing;
  auto Clear=[&](float Alpha)
  {
   const FVector Tip=Origin+FQuat::Slerp(FQuat::Identity,Swing,Alpha).RotateVector(Rest);
-  for(int32 I=0;I<Colliders.Num();++I)
-   if(Radii[I]>0&&Distance(Tip,Colliders[I])<Radii[I])return false;
+  for(const auto& C:Candidates)
+   if(Distance(Tip,Colliders[C.Index])<C.Radius)return false;
   return true;
  };
  // Walk the angular path as well as checking its endpoint: a fast turn must not

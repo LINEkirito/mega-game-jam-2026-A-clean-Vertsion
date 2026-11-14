@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "RecordingScoreRules.h"
@@ -55,17 +55,23 @@ public:
  UPROPERTY(VisibleAnywhere,BlueprintReadOnly) TArray<FRecordedClip> Clips;
  UPROPERTY(VisibleAnywhere,BlueprintReadOnly) bool bRoundEnded=false;
  UPROPERTY(VisibleAnywhere,BlueprintReadOnly) bool bEndedByDeath=false;
- UPROPERTY(VisibleAnywhere,BlueprintReadOnly) int32 RoundScore=0;
+ UPROPERTY(VisibleAnywhere,BlueprintReadOnly) float RoundScore=0;
  UPROPERTY(VisibleAnywhere,BlueprintReadOnly) FString RoundRecordPath;
  UFUNCTION(BlueprintCallable) void EndRound(bool bDeath=false);
+ void ReturnToTitle();
  void BeginClip(AShoulderCamcorder* Camera);
  void Sample(AShoulderCamcorder* Camera);
  void FinishClip(AShoulderCamcorder* Camera,bool bSaved);
 private:
  friend class FRecordingSettlementCheck;
+ friend class FDeathPresentationCheck;
  TWeakObjectPtr<AShoulderCamcorder> RecordingCamera;
  FRecordedClip Pending;
  FRecordingScoreRules Scoring;
  TMap<TWeakObjectPtr<AActor>,int32> SubjectNumbers;
  TSharedPtr<class SWidget> SettlementUI;
+ TSharedPtr<class SWidget> DeathUI;
+ float DeathMessageTime=0;
+ bool bSettlementShown=false,bReturningToTitle=false;
+ void ShowSettlement();
 };

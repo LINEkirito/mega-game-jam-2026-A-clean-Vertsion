@@ -1,4 +1,5 @@
 #include "PatrolEnemy.h"
+#include "Audio/GameAudio.h"
 #include "Audio/CharacterAudio.h"
 #include "WorldEvents.h"
 #include "Data/GlobalData.h"
@@ -274,6 +275,7 @@ float APatrolEnemy::TakeDamage(float Damage,const FDamageEvent&,AController* Eve
   }
  }
  const float Applied=FMath::Min(Damage,Health);Health-=Applied;
+ if(Health>0&&AudioHurtCooldown<=0){CharacterAudio::Attached(GameAudio::Sound(TEXT("NPC_Hurt")),GetRootComponent(),ECharacterSound::Voice,.55f);AudioHurtCooldown=.65f;}
  if(Health<=0){AssaultTarget.Reset();RetaliationTarget.Reset();ReleasePartner();CombatTarget=nullptr;SetActivity(ENPCActivity::Dead);Speech->SetVisibility(false);Voice->Stop();if(auto* AI=Cast<AAIController>(GetController()))AI->StopMovement();GetCharacterMovement()->DisableMovement();GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);DropDeathAmmo();NPCBody->SetVisibility(false);GetMesh()->SetVisibility(true);if(HeldWeapon){HeldWeapon->CancelHandling();HeldWeapon->SetActorHiddenInGame(true);}GetMesh()->SetCollisionProfileName(TEXT("Ragdoll"));GetMesh()->SetSimulatePhysics(true);Rifle->SetVisibility(false);SetLifeSpan(30);}
  else if(NPCRole!=ENPCRole::Injured&&Health<=GetDefault<UGlobalData>()->NPCInjuryHealth)BecomeInjured();
  else if(IsGang()&&Attacker){
@@ -653,6 +655,20 @@ void APatrolEnemy::SetMotion()
 void APatrolEnemy::Tick(float DT)
 {
  Super::Tick(DT);if(Health<=0)return;TurnDelta=0;StateTime+=DT;DecisionTime-=DT;MoveRetry-=DT;MoveTimeout-=DT;ShotTime-=DT;SocialCooldown-=DT;SpeechTime-=DT;CivilianResponseCooldown-=DT;
+ AudioHurtCooldown=FMath::Max(0.f,AudioHurtCooldown-DT);
+ const FVector AudioPosition=GetActorLocation();
+ const float Travel=bAudioPositionReady?FVector::Dist2D(AudioPosition,AudioLastPosition):0.f;
+ AudioLastPosition=AudioPosition;bAudioPositionReady=true;
+ if(GetCharacterMovement()->IsMovingOnGround()&&GetVelocity().Size2D()>20.f&&Travel<150.f)
+ {
+  AudioFootstepDistance+=Travel;
+  const float Stride=GetVelocity().Size2D()>300.f?185.f:135.f;
+  if(AudioFootstepDistance>=Stride)
+  {
+   AudioFootstepDistance=FMath::Fmod(AudioFootstepDistance,Stride);
+   CharacterAudio::At(this,GameAudio::Sound(*FString::Printf(TEXT("NPC_Footstep%d"),1+AudioFootstepIndex++%4)),AudioPosition-FVector(0,0,85),ECharacterSound::Footstep,.5f,FMath::FRandRange(.96f,1.04f));
+  }
+ }else AudioFootstepDistance=0;
  TickWeaponCarry(DT);
  if(SpeechTime<=0)Speech->SetVisibility(false);
  if(HeldWeapon){
@@ -665,6 +681,7 @@ void APatrolEnemy::Tick(float DT)
  }
  if(auto* P=UGameplayStatics::GetPlayerPawn(this,0))Speech->SetWorldRotation((P->GetActorLocation()-Speech->GetComponentLocation()).Rotation());
  if(NPCRole==ENPCRole::Injured){if(StateTime>7){StateTime=0;Say(TEXT("HELP!"),HelpSound);}SetMotion();UpdateWeaponPose(DT);return;}
+ if(TickExtractionResponse(DT)){TickWeaponCarry(0);SetMotion();UpdateWeaponPose(DT);return;}
  if(TickGangAttackObservation(DT)){SetMotion();UpdateWeaponPose(DT);return;}
  if(IsGang() && !bAimWarning && CombatTarget!=UGameplayStatics::GetPlayerPawn(this,0) && IsPlayerAimingAtMe())
  {

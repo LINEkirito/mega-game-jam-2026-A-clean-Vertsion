@@ -5,6 +5,7 @@
 #include "Tests/AutomationEditorCommon.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
+#include "Engine/TextureRenderTarget2D.h"
 #include "Engine/GameViewportClient.h"
 #include "Widgets/SWindow.h"
 #include "Framework/Docking/TabManager.h"
@@ -99,14 +100,17 @@ bool FEquipmentIntegration::RunTest(const FString&)
  TWeakObjectPtr<UCamcorderEquipmentComponent> Weak(E);TWeakObjectPtr<APlayerController> WP(PC);
  auto Key=[WP](FKey K,EInputEvent V){if(auto* P=WP.Get())P->InputKey(FInputKeyEventArgs::CreateSimulated(K,V,V==IE_Pressed?1.f:0.f));};
  auto Step=[this](TFunction<void()> F){AddCommand(new FEquipmentStep(MoveTemp(F)));};auto Wait=[this,W](float S){AddCommand(new FEquipmentGameWait(W,S));};
+ TestEqual(TEXT("Standby has no preview-sized render target"),E->Camcorder->MonitorTexture->SizeX,1);
+ TestFalse(TEXT("Standby capture is not automatic"),E->Camcorder->Capture->bCaptureEveryFrame);
+ TestFalse(TEXT("Moving camera does not capture standby"),E->Camcorder->Capture->bCaptureOnMovement);
  TestFalse(TEXT("Cannot record at hip"),E->Camcorder->StartRecording());TestEqual(TEXT("Two batteries"),E->GetBatteryCount(),2);
  Step([Key]{Key(EKeys::RightMouseButton,IE_Pressed);});Wait(.25f);
  Step([this,Weak,Key]{auto* E=Weak.Get();if(!E){AddError(TEXT("PIE ended"));return;}TestTrue(TEXT("RMB raises viewfinder"),E->Camcorder->bViewfinderRaised);Key(EKeys::LeftMouseButton,IE_Pressed);});Wait(.3f);
  Step([this,Weak,Key]{if(auto* E=Weak.Get())TestTrue(TEXT("LMB records"),E->Camcorder->bRecording);Key(EKeys::LeftMouseButton,IE_Released);Key(EKeys::MouseScrollUp,IE_Pressed);});Wait(.15f);
  Step([this,Weak,Key]{if(auto* E=Weak.Get())TestTrue(TEXT("Wheel zooms"),E->Camcorder->FocalLength>35);Key(EKeys::MouseScrollUp,IE_Released);Key(EKeys::RightMouseButton,IE_Released);});Wait(.3f);
- Step([this,Weak,Key]{if(auto* E=Weak.Get()){TestTrue(TEXT("Release keeps camera raised"),E->Camcorder->bViewfinderRaised);TestTrue(TEXT("Release keeps recording"),E->Camcorder->bRecording);}Key(EKeys::V,IE_Pressed);});Wait(.2f);
+ Step([this,Weak,Key]{if(auto* E=Weak.Get()){TestTrue(TEXT("Release keeps camera raised"),E->Camcorder->bViewfinderRaised);TestTrue(TEXT("Release keeps recording"),E->Camcorder->bRecording);TestEqual(TEXT("Recording still uses HD target"),E->Camcorder->MonitorTexture->SizeX,1280);}Key(EKeys::V,IE_Pressed);});Wait(.2f);
  Step([this,Weak,Key]{if(auto* E=Weak.Get()){TestTrue(TEXT("V enables selfie"),E->Camcorder->bSelfie);TestTrue(TEXT("Selfie keeps same recording"),E->Camcorder->bRecording);}Key(EKeys::V,IE_Released);Key(EKeys::RightMouseButton,IE_Pressed);});Wait(.2f);
- Step([this,Weak,Key]{if(auto* E=Weak.Get()){TestFalse(TEXT("Second press lowers camera"),E->Camcorder->bViewfinderRaised);TestFalse(TEXT("Lowering stops recording"),E->Camcorder->bRecording);TestTrue(TEXT("Clip saved"),E->Camcorder->SavedClipCount>0);}Key(EKeys::RightMouseButton,IE_Released);});Wait(.15f);
+ Step([this,Weak,Key]{if(auto* E=Weak.Get()){TestFalse(TEXT("Second press lowers camera"),E->Camcorder->bViewfinderRaised);TestFalse(TEXT("Lowering stops recording"),E->Camcorder->bRecording);TestTrue(TEXT("Clip saved"),E->Camcorder->SavedClipCount>0);TestEqual(TEXT("Stopping releases HD target without standby preview"),E->Camcorder->MonitorTexture->SizeX,1);}Key(EKeys::RightMouseButton,IE_Released);});Wait(.15f);
  Step([Key]{Key(EKeys::RightMouseButton,IE_Pressed);});Wait(.25f);
  Step([]{FSlateApplication::Get().SetAllUserFocusToGameViewport();FSlateApplication::Get().ProcessKeyDownEvent(FKeyEvent(EKeys::Escape,FModifierKeysState(),0,false,0,0));FSlateApplication::Get().ProcessKeyUpEvent(FKeyEvent(EKeys::Escape,FModifierKeysState(),0,false,0,0));});Wait(.2f);
  Step([this,Weak,Key]{auto* E=Weak.Get();if(!E){AddError(TEXT("Escape incorrectly ended PIE"));return;}TestFalse(TEXT("Escape leaves viewfinder while RMB held"),E->Camcorder->bViewfinderRaised);Key(EKeys::RightMouseButton,IE_Released);E->StoreCamera();TestTrue(TEXT("Camera stored"),E->Camcorder->bInBackpack);TestFalse(TEXT("Stowing resets selfie"),E->Camcorder->bSelfie);TestFalse(TEXT("Stowing never shows duplicate hands"),E->Camcorder->HoldingHands->IsVisible());TestFalse(TEXT("Camera remains visible during lowering"),E->Camcorder->IsHidden());});Wait(.35f);

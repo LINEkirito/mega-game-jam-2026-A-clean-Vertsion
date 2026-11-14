@@ -1,5 +1,14 @@
 #include "GameLanguageUI.h"
+#include "Audio/AudioWidgets.h"
+#include "GameFramework/GameModeBase.h"
+#include "Kismet/GameplayStatics.h"
 #include "GameLanguage.h"
+#include "Frontend/GameFrontend.h"
+#include "Frontend/LocalUserSettings.h"
+#include "Frontend/RunScoreHistoryPanel.h"
+#include "Kismet/KismetSystemLibrary.h"
+#include "Performance/GamePerformanceSettings.h"
+#include "Widgets/Layout/SScaleBox.h"
 #include "Framework/Application/IInputProcessor.h"
 #include "Framework/Application/SlateApplication.h"
 #include "GameFramework/PlayerController.h"
@@ -30,7 +39,8 @@ namespace
   virtual ~FLanguageInput() override {Shutdown();}
   void Shutdown()
   {
-   if(bOpen)Close();
+   GameFrontend::ReleaseAudio(Player.Get());
+   if(bOpen){bFrontend=false;bPerformance=true;Close();}
    if(auto* PC=Player.Get())if(auto* V=PC->GetWorld()->GetGameViewport())if(Root)V->RemoveViewportWidgetContent(Root.ToSharedRef());
    Root.Reset();
    for(auto& Pair:Labels){if(auto* S=Pair.Key.Get())S->SetHiddenInGame(Pair.Value.bHidden);if(auto* W=Pair.Value.Widget.Get())W->DestroyComponent();}
@@ -54,7 +64,7 @@ namespace
   virtual bool HandleKeyDownEvent(FSlateApplication&,const FKeyEvent& E) override
   {
    if(!InGameWindow())return false;
-   if(E.GetKey()==EKeys::L){if(!E.IsRepeat()){if(bOpen)Close();else Open();}return true;}
+   if(E.GetKey()==EKeys::F10){if(!E.IsRepeat()){if(bOpen){if(bFrontend&&bMain)ShowSettings();else {bPerformance=true;Close();}}else Open(true);}return true;}
    if(bOpen&&E.GetKey()==EKeys::Escape){if(!E.IsRepeat())Close();bEatEscape=true;return true;}
    // Let Slate handle keyboard navigation, but stop other preprocessors from performing gameplay actions.
    if(bOpen)return E.GetKey()!=EKeys::Tab&&E.GetKey()!=EKeys::Enter&&E.GetKey()!=EKeys::SpaceBar&&E.GetKey()!=EKeys::Up&&E.GetKey()!=EKeys::Down&&E.GetKey()!=EKeys::Left&&E.GetKey()!=EKeys::Right;
@@ -63,11 +73,15 @@ namespace
   virtual bool HandleKeyUpEvent(FSlateApplication&,const FKeyEvent& E) override
   {
    if(E.GetKey()==EKeys::Escape&&bEatEscape){bEatEscape=false;return true;}
-   return InGameWindow()&&(bOpen||E.GetKey()==EKeys::L);
+   if(!InGameWindow())return false;
+   const FKey Key=E.GetKey();
+   return Key==EKeys::F10||(bOpen&&Key!=EKeys::Tab&&Key!=EKeys::Enter&&Key!=EKeys::SpaceBar&&Key!=EKeys::Up&&Key!=EKeys::Down&&Key!=EKeys::Left&&Key!=EKeys::Right);
   }
   virtual void Tick(float DT,FSlateApplication&,TSharedRef<ICursor>) override
   {
    auto* PC=Player.Get();if(!PC||!PC->GetWorld())return;
+   if(bBoot && GIsAutomationTesting && !(PC->GetWorld()->GetAuthGameMode() && UGameplayStatics::HasOption(PC->GetWorld()->GetAuthGameMode()->OptionsString,TEXT("ShowTitle"))))bBoot=false;
+   if(bBoot && PC->GetPawn() && PC->GetWorld()->GetGameViewport()){bBoot=false;bFrontend=true;GameLocalSettings::LoadPerformance();Open(false);ShowMain();GameFrontend::ApplyAudio(PC);}
    ScanTime-=DT;
    if(ScanTime<=0)
    {
@@ -111,43 +125,94 @@ namespace
   struct FLabel {TWeakObjectPtr<UWidgetComponent> Widget;bool bHidden=false;};
   TMap<TWeakObjectPtr<UTextRenderComponent>,FLabel> Labels;
   TWeakObjectPtr<APlayerController> Player;
-  TSharedPtr<SWidget> Root;
+  TSharedPtr<SWidget> Root,PerformancePanel;
+  TSharedPtr<SBorder> PanelHost;
+  bool bPerformance=false;
+  bool bBoot=true,bFrontend=false,bMain=false,bPausedByMenu=false;
   TWeakPtr<SWidget> PreviousFocus;
   bool bPreviousUIOnly=false;
   bool bOpen=false,bCursor=false,bEatEscape=false;
   float ScanTime=0;
-  void Open()
+  void Open(bool Performance)
   {
    auto* PC=Player.Get();auto* V=PC?PC->GetWorld()->GetGameViewport():nullptr;if(!V)return;
    auto& App=FSlateApplication::Get();PreviousFocus=App.GetKeyboardFocusedWidget();bCursor=PC->bShowMouseCursor;
    auto* Equipment=PC->FindComponentByClass<UCamcorderEquipmentComponent>();
    bPreviousUIOnly=Equipment&&(Equipment->bBackpackOpen||(Equipment->Tablet&&Equipment->Tablet->bOpen)||(Equipment->RecordingLibrary&&Equipment->RecordingLibrary->bRoundEnded));
    App.DismissAllMenus();App.ReleaseAllPointerCapture();
+   bPausedByMenu=!PC->IsPaused() && PC->SetPause(true);
    bOpen=true;PC->SetIgnoreMoveInput(true);PC->SetIgnoreLookInput(true);PC->bShowMouseCursor=true;
    if(PC->PlayerInput)PC->PlayerInput->FlushPressedKeys();
+   Root=SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(FLinearColor(.008f,.013f,.022f,1.f)).Padding(20).HAlign(HAlign_Center).VAlign(VAlign_Center)
+    [SNew(SScaleBox).Stretch(EStretch::ScaleToFit).StretchDirection(EStretchDirection::DownOnly)
+     [SAssignNew(PanelHost,SBorder).Padding(26).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(FLinearColor(.025f,.04f,.06f))]];
+   V->AddViewportWidgetContent(Root.ToSharedRef(),2000);
+   if(Performance)
+   {
+    ShowSettings();
+   }
+   else ShowLanguage();
+  }
+  void ShowSettings()
+  {
+   bMain=false;PerformancePanel=GameFrontend::Settings(Player.Get(),[this]{Close();},[this]{ShowLanguage();});ShowPerformance();
+  }
+  void ShowMain()
+  {
+   bMain=true;
+   PerformancePanel=GameFrontend::Main([this]{bFrontend=false;bPerformance=true;Close();FSlateApplication::Get().SetAllUserFocusToGameViewport();},[this]{ShowSettings();},[this]
+   {
+    bMain=false;PerformancePanel=GameFrontend::Tutorial([this]{ShowMain();});ShowPerformance();
+   },[this]{bMain=false;PerformancePanel=GameFrontend::RunHistory([this]{ShowMain();});ShowPerformance();},[this]{if(auto* PC=Player.Get())UKismetSystemLibrary::QuitGame(PC,PC,EQuitPreference::Quit,false);});
+   ShowPerformance();
+  }
+  TSharedPtr<SWidget> FindFocus(TSharedPtr<SWidget> Widget)
+  {
+   if(!Widget)return nullptr;
+   if(Widget->SupportsKeyboardFocus())return Widget;
+   auto* Children=Widget->GetChildren();
+   for(int32 I=0;I<Children->Num();++I)if(auto Child=FindFocus(Children->GetChildAt(I)))return Child;
+   return nullptr;
+  }
+  void FocusPanel(TSharedPtr<SWidget> Focus)
+  {
+   if(auto* PC=Player.Get())
+   {
+    Focus=FindFocus(Focus);
+    FInputModeUIOnly Mode;Mode.SetWidgetToFocus(Focus);Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);PC->SetInputMode(Mode);
+    FSlateApplication::Get().SetKeyboardFocus(Focus);
+   }
+  }
+  void ShowPerformance()
+  {
+   bPerformance=true;PanelHost->SetContent(PerformancePanel.ToSharedRef());FocusPanel(PerformancePanel);
+  }
+  void ShowLanguage()
+  {
+   bPerformance=false;
    auto Choices=SNew(SVerticalBox);
    Choices->AddSlot().AutoHeight().Padding(0,0,0,12)[SNew(SLocalizedTextBlock).Font(GameLanguage::Font(28)).Text(FText::FromString(TEXT("语言")))];
    Choices->AddSlot().AutoHeight().Padding(0,0,0,18)[SNew(SLocalizedTextBlock).Text(FText::FromString(TEXT("选择后立即生效")))];
    TSharedPtr<SButton> FocusChoice;
    for(bool English:{false,true})
    {
-    auto Choice=SNew(SButton).ContentPadding(FMargin(22,14)).OnClicked_Lambda([English]{GameLanguage::SetEnglish(English);return FReply::Handled();})
+    auto Choice=SNew(SAudioButton).ContentPadding(FMargin(22,14)).OnClicked_Lambda([English]{GameLanguage::SetEnglish(English);return FReply::Handled();})
      [SNew(STextBlock).Font(GameLanguage::Font(24)).Text_Lambda([English]{return FText::FromString(FString(GameLanguage::IsEnglish()==English?TEXT("✓  "):TEXT("    "))+(English?TEXT("English"):TEXT("中文")));})];
     if(English==GameLanguage::IsEnglish())FocusChoice=Choice;
     Choices->AddSlot().AutoHeight().Padding(0,6)[Choice];
    }
-   Choices->AddSlot().AutoHeight().Padding(0,20,0,0)[SNew(SButton).ContentPadding(12).OnClicked_Lambda([this]{Close();return FReply::Handled();})
-    [SNew(SLocalizedTextBlock).Text(FText::FromString(TEXT("关闭 [L / Esc]")))]];
-   Root=SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(FLinearColor(0,0,0,.72f)).HAlign(HAlign_Center).VAlign(VAlign_Center)
-    [SNew(SBox).WidthOverride(400)[SNew(SBorder).Padding(30).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(FLinearColor(.025f,.04f,.06f))[Choices]]];
-   V->AddViewportWidgetContent(Root.ToSharedRef(),2000);
-   FInputModeUIOnly Mode;Mode.SetWidgetToFocus(FocusChoice);Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);PC->SetInputMode(Mode);
-   App.SetKeyboardFocus(FocusChoice);
+   Choices->AddSlot().AutoHeight().Padding(0,20,0,0)[SNew(SAudioButton).ContentPadding(12).OnClicked_Lambda([this]{Close();return FReply::Handled();})
+    [SNew(SLocalizedTextBlock).Text(FText::FromString(TEXT("返回设置")))]];
+   PanelHost->SetContent(SNew(SBox).WidthOverride(400)[Choices]);FocusPanel(FocusChoice);
   }
+
   void Close()
   {
+   if(!bPerformance&&PerformancePanel){ShowPerformance();return;}
+   if(bFrontend){if(!bMain)ShowMain();return;}
    auto* PC=Player.Get();bOpen=false;if(!PC)return;
-   if(auto* V=PC->GetWorld()->GetGameViewport())if(Root)V->RemoveViewportWidgetContent(Root.ToSharedRef());Root.Reset();
+   if(auto* V=PC->GetWorld()->GetGameViewport())if(Root)V->RemoveViewportWidgetContent(Root.ToSharedRef());Root.Reset();PanelHost.Reset();PerformancePanel.Reset();
+   if(bPausedByMenu){PC->SetPause(false);bPausedByMenu=false;}
    PC->SetIgnoreMoveInput(false);PC->SetIgnoreLookInput(false);PC->bShowMouseCursor=bCursor;
    if(PC->PlayerInput)PC->PlayerInput->FlushPressedKeys();
    if(bPreviousUIOnly){FInputModeUIOnly Mode;Mode.SetWidgetToFocus(PreviousFocus.Pin());Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);PC->SetInputMode(Mode);}

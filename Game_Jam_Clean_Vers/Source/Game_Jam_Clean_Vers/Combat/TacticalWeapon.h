@@ -17,6 +17,7 @@ class USceneCaptureComponent2D;
 class UTextureRenderTarget2D;
 class UMaterialInstanceDynamic;
 class USoundBase;
+class USoundConcurrency;
 class UBackpackInventory;
 class AGame_Jam_Clean_VersCharacter;
 
@@ -143,6 +144,7 @@ private:
     UPROPERTY() TObjectPtr<UTextRenderComponent> Label;
     UPROPERTY() TObjectPtr<UBackpackInventory> ReloadInventory;
     UPROPERTY() TMap<FName,TObjectPtr<USoundBase>> Sounds;
+    UPROPERTY(Transient) TObjectPtr<USoundConcurrency> PlayerFireConcurrency;
     TWeakObjectPtr<AGame_Jam_Clean_VersCharacter> Holder;
     FTransform BaseHands;
     FQuat BaseRightRotation,BaseLeftRotation;

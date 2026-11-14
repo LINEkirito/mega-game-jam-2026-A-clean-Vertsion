@@ -62,6 +62,9 @@ public:
  UFUNCTION() void WitnessViolence(AActor* Victim,APawn* Attacker,bool ProtectedVictim);
  UFUNCTION(BlueprintImplementableEvent,Category="NPC") void OnActivityChanged(ENPCActivity NewActivity);
 private:
+ friend class FExtractionFlowCheck;
+ bool TickExtractionResponse(float DT);
+ bool bRespondingToExtraction=false;
  friend class FNPCLocomotionCheck;
  friend class FNPCWeaponCarryCheck;
  UPROPERTY() TObjectPtr<class UAnimSequence> DrawWeaponAnimation;
@@ -116,6 +119,10 @@ private:
  TWeakObjectPtr<AActor> PriorityOffender;
  TWeakObjectPtr<AActor> ObservedShooter;
  FVector Home,Destination,LastKnown,DangerLocation;
+ FVector AudioLastPosition=FVector::ZeroVector;
+ bool bAudioPositionReady=false;
+ float AudioFootstepDistance=0,AudioHurtCooldown=0;
+ int32 AudioFootstepIndex=0;
  float StateTime=0,DecisionTime=0,MoveRetry=0,MoveTimeout=0,ShotTime=0,LostTime=0;
  float PanicTime=0,InvestigationTime=0,SocialCooldown=0,SpeechTime=0;
  bool bMoving=false,bMeleeApplied=false,bSocialArrived=false;

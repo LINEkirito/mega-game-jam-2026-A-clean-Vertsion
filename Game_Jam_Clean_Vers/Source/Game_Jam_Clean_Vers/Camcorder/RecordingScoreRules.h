@@ -9,6 +9,7 @@ struct FFilmObservation {
  int32 EventId=0, Tier=1;
  FVector4 ScreenRect=FVector4(0,0,0,0);
  bool bHasScreenRect=false;
+ bool bHasLifeState=false,bAlive=false;
 };
 struct FFilmExposure {
  FFilmObservation Subject;
@@ -18,9 +19,15 @@ struct FFilmExposure {
  double BehaviorRun=0;
  TSet<FString> Behaviors;
  bool bVisible=false;
+ bool bRunSawAlive=false,bRunSawDeath=false,bDeathAwarded=false;
+ float DeathMultiplier=1;
  void Observe(double Delta,const FFilmObservation& Value) {
   Subject=Value;
-  if(!bVisible){Run=0;BehaviorRun=0;++Entries;}
+  if(!bVisible){Run=0;BehaviorRun=0;bRunSawAlive=bRunSawDeath=false;++Entries;}
+  if(Value.bHasLifeState){
+   if(Value.bAlive)bRunSawAlive=true;
+   else if(bRunSawAlive&&!bRunSawDeath){bRunSawDeath=true;DeathMultiplier=Value.Multiplier;}
+  }else bRunSawAlive=bRunSawDeath=false;
   const double Before=Run;
   Run+=Delta;Total+=Delta;Longest=FMath::Max(Longest,Run);
   if(Run+1.e-6>=3)Valid+=Before+1.e-6<3?Run:Delta;
@@ -30,7 +37,7 @@ struct FFilmExposure {
   if(BehaviorRun+1.e-6>=3&&!LastBehavior.IsEmpty())Behaviors.Add(LastBehavior);
   bVisible=true;
  }
- void Break(){bVisible=false;Run=0;BehaviorRun=0;}
+ void Break(){bVisible=false;Run=0;BehaviorRun=0;bRunSawAlive=bRunSawDeath=false;}
 };
 struct FFilmHistory { double Seconds=0;bool bSeen=false;TSet<FString> Behaviors; };
 struct FFilmAward { FFilmObservation Subject;int32 Points=0; };
@@ -80,6 +87,10 @@ struct FRecordingScoreRules {
    if(Gap>.5)E.Break();E.Observe(E.bVisible?Delta:0,O);
    auto& H=WorkingHistory.FindOrAdd(O.Key);
    const float Multiplier=FMath::Max(0.f,O.Multiplier);
+   const bool IsNPC=O.Kind==EFilmSubject::Gang||O.Kind==EFilmSubject::Civilian||O.Kind==EFilmSubject::Police;
+   if(IsNPC&&E.bRunSawDeath&&!E.bDeathAwarded&&E.Run+1.e-6>=2){
+    Add(O,TEXT("死亡瞬间"),TEXT("连续入镜2秒并记录由生到死"),10,E.DeathMultiplier,Time);E.bDeathAwarded=true;
+   }
    if(O.Kind==EFilmSubject::Gang&&E.Valid>0){
     if(!H.bSeen){Add(O,TEXT("NPC首次入镜"),TEXT("首次连续有效入镜3秒"),10,Multiplier,Time);H.bSeen=true;}
     Cross(O,TEXT("NPC累计时长"),H.Seconds,H.Seconds+E.Valid-OldValid,{10,30,60,120},{10,20,40,80},Multiplier,Time);H.Seconds+=E.Valid-OldValid;

@@ -4,6 +4,7 @@
 #include "ShoulderCamcorder.h"
 #include "Components/SceneCaptureComponent2D.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Combat/PatrolEnemy.h"
 #include "Data/GlobalData.h"
 #include "Data/DataTransmitter.h"
@@ -38,11 +39,15 @@ void URecordingLibrary::Sample(AShoulderCamcorder* Camera) {
  for(TActorIterator<ACharacter> It(GetWorld());It;++It) {
   ACharacter* Person=*It;
   if(Person->IsPlayerControlled() || Person->IsHidden()) continue;
-  const FVector Center=Person->GetActorLocation();
+  const auto* NPC=Cast<APatrolEnemy>(Person);
+  const bool Dead=NPC&&NPC->Health<=0;
+  // Dead ragdolls move independently of the now-disabled capsule. Track the visible body.
+  const FBoxSphereBounds BodyBounds=Person->GetMesh()->Bounds;
+  const FVector Center=Dead?BodyBounds.Origin:Person->GetActorLocation();
   if(FVector::DistSquared(Lens.GetLocation(),Center)>FMath::Square(Config->RecordingMaxDistance)) continue;
   // Multiple body samples: a subject must actually intersect the recorded lens and have clear LOS.
   bool Visible=false;
-  const float Half=Person->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+  const float Half=Dead?BodyBounds.BoxExtent.Z:Person->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
   for(float Height:{0.f,.65f,-.45f}) {
    const FVector Point=Center+FVector(0,0,Half*Height);
    const FVector Local=Lens.InverseTransformPosition(Point);
@@ -54,16 +59,15 @@ void URecordingLibrary::Sample(AShoulderCamcorder* Camera) {
   }
   if(!Visible) continue;
   VisibleSubjects.Add(Person);
-  const auto* NPC=Cast<APatrolEnemy>(Person);
   const ENPCRole Role=NPC?NPC->IdentityRole:ENPCRole::Civilian;
   FFilmObservation O;O.Key=TEXT("Person:")+Person->GetPathName();
   const float Radius=Person->GetCapsuleComponent()->GetScaledCapsuleRadius();
-  O.ScreenRect=ProjectBounds(Center,FVector(Radius,Radius,Half));O.bHasScreenRect=true;VisibleRects.Add(Person,O.ScreenRect);
+  O.ScreenRect=ProjectBounds(Center,Dead?BodyBounds.BoxExtent:FVector(Radius,Radius,Half));O.bHasScreenRect=true;VisibleRects.Add(Person,O.ScreenRect);
   const TCHAR* Roles[]={TEXT("黑帮成员"),TEXT("黑帮头目"),TEXT("平民"),TEXT("商人"),TEXT("警察"),TEXT("伤者")};
   if(!SubjectNumbers.Contains(Person))SubjectNumbers.Add(Person,SubjectNumbers.Num()+1);
   O.Name=FString::Printf(TEXT("%s #%d"),Roles[FMath::Clamp(int32(Role),0,5)],SubjectNumbers[Person]);
   O.Kind=(Role==ENPCRole::GangMember||Role==ENPCRole::GangBoss)?EFilmSubject::Gang:Role==ENPCRole::Police?EFilmSubject::Police:EFilmSubject::Civilian;
-  if(NPC){O.Behavior=StaticEnum<ENPCActivity>()->GetNameStringByValue(int64(NPC->Activity));
+  if(NPC){O.bHasLifeState=true;O.bAlive=NPC->Health>0;O.Behavior=StaticEnum<ENPCActivity>()->GetNameStringByValue(int64(NPC->Activity));
    const TCHAR* Labels[]={TEXT("待机"),TEXT("巡逻"),TEXT("调查"),TEXT("战斗"),TEXT("威胁"),TEXT("殴打"),TEXT("交易"),TEXT("指挥"),TEXT("逃跑"),TEXT("受伤"),TEXT("死亡"),TEXT("警告玩家"),TEXT("聚会"),TEXT("看向摄像机"),TEXT("挥手驱赶摄像机"),TEXT("躲避摄像机"),TEXT("追赶"),TEXT("反击")};
    O.BehaviorLabel=Labels[FMath::Clamp(int32(NPC->Activity),0,17)];
   }
@@ -127,7 +131,7 @@ void URecordingLibrary::FinishClip(AShoulderCamcorder* Camera,bool bSaved) {
    Pending.ScoreDetails.Add(FString::Printf(TEXT("[%05.1fs] %s · %s"),M.Time,*M.Subject.Name,*M.Explanation));
    auto Row=MakeShared<FJsonObject>();Row->SetNumberField(TEXT("seconds"),M.Time);Row->SetNumberField(TEXT("points"),M.Points);Row->SetStringField(TEXT("subject"),M.Subject.Name);Row->SetStringField(TEXT("category"),M.Category);Row->SetStringField(TEXT("formula"),M.Explanation);Timeline.Add(MakeShared<FJsonValueObject>(Row));
   }
-  auto Record=MakeShared<FJsonObject>();Record->SetNumberField(TEXT("rules_version"),2);Record->SetStringField(TEXT("video"),Pending.Path);Record->SetNumberField(TEXT("seconds"),Pending.Seconds);
+  auto Record=MakeShared<FJsonObject>();Record->SetNumberField(TEXT("rules_version"),3);Record->SetStringField(TEXT("video"),Pending.Path);Record->SetNumberField(TEXT("seconds"),Pending.Seconds);
   Record->SetArrayField(TEXT("score_timeline"),Timeline);
   TArray<TSharedPtr<FJsonValue>> Exposures;
   for(const auto& Pair:Scoring.Shot){const auto& E=Pair.Value;auto Row=MakeShared<FJsonObject>();
@@ -136,6 +140,7 @@ void URecordingLibrary::FinishClip(AShoulderCamcorder* Camera,bool bSaved) {
     *(E.Subject.Kind==EFilmSubject::Gang||E.Subject.Kind==EFilmSubject::Event?FString::Printf(TEXT("，有效时长 %.2f秒"),E.Valid):FString())));
    Row->SetStringField(TEXT("id"),Pair.Key);Row->SetStringField(TEXT("name"),E.Subject.Name);Row->SetStringField(TEXT("event_type"),E.Subject.Type);Row->SetNumberField(TEXT("level"),E.Subject.Tier);Row->SetNumberField(TEXT("multiplier"),E.Subject.Multiplier);
    Row->SetNumberField(TEXT("total_seconds"),E.Total);Row->SetNumberField(TEXT("longest_continuous_seconds"),E.Longest);Row->SetNumberField(TEXT("valid_seconds"),E.Valid);
+   Row->SetBoolField(TEXT("death_moment_awarded"),E.bDeathAwarded);
    Row->SetNumberField(TEXT("entries"),E.Entries);Row->SetNumberField(TEXT("valid_runs"),E.ValidRuns);
    TArray<TSharedPtr<FJsonValue>> Behaviors;for(const auto& B:E.Behaviors)Behaviors.Add(MakeShared<FJsonValueString>(B));Row->SetArrayField(TEXT("valid_behaviors"),Behaviors);
    Exposures.Add(MakeShared<FJsonValueObject>(Row));

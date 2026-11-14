@@ -10,7 +10,10 @@
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Components/BoxComponent.h"
+#include "Components/CapsuleComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Data/DataTransmitter.h"
 #include "Engine/StaticMesh.h"
 #include "Components/SceneCaptureComponent2D.h"
 
@@ -94,7 +97,21 @@ bool FRecordingVisibilityCheck::Update(){
  // Transient PIE fixture only; never mark a level asset as a logo.
  Logo->Tags.Add(TEXT("RecordingLogo"));FilmActor(2);Test->TestEqual(TEXT("Explicit logo2s deducts10"),L->Clips.Last().Score,-10);
  Logo->SetActorHiddenInGame(true);FilmActor(2);Test->TestEqual(TEXT("Hidden logo cannot deduct"),L->Clips.Last().Score,0);
- Logo->Destroy();NPC->Destroy();Camera->Destroy();Owner->Destroy();return true;
+ Logo->Destroy();
+ NPC->SetActorHiddenInGame(false);NPC->IdentityRole=ENPCRole::GangMember;
+ Camera->RecordingSeconds=0;L->BeginClip(Camera);
+ for(int I=0;I<=4;++I){Camera->RecordingSeconds=I*.25f;L->Sample(Camera);}
+ FHitResult Fatal(NPC,NPC->GetCapsuleComponent(),NPC->GetActorLocation(),FVector::UpVector);
+ W->GetSubsystem<UDataTransmitter>()->TransmitHit(Fatal,10000,FVector::ForwardVector,nullptr,Owner);
+ Test->TestTrue(TEXT("Fixture actually died"),NPC->Health<=0);
+ for(int I=5;I<=8;++I){Camera->RecordingSeconds=I*.25f;L->Sample(Camera);}L->FinishClip(Camera,true);
+ int DeathAwards=0;for(const auto& M:L->Clips.Last().ScoreMoments)if(M.Category==TEXT("死亡瞬间"))++DeathAwards;
+ Test->TestEqual(TEXT("Actual NPC death produces one saved death moment"),DeathAwards,1);
+ FilmActor(2);DeathAwards=0;for(const auto& M:L->Clips.Last().ScoreMoments)if(M.Category==TEXT("死亡瞬间"))++DeathAwards;
+ Test->TestEqual(TEXT("Filming existing corpse cannot earn death bonus"),DeathAwards,0);
+ NPC->GetMesh()->SetSimulatePhysics(false);NPC->GetMesh()->SetWorldLocation(Origin+FVector(600,3000,0));NPC->GetMesh()->UpdateBounds();
+ FilmActor(2);Test->TestEqual(TEXT("Offscreen corpse is not detected at its stale capsule"),L->Clips.Last().People.Num(),0);
+ NPC->Destroy();Camera->Destroy();Owner->Destroy();return true;
 }
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRecordingVisibility,"Game.Recording.VisibilityAndSave",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
 bool FRecordingVisibility::RunTest(const FString&){AddCommand(new FStartPIECommand(false));AddCommand(new FWaitLatentCommand(2));AddCommand(new FRecordingVisibilityCheck(this));AddCommand(new FEndPlayMapCommand());return true;}

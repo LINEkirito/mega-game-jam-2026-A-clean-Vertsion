@@ -29,6 +29,7 @@ public:
     UFUNCTION(BlueprintCallable) bool EquipWeapon(FName Id);
     UFUNCTION(BlueprintCallable) void Unequip();
     UFUNCTION(BlueprintCallable) void DropWeapon();
+    void DropOnDeath();
     bool DropInventoryWeapon(FName Id);
     UFUNCTION(BlueprintCallable) bool Fire();
     UFUNCTION(BlueprintCallable) bool Reload();

@@ -188,6 +188,19 @@ void ATacticalWeapon::UpdatePackPose(float DT,bool ADS,float Kick)
     {
         PackADSPitch=AimPitch;PackADSHeight=AimHeight;
         PackADSPullBack=AimPullBack;
+        if(!R&&!P)
+        {
+            // Crouch locomotion changes eye height/reach. The old reach-only
+            // solution pulled the shotgun receiver through the near plane.
+            const FVector Sight=StableAimFrame.TransformPosition(GunLocal.TransformPosition(
+                PackWeaponMesh->GetSocketTransform(TEXT("AimPoint"),RTS_Component).GetLocation()));
+            const float Depth=FVector::DotProduct(Sight-View.GetLocation(),Forward);
+            const float Clearance=FMath::Max(GNearClippingPlane+3.f,GetDefault<UGlobalData>()->ShotgunADSSightClearance);
+            // Near-vertical aim is at the arm rig's reach limit. Blend back
+            // to its anatomical fit there, without detaching either hand.
+            const float Fit=1.f-FMath::SmoothStep(65.f,80.f,FMath::Abs(AimPitch));
+            PackADSPullBack=FMath::Lerp(PackADSPullBack,FMath::Min(PackADSPullBack,Depth-Clearance),Fit);
+        }
         // Entering ADS while already walking must not latch a clipped optic.
         if(R&&Optic&&Optic->GetStaticMesh())
         {

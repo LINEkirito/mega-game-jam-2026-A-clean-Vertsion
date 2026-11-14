@@ -48,7 +48,9 @@ void FCamcorderVideoWriter::Header()
 }
 bool FCamcorderVideoWriter::Enqueue(TArray<FColor>&& Pixels, int32 FrameIndex)
 {
-    if (Closing || Failed || !Thread || Pending.load()>=4 || Pixels.Num()!=Width*Height) return false;
+    if (Closing || Failed || !Thread) return false;
+    if (Pixels.Num()!=Width*Height) { Failed=true; return false; }
+    if (Pending.load()>=4) return false;
     FFrame F; F.Pixels=MoveTemp(Pixels); F.Index=FrameIndex;
     ++Pending; Queue.Enqueue(MoveTemp(F)); Wake->Trigger(); return true;
 }
@@ -73,7 +75,7 @@ uint32 FCamcorderVideoWriter::Run()
             if(!Encoder->SetRaw(F.Pixels.GetData(),F.Pixels.Num()*sizeof(FColor),Width,Height,ERGBFormat::BGRA,8)) Failed=true;
             else
             {
-                auto JPEG=Encoder->GetCompressed(82);
+                auto JPEG=Encoder->GetCompressed(90);
                 if(JPEG.IsEmpty()) Failed=true;
                 else
                 {

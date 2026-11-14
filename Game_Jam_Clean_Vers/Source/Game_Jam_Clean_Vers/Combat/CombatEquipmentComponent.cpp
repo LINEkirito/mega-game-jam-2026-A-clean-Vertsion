@@ -1,4 +1,6 @@
 #include "CombatEquipmentComponent.h"
+#include "Components/BoxComponent.h"
+#include "Extraction/ExtractionPoint.h"
 #include "Audio/CharacterAudio.h"
 #include "Camcorder/ItemInteractionComponent.h"
 #include "Data/GlobalData.h"
@@ -42,10 +44,25 @@ AActor* UCombatEquipmentComponent::NearbyPickup()const
     }
     return Best;
 }
-FString UCombatEquipmentComponent::InteractionText()const{auto* A=NearbyPickup();if(auto* W=Cast<ATacticalWeapon>(A))return TEXT("F 拾取 ")+W->Spec().Name;if(auto* Ammo=Cast<ACombatAmmoPickup>(A))return FString::Printf(TEXT("F 拾取 %s ×%d"),*Ammo->AmmoName(),Ammo->Amount);return TEXT("");}
+FString UCombatEquipmentComponent::InteractionText()const
+{
+ auto* PC=Player();
+ if(!PC||PC->bShowMouseCursor||PC->IsPaused()||!Equipment)return FString();
+ for(TActorIterator<AExtractionPoint> It(GetWorld());It;++It)
+  if(It->IsPlayerInRange(Cast<AGame_Jam_Clean_VersCharacter>(PC->GetPawn()))&&It->IsLookedAtBy(PC))return FString(); // Vehicle owns its prompt.
+ auto* A=NearbyPickup();
+ if(auto* W=Cast<ATacticalWeapon>(A))return GameLanguage::Display(TEXT("[F] 拾取 · "))+GameLanguage::Display(W->Spec().Name);
+ if(auto* Ammo=Cast<ACombatAmmoPickup>(A))return FString::Printf(TEXT("%s%s ×%d"),*GameLanguage::Display(TEXT("[F] 拾取 · ")),*GameLanguage::Display(Ammo->AmmoName()),Ammo->Amount);
+ return Equipment->PickupPrompt();
+}
 bool UCombatEquipmentComponent::TryInteract()
 {
     if(!Equipment||!Equipment->Inventory)return false;
+    auto* PC=Player();
+    if(!PC||PC->bShowMouseCursor||PC->IsPaused())return true;
+    for(TActorIterator<AExtractionPoint> It(GetWorld());It;++It)
+     if(It->IsPlayerInRange(Cast<AGame_Jam_Clean_VersCharacter>(PC->GetPawn()))&&It->IsLookedAtBy(PC))
+     {It->TryStart(PC);return true;} // One F press cannot also pick up an item.
     if(auto* A=NearbyPickup())
     {
         if(auto* W=Cast<ATacticalWeapon>(A);W && Equipment->Inventory->SlotIndex(W->InventoryId)==INDEX_NONE)
@@ -183,7 +200,7 @@ void UCombatEquipmentComponent::TickComponent(float DT,ELevelTick Type,FActorCom
     if(TransitionWeapon)FinishTransition();
     if(!TransitionWeapon&&!PendingEquip.IsNone()&&!Equipment->Camcorder->IsPresenting()){const FName Next=PendingEquip;PendingEquip=NAME_None;EquipWeapon(Next);}
     Cooldown=FMath::Max(0.f,Cooldown-DT);EquipRemaining=FMath::Max(0.f,EquipRemaining-DT);HitMarker=FMath::Max(0.f,HitMarker-DT);Burst=FMath::Max(0.f,Burst-DT*3);VisualKick=FMath::FInterpTo(VisualKick,0,DT,15);
-    if(C->Health<=0){Unequip();Equipment->Camcorder->SetViewfinderRaised(false);Equipment->Camcorder->StopRecording();return;}
+    if(C->Health<=0){DropOnDeath();Equipment->Camcorder->SetViewfinderRaised(false);Equipment->Camcorder->StopRecording();return;}
     TickLookDownHolster();
     const float NewRecoil=FMath::FInterpTo(Recoil,0,DT,6);if(Recoil>.001f){auto R=PC->GetControlRotation();R.Pitch-=Recoil-NewRecoil;PC->SetControlRotation(R);}Recoil=NewRecoil;
     if(Equipment->bBackpackOpen)bADS=false;
@@ -208,3 +225,23 @@ void UCombatEquipmentComponent::InitializeStartingWeapons()
 }
 void UCombatEquipmentComponent::InitializeHUD(){HUD=SNew(SCombatHUD).Combat(this);GetWorld()->GetGameViewport()->AddViewportWidgetContent(HUD.ToSharedRef(),11);}
 void UCombatEquipmentComponent::EndPlay(const EEndPlayReason::Type R){if(HUD&&GetWorld()->GetGameViewport())GetWorld()->GetGameViewport()->RemoveViewportWidgetContent(HUD.ToSharedRef());HUD.Reset();for(auto& P:Weapons)if(IsValid(P.Value))P.Value->Destroy();Super::EndPlay(R);}
+
+void UCombatEquipmentComponent::DropOnDeath()
+{
+ auto* PC=Player();if(!PC||!PC->GetPawn()||!Equipment||!Equipment->Inventory)return;
+ auto* Gun=ActiveWeapon?ActiveWeapon.Get():TransitionWeapon.Get();
+ // Never finish a queued switch or holster once the owner's hands have let go.
+ ActiveWeapon=nullptr;TransitionWeapon=nullptr;PendingEquip=NAME_None;LookDownWeaponId=NAME_None;
+ bPendingDrop=false;bADS=false;bReloading=false;ReloadRemaining=0;EquipRemaining=0;
+ if(!Gun)return;
+ FVector Eye;FRotator View;PC->GetPlayerViewPoint(Eye,View);
+ const FVector Forward=FRotator(0,View.Yaw,0).Vector();
+ FVector DropAt=Eye+Forward*35.f-FVector(0,0,20);
+ FCollisionQueryParams Query(SCENE_QUERY_STAT(DeathDropWeapon),false,PC->GetPawn());Query.AddIgnoredActor(Gun);FHitResult Hit;
+ if(GetWorld()->SweepSingleByChannel(Hit,Eye,DropAt,FQuat::Identity,ECC_WorldStatic,FCollisionShape::MakeSphere(10),Query))DropAt=Hit.Location;
+ Weapons.Remove(Gun->InventoryId);Equipment->Inventory->Remove(Gun->InventoryId);
+ Gun->Drop(DropAt,View);
+ Gun->Body->SetPhysicsLinearVelocity(PC->GetPawn()->GetVelocity()+Forward*180.f+FVector(0,0,70));
+ Gun->Body->SetPhysicsAngularVelocityInDegrees(FVector(100,160,70));
+ Equipment->RefreshBackpack();
+}

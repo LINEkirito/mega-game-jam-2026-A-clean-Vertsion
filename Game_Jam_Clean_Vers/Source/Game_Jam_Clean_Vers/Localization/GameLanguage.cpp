@@ -1,5 +1,6 @@
 #include "GameLanguage.h"
 #include "Misc/ConfigCacheIni.h"
+#include "Frontend/LocalUserSettings.h"
 #include "Misc/Paths.h"
 #include "Internationalization/Regex.h"
 #include "Framework/Application/SlateApplication.h"
@@ -115,8 +116,8 @@ namespace
   return Out;
  }
 }
-bool GameLanguage::IsEnglish(){bool English=false;if(GConfig)GConfig->GetBool(TEXT("GameLanguage"),TEXT("English"),English,GGameUserSettingsIni);return English;}
-void GameLanguage::SetEnglish(bool English){if(GConfig){GConfig->SetBool(TEXT("GameLanguage"),TEXT("English"),English,GGameUserSettingsIni);GConfig->Flush(false,GGameUserSettingsIni);}}
+bool GameLanguage::IsEnglish(){bool English=false;if(GConfig)GConfig->GetBool(TEXT("GameLanguage"),TEXT("English"),English,GameLocalSettings::Filename());return English;}
+void GameLanguage::SetEnglish(bool English){if(GConfig){GConfig->SetBool(TEXT("GameLanguage"),TEXT("English"),English,GameLocalSettings::Filename());GConfig->Flush(false,GameLocalSettings::Filename());}}
 FString GameLanguage::Translate(const FString& Source,bool English){return Convert(Source,English,0);}
 FSlateFontInfo GameLanguage::Font(int32 Size){return FSlateFontInfo(FPaths::EngineContentDir()/TEXT("Slate/Fonts/DroidSansFallback.ttf"),Size);}
 FSlateFontInfo GameLanguage::FittedFont(const FString& Text,int32 Size,float Width)

@@ -62,6 +62,16 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Movement") bool bSprinting=false;
     bool bSprintRequested=false;
     float DamageFlash=0.f;
+    void BeginDeathFall();
+    bool IsDeathFallComplete() const { return bDeathFallComplete; }
+    bool HasDeathFallStarted() const { return bDeathFalling; }
+private:
+    bool bDeathFalling=false,bDeathFallComplete=false;
+    float DeathFallTime=0,DeathFallDuration=1.25f,DeathSettleTime=0;
+    FVector DeathEyeStart,DeathEyeEnd;
+    FQuat DeathEyeRotation;
+    void TickDeathFall(float DT);
+public:
     UPROPERTY() TObjectPtr<UItemInteractionComponent> ItemInteraction;
 private:
     float ProtectionUntil=-1.f;
