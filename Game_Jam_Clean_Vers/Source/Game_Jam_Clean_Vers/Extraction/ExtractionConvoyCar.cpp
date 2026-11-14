@@ -1,6 +1,7 @@
 #include "ExtractionConvoyCar.h"
 #include "ExtractionPoint.h"
 #include "Combat/PatrolEnemy.h"
+#include "Combat/PoliceReinforcements.h"
 #include "Combat/TacticalWeapon.h"
 #include "Game_Jam_Clean_VersCharacter.h"
 #include "Data/GlobalData.h"
@@ -27,6 +28,7 @@ namespace
  {
   for(TActorIterator<APatrolEnemy> It(W);It;++It)if(It->Health<=0){Q.AddIgnoredActor(*It);if(It->HeldWeapon)Q.AddIgnoredActor(It->HeldWeapon);}
   for(TActorIterator<ACombatAmmoPickup> It(W);It;++It)Q.AddIgnoredActor(*It);
+  for(TActorIterator<AWeaponDebris> It(W);It;++It)Q.AddIgnoredActor(*It);
  }
  bool RoadGround(UWorld* W,const FVector& P,FVector& Ground,const AActor* Ignore=nullptr)
  {
@@ -82,9 +84,22 @@ FVector AExtractionConvoyCar::Seat(int32 I) const
  return Seats[FMath::Clamp(I,0,4)];
 }
 int32 AExtractionConvoyCar::DoorForSeat(int32 I) const {return I==0?1:I==1?2:3;}
-void AExtractionConvoyCar::Initialize(APlayerController* PC,const FVector& Stop,const FVector& Start)
+void AExtractionConvoyCar::Initialize(APlayerController* PC,const FVector& Stop,const FVector& Start,bool Police,int32 Count)
 {
  PlayerController=PC;StopLocation=Stop+BodyOffset;EntryLocation=Start+BodyOffset;
+ bPolice=Police;PassengerCount=FMath::Clamp(Count,1,4);
+ auto* Paint=LoadObject<UMaterialInterface>(nullptr,bPolice?TEXT("/Game/AppearanceSkins/M_PoliceCar"):TEXT("/Game/AppearanceSkins/M_GangCar"));
+ TInlineComponentArray<UStaticMeshComponent*> Parts(this);
+ for(auto* C:Parts)
+ {
+  C->SetDefaultCustomPrimitiveDataVector3(0,C->GetRelativeLocation());
+  C->SetDefaultCustomPrimitiveDataFloat(3,Doors.Contains(C)?1.f:0.f);
+  if(Paint)for(int32 I=0;I<C->GetNumMaterials();++I)
+   if(auto* M=C->GetMaterial(I);M&&(M->GetName().Contains(TEXT("Color"))||M->GetName()==TEXT("M_ConvoyBlack")))C->SetMaterial(I,Paint);
+ }
+ if(bPolice)for(auto Rider:Riders)
+  Rider->SetSkeletalMeshAsset(LoadObject<USkeletalMesh>(nullptr,TEXT("/Game/Combat/NPC/Characters/NPC_Police")));
+ for(int32 I=PassengerCount;I<4;++I){Exited[I]=true;Riders[I]->SetVisibility(false);}
  for(int32 I=0;I<Riders.Num();++I)Riders[I]->PlayAnimation(I==4?DriverIdle.Get():PassengerIdle.Get(),true);
 }
 bool AExtractionConvoyCar::IsInFront(APlayerController* PC,const FVector& L)
@@ -173,6 +188,7 @@ bool AExtractionConvoyCar::MoveAlongRoad(float DT,const FVector& Target,bool Bra
 {
  for(TActorIterator<APatrolEnemy> It(GetWorld());It;++It)if(It->Health<=0)CollisionBody->IgnoreActorWhenMoving(*It,true);
  for(TActorIterator<ACombatAmmoPickup> It(GetWorld());It;++It)CollisionBody->IgnoreActorWhenMoving(*It,true);
+ for(TActorIterator<AWeaponDebris> It(GetWorld());It;++It)CollisionBody->IgnoreActorWhenMoving(*It,true);
  const float Distance=FVector::Dist2D(GetActorLocation(),Target);
  const float MaxSpeed=GetDefault<UGlobalData>()->ConvoySpeed;
  const float Desired=Brake?FMath::Min(MaxSpeed,FMath::Sqrt(2.f*650.f*FMath::Max(0.f,Distance-5.f))):MaxSpeed;
@@ -198,7 +214,7 @@ void AExtractionConvoyCar::StartDeparture()
  {DepartureTarget=Ahead+BodyOffset;bReverse=false;}
  else {DepartureTarget=EntryLocation;bReverse=true;}
 }
-void AExtractionConvoyCar::LeaveWithoutUnloading(){bAborted=true;if(Phase!=EConvoyCarPhase::Unloading)StartDeparture();}
+void AExtractionConvoyCar::LeaveWithoutUnloading(){bAborted=true;if(Phase==EConvoyCarPhase::Approaching)StartDeparture();}
 void AExtractionConvoyCar::UpdatePassengers(float DT)
 {
  for(int32 I=0;I<4;++I)
@@ -217,7 +233,8 @@ void AExtractionConvoyCar::UpdatePassengers(float DT)
   Doors[DoorForSeat(I)]->SetRelativeRotation(FRotator(0,(Left?1:-1)*65.f*Open,0));
   if(T<Clip->GetPlayLength())continue;
   auto* Session=GetWorld()->GetSubsystem<UExtractionSubsystem>();
-  if(bAborted||!Session||!Session->GetExtractingPlayer())
+  auto* Police=GetWorld()->GetSubsystem<UPoliceReinforcements>();
+  if(bAborted||(bPolice?(!Police||!Police->CanDeliver()):(!Session||!Session->GetExtractingPlayer())))
   {Rider->SetVisibility(false);Exited[I]=true;continue;}
   const FVector RootOffset=FRotator(0,-90,0).RotateVector(Clip->ExtractRootMotionFromRange(0,Clip->GetPlayLength(),FAnimExtractContext()).GetTranslation());
   const FVector Local=Rider->GetRelativeLocation()+RootOffset;
@@ -227,8 +244,10 @@ void AExtractionConvoyCar::UpdatePassengers(float DT)
   FActorSpawnParameters Params;Params.SpawnCollisionHandlingOverride=ESpawnActorCollisionHandlingMethod::DontSpawnIfColliding;
   auto* N=GetWorld()->SpawnActorDeferred<APatrolEnemy>(APatrolEnemy::StaticClass(),FTransform(GetActorRotation(),Spawn),nullptr,nullptr,Params.SpawnCollisionHandlingOverride);
   if(!N)continue;
-  N->NPCRole=ENPCRole::GangMember;N->bRandomGangWeapon=false;N->WeaponKind=I%2?ETacticalWeaponKind::Shotgun:ETacticalWeaponKind::Rifle;N->PatrolRadius=0;
-  N->FinishSpawning(FTransform(GetActorRotation(),Spawn));Session->RegisterPassenger(N);
+  N->NPCRole=bPolice?ENPCRole::Police:ENPCRole::GangMember;N->bRandomGangWeapon=false;N->WeaponKind=(!bPolice&&I%2)?ETacticalWeaponKind::Shotgun:ETacticalWeaponKind::Rifle;N->PatrolRadius=0;
+  N->FinishSpawning(FTransform(GetActorRotation(),Spawn));
+  if(!IsValid(N))continue;
+  if(bPolice)Police->RegisterPassenger(N);else Session->RegisterPassenger(N);
   Rider->SetVisibility(false);Exited[I]=true;++Delivered;
  }
  if(Exited[0]&&Exited[1]&&Exited[2]&&Exited[3])StartDeparture();

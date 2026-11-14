@@ -15,12 +15,13 @@ public:
  virtual void Deinitialize() override;
  virtual void Tick(float DeltaTime) override;
  virtual TStatId GetStatId() const override;
+ bool CanDeliver() const;
+ void RegisterPassenger(APatrolEnemy* Passenger);
 private:
  friend class FPoliceReinforcementsCheck;
  friend class FPolicePursuitCheck;
  UFUNCTION() void OnViolence(AActor* Victim,APawn* Attacker,bool ProtectedVictim);
- bool FindSpawn(APawn* Player,FVector& Location) const;
- bool IsHidden(const FVector& Location,APawn* Player) const;
+ TWeakObjectPtr<class AExtractionConvoyCar> Car;
  TWeakObjectPtr<APawn> Offender;
  TArray<TWeakObjectPtr<APatrolEnemy>> Squad;
  int32 Pending=0;

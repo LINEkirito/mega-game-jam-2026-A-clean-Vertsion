@@ -67,6 +67,11 @@ public:
    Test->TestTrue(TEXT("Car initial footprint is not visible"),AExtractionConvoyCar::IsHiddenFromPlayer(W,PC,Entry,Heading));
    Test->TestTrue(TEXT("Parking is in player's front cone"),AExtractionConvoyCar::IsInFront(PC,Stop));
    Test->TestTrue(TEXT("Approach has full car clearance"),AExtractionConvoyCar::ClearRoad(W,Entry,Stop));
+   // Ejected shells/magazines must not turn a validated road into an impassable route.
+   auto* Debris=W->SpawnActor<AWeaponDebris>(FMath::Lerp(Entry,Stop,.5f)+FVector(0,0,76),Heading);
+   Test->TestNotNull(TEXT("Road debris fixture exists"),Debris);
+   Test->TestTrue(TEXT("Small weapon debris does not block a convoy road"),AExtractionConvoyCar::ClearRoad(W,Entry,Stop));
+   if(Debris)Debris->Destroy();
    Point->ExtractingPlayer=P;Point->State=EExtractionState::Extracting;Point->RemainingSeconds=600;
    S->Claim(Point.Get());
    if(RequireTwo)
@@ -171,6 +176,11 @@ public:
    if(Delivering&&Elapsed<35)return false;
    Test->TestEqual(TEXT("Turning away prevents rear parking and unloading"),S->GetLivingResponders(),0);
    Point->Cancel();Test->TestEqual(TEXT("Cancellation clears active squad"),S->GetLivingResponders(),0);
+   for(auto C:S->Cars)if(C.IsValid()&&C->Phase==EConvoyCarPhase::Departing)
+   {
+    C->Tick(.05f);const float DepartingTime=C->PhaseTime;C->LeaveWithoutUnloading();
+    Test->TestEqual(TEXT("Repeated cancellation preserves departure progress"),C->PhaseTime,DepartingTime);
+   }
    return true;
   }
   return true;

@@ -21,7 +21,7 @@ public:
  AExtractionConvoyCar();
  virtual void Tick(float DeltaSeconds) override;
  virtual void EndPlay(const EEndPlayReason::Type Reason) override;
- void Initialize(APlayerController* Controller,const FVector& Stop,const FVector& Start);
+ void Initialize(APlayerController* Controller,const FVector& Stop,const FVector& Start,bool Police=false,int32 PassengerCount=4);
  void LeaveWithoutUnloading();
  bool IsDelivering() const {return Phase!=EConvoyCarPhase::Departing;}
  UPROPERTY(VisibleAnywhere) TObjectPtr<class UBoxComponent> CollisionBody;
@@ -45,6 +45,8 @@ private:
  FVector StopLocation,EntryLocation,DepartureTarget;
  float Speed=0,WheelAngle=0,PhaseTime=0,BlockedTime=0,HiddenSeconds=0,ExitRetry=0;
  bool bReverse=false,bAborted=false;
+ bool bPolice=false;
+ int32 PassengerCount=4;
  bool Exited[4]={false,false,false,false};
  FVector Seat(int32 Index) const;
  int32 DoorForSeat(int32 Index) const;

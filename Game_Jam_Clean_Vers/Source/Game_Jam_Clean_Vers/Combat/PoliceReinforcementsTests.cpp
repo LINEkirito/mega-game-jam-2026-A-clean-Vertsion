@@ -6,12 +6,44 @@
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/SkeletalMesh.h"
+#include "Materials/MaterialInterface.h"
 #include "PoliceReinforcements.h"
 #include "PatrolEnemy.h"
 #include "Data/DataTransmitter.h"
 #include "Game_Jam_Clean_VersCharacter.h"
 #include "EngineUtils.h"
 #include "UnrealClient.h"
+#include "Extraction/ExtractionConvoyCar.h"
+#include "Extraction/ExtractionPoint.h"
+#include "NavigationSystem.h"
+#include "Camera/CameraComponent.h"
+#include "Camera/PlayerCameraManager.h"
+#include "GameFramework/CharacterMovementComponent.h"
+
+namespace
+{
+ bool PreparePoliceRoad(UWorld* W,APlayerController* PC)
+ {
+  auto* P=Cast<AGame_Jam_Clean_VersCharacter>(PC->GetPawn());
+  auto* Nav=FNavigationSystem::GetCurrent<UNavigationSystemV1>(W);
+  if(!P||!Nav)return false;
+  P->GetCharacterMovement()->DisableMovement();
+  for(TActorIterator<AExtractionPoint> It(W);It;++It)for(int32 Side=0;Side<8;++Side)
+  {
+   FNavLocation G;if(!Nav->ProjectPointToNavigation(It->GetActorLocation()+FRotator(0,Side*45,0).Vector()*900.f,G,FVector(250,250,500)))continue;
+   P->SetActorLocation(G.Location+FVector(0,0,93),false,nullptr,ETeleportType::TeleportPhysics);
+   for(int32 Yaw=0;Yaw<360;Yaw+=45)
+   {
+    PC->SetControlRotation(FRotator(0,Yaw,0));P->GetFirstPersonCameraComponent()->SetWorldRotation(FRotator(0,Yaw,0));PC->PlayerCameraManager->UpdateCamera(.016f);
+    FVector Entry,Stop;FRotator Heading;if(AExtractionConvoyCar::FindArrival(W,PC,Entry,Stop,Heading))return true;
+   }
+  }
+  return false;
+ }
+}
+
 
 DEFINE_LATENT_AUTOMATION_COMMAND_ONE_PARAMETER(FPoliceReinforcementsCheck,FAutomationTestBase*,Test);
 bool FPoliceReinforcementsCheck::Update()
@@ -32,22 +64,40 @@ bool FPoliceReinforcementsCheck::Update()
  Hit(Officer,1,PC,Player);Test->TestEqual(TEXT("Player hit requests exactly three"),S->Pending,3);
  Test->TestEqual(TEXT("Surviving officer retaliates immediately"),Officer->CombatTarget.Get(),static_cast<AActor*>(Player));
  Hit(Officer,1,PC,Player);Test->TestEqual(TEXT("Repeated hit does not stack waves"),S->Pending,3);
- FVector Eye;FRotator View;PC->GetPlayerViewPoint(Eye,View);
- Test->TestFalse(TEXT("In front of camera rejected"),S->IsHidden(Eye+View.Vector()*1500,Player));
- Test->TestFalse(TEXT("Camera plane edge rejected"),S->IsHidden(Eye-View.Vector()*100,Player));
- Test->TestTrue(TEXT("Whole body behind camera accepted"),S->IsHidden(Eye-View.Vector()*1500,Player));
- for(int32 I=0;I<20&&S->Pending;++I)S->Tick(.6f);
- Test->TestEqual(TEXT("Real map has three reachable hidden spawns"),S->Squad.Num(),3);
- Test->TestEqual(TEXT("All three spawn requests consumed"),S->Pending,0);
+ for(TActorIterator<APatrolEnemy> It(W);It;++It){It->SetActorTickEnabled(false);It->SetActorEnableCollision(false);}
+ if(!Test->TestTrue(TEXT("Map has a real front parking road"),PreparePoliceRoad(W,PC)))return true;
+ S->Tick(1.f);
+ Test->TestTrue(TEXT("Backup arrives by car"),S->Car.IsValid());
+ Test->TestEqual(TEXT("No officers pop into existence before unloading"),S->Squad.Num(),0);
+ if(S->Car.IsValid())
+ {
+  auto* Car=S->Car.Get();Car->SetActorTickEnabled(false);
+  Test->TestTrue(TEXT("Car starts outside player's sight"),AExtractionConvoyCar::IsHiddenFromPlayer(W,PC,Car->GetActorLocation()-FVector(0,0,76),Car->GetActorRotation(),Car));
+  Test->TestFalse(TEXT("Fourth passenger seat empty"),Car->Riders[3]->IsVisible());
+  for(auto Rider:Car->Riders)Test->TestEqual(TEXT("Seated occupants use police appearance"),Rider->GetSkeletalMeshAsset()->GetName(),FString(TEXT("NPC_Police")));
+  bool HasPolicePaint=false;TInlineComponentArray<UStaticMeshComponent*> Panels(Car);
+  for(auto* Panel:Panels)for(int32 Slot=0;Slot<Panel->GetNumMaterials();++Slot)
+   if(auto* Mat=Panel->GetMaterial(Slot);Mat&&Mat->GetName()==TEXT("M_PoliceCar"))HasPolicePaint=true;
+  Test->TestTrue(TEXT("Police livery applied at runtime"),HasPolicePaint);
+  for(int32 I=0;I<2400&&S->Pending>0;++I)
+  {
+   Car->Tick(.05f);
+   for(auto N:S->Squad)if(N.IsValid())N->SetActorTickEnabled(false);
+  }
+  Test->TestEqual(TEXT("Exactly three officers leave police car"),Car->Delivered,3);
+  Test->TestTrue(TEXT("Police car stops in front"),AExtractionConvoyCar::IsInFront(PC,Car->GetActorLocation()));
+ }
+ Test->TestEqual(TEXT("Three police passengers registered"),S->Squad.Num(),3);
+ Test->TestEqual(TEXT("All requests consumed by exit animation"),S->Pending,0);
  for(const auto& Weak:S->Squad)if(auto* N=Weak.Get()){
-  Test->TestTrue(TEXT("Spawn remains behind player camera"),S->IsHidden(N->GetActorLocation(),Player));
+  Test->TestEqual(TEXT("Police weapon already drawn on exit"),N->WeaponCarry,ENPCWeaponCarry::Drawn);
   Test->TestEqual(TEXT("Backup has police identity"),N->IdentityRole,ENPCRole::Police);
   Test->TestEqual(TEXT("Backup attacks player"),N->CombatTarget.Get(),static_cast<AActor*>(Player));
   Test->TestEqual(TEXT("Backup enters combat immediately"),N->Activity,ENPCActivity::Combat);
   Test->TestNotNull(TEXT("Backup has a weapon"),N->HeldWeapon.Get());
  }
  Hit(Officer,10000,PC,Player);Test->TestEqual(TEXT("Lethal followup does not duplicate active squad"),S->Pending,0);
- for(const auto& Weak:S->Squad)if(auto* N=Weak.Get())N->Destroy();S->Squad.Empty();S->Offender.Reset();S->Pending=0;
+ for(const auto& Weak:S->Squad)if(auto* N=Weak.Get())N->Destroy();S->Squad.Empty();S->Offender.Reset();S->Pending=0;if(S->Car.IsValid())S->Car->Destroy();S->Car.Reset();
  auto* Lethal=Spawn(ENPCRole::Police);Hit(Lethal,10000,PC,Player);Test->TestEqual(TEXT("First-hit kill still calls three backup"),S->Pending,3);
  S->Pending=0;S->Offender.Reset();for(auto* N:Created)N->Destroy();return true;
 }
@@ -77,6 +127,8 @@ public:
   if(!Started)
   {
    Started=Now;P->Health=10000;
+   for(TActorIterator<APatrolEnemy> It(W);It;++It){It->SetActorTickEnabled(false);It->SetActorEnableCollision(false);}
+   if(!Test->TestTrue(TEXT("Pursuit has valid front approach"),PreparePoliceRoad(W,PC)))return true;
    for(TActorIterator<APatrolEnemy> It(W);It;++It)if(It->IdentityRole==ENPCRole::Police){Victim=*It;break;}
    if(!Victim.IsValid()){Test->AddError(TEXT("Map must contain a police victim"));return true;}
    FHitResult H(Victim.Get(),Victim->GetMesh(),Victim->GetActorLocation(),FVector::UpVector);H.ImpactPoint=Victim->GetActorLocation();
@@ -90,7 +142,7 @@ public:
   }
   if(PhotoAt>0&&Now-PhotoAt>2)
   {FScreenshotRequest::RequestScreenshot(TEXT("G:/TheTechfiles/ThefinalGameJam/PoliceReinforcements-Pursuit.png"),false,false);PhotoAt=-1;}
-  if(Now-Started<25)return false;
+  if(Now-Started<40)return false;
   Test->TestEqual(TEXT("Three officers persist through pursuit"),S->Squad.Num(),3);
   Test->TestTrue(TEXT("Backup actually fires ammunition"),Fired);
   Test->TestTrue(TEXT("Player takes actual combat damage"),P->Health<10000);

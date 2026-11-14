@@ -11,7 +11,7 @@
 bool UExtractionSubsystem::IsResponder(const APatrolEnemy* Enemy) const
 {return Responders.ContainsByPredicate([Enemy](const auto& N){return N.Get()==Enemy;});}
 bool UExtractionSubsystem::AllowsPlayerTarget(const APatrolEnemy* Enemy,const AActor* Target) const
-{return !GetExtractingPlayer()||Target!=GetExtractingPlayer()||IsResponder(Enemy);}
+{return !GetExtractingPlayer()||Target!=GetExtractingPlayer()||IsResponder(Enemy)||(Enemy&&Enemy->NPCRole==ENPCRole::Police&&Enemy->PriorityOffender.Get()==Target);}
 int32 UExtractionSubsystem::GetLivingResponders() const
 {int32 Count=0;for(auto N:Responders)if(N.IsValid()&&N->Health>0)++Count;return Count;}
 void UExtractionSubsystem::RegisterPassenger(APatrolEnemy* N)
@@ -34,7 +34,7 @@ void UExtractionSubsystem::UpdateResponse(float DT)
  auto* PC=Cast<APlayerController>(Player->GetController());if(!PC||!GetWorld()->GetAuthGameMode())return;
  Responders.RemoveAll([](const auto& N){return !N.IsValid()||N->Health<=0;});
  Cars.RemoveAll([](const auto& C){return !C.IsValid();});
- for(TActorIterator<APatrolEnemy> It(GetWorld());It;++It)if(!IsResponder(*It)&&It->CombatTarget==Player)
+ for(TActorIterator<APatrolEnemy> It(GetWorld());It;++It)if(!AllowsPlayerTarget(*It,Player)&&It->CombatTarget==Player)
  {
   It->CombatTarget=nullptr;It->PriorityOffender.Reset();It->SetActivity(ENPCActivity::Idle);
   if(auto* AI=Cast<AAIController>(It->GetController()))AI->StopMovement();
