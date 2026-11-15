@@ -1,4 +1,8 @@
 #include "ExtractionConvoyCar.h"
+#include "Audio/GameAudio.h"
+#include "Components/AudioComponent.h"
+#include "Kismet/GameplayStatics.h"
+#include "Sound/SoundAttenuation.h"
 #include "ExtractionPoint.h"
 #include "Combat/PatrolEnemy.h"
 #include "Combat/PoliceReinforcements.h"
@@ -25,6 +29,17 @@ namespace
 {
  const FVector CarHalf(250,112,65);
  const FVector BodyOffset(0,0,76);
+ UAudioComponent* VehicleSound(AActor* Car,const TCHAR* Name,float Volume)
+ {
+  auto* Attenuation=NewObject<USoundAttenuation>(Car);
+  Attenuation->Attenuation.bSpatialize=true;
+  Attenuation->Attenuation.bAttenuate=true;
+  Attenuation->Attenuation.DistanceAlgorithm=EAttenuationDistanceModel::Linear;
+  Attenuation->Attenuation.AttenuationShapeExtents=FVector(300,0,0);
+  Attenuation->Attenuation.FalloffDistance=5700.f;
+  return UGameplayStatics::SpawnSoundAttached(GameAudio::Sound(Name),Car->GetRootComponent(),NAME_None,
+   FVector::ZeroVector,EAttachLocation::KeepRelativeOffset,true,Volume,1.f,0.f,Attenuation);
+ }
  bool IsRoadBody(const APatrolEnemy* N)
  {
   if(N->Health<=0)return true;
@@ -99,6 +114,8 @@ void AExtractionConvoyCar::Initialize(APlayerController* PC,const FVector& Stop,
 {
  PlayerController=PC;StopLocation=Stop+BodyOffset;EntryLocation=Start+BodyOffset;
  bPolice=Police;PassengerCount=FMath::Clamp(Count,1,4);
+ if(IsValid(SirenAudio))SirenAudio->Stop();
+ SirenAudio=bPolice?VehicleSound(this,TEXT("PoliceSiren"),.6f):nullptr;
  auto* Paint=LoadObject<UMaterialInterface>(nullptr,bPolice?TEXT("/Game/AppearanceSkins/M_PoliceCar"):TEXT("/Game/AppearanceSkins/M_GangCar"));
  TInlineComponentArray<UStaticMeshComponent*> Parts(this);
  for(auto* C:Parts)
@@ -220,6 +237,12 @@ bool AExtractionConvoyCar::MoveAlongRoad(float DT,const FVector& Target,bool Bra
  Next.Z=Ground.Z+BodyOffset.Z;
  FHitResult Hit;const FVector Old=GetActorLocation();SetActorLocation(Next,true,&Hit);
  const float Moved=FVector::Dist2D(Old,GetActorLocation());
+ // Presentation only: a single brake cue after successful movement in the arrival braking zone.
+ if(!bPolice&&Brake&&!bBrakeSoundPlayed&&Moved>0.f&&Speed>100.f&&Desired<MaxSpeed&&Distance<1400.f)
+ {
+  bBrakeSoundPlayed=true;
+  VehicleSound(this,(GetUniqueID()&1)?TEXT("GangBrake1"):TEXT("GangBrake2"),.65f);
+ }
  if(Hit.bBlockingHit){Speed=0;BlockedTime+=DT;}else BlockedTime=FMath::Max(0.f,BlockedTime-DT*.1f);
  WheelAngle=FMath::Fmod(WheelAngle+(bReverse?-1:1)*FMath::RadiansToDegrees(Moved/34.f),360.f);
  for(int32 I=0;I<Wheels.Num();++I)Wheels[I]->SetRelativeRotation(FRotator((I%2?-1:1)*WheelAngle,I%2?180:0,0));
@@ -227,6 +250,7 @@ bool AExtractionConvoyCar::MoveAlongRoad(float DT,const FVector& Target,bool Bra
 }
 void AExtractionConvoyCar::StartDeparture()
 {
+ if(IsValid(SirenAudio))SirenAudio->FadeOut(.3f,0.f);
  Phase=EConvoyCarPhase::Departing;PhaseTime=0;Speed=0;BlockedTime=0;
  const FVector Here=GetActorLocation()-BodyOffset;
  FVector Ahead;
@@ -303,7 +327,7 @@ void AExtractionConvoyCar::Tick(float DT)
   if(MoveAlongRoad(DT,StopLocation,true))
   {
    // Arrival was validated when dispatched. Looking away must not cancel unloading.
-   if(!bAborted){Phase=EConvoyCarPhase::Unloading;PhaseTime=0;Speed=0;}
+   if(!bAborted){Phase=EConvoyCarPhase::Unloading;PhaseTime=0;Speed=0;if(IsValid(SirenAudio))SirenAudio->FadeOut(.3f,0.f);}
    else StartDeparture();
   }
   else if(BlockedTime>(bPolice?12.f:4.f))StartDeparture();
@@ -321,7 +345,7 @@ void AExtractionConvoyCar::Tick(float DT)
   {bReverse=true;DepartureTarget=EntryLocation;BlockedTime=0;}
  }
 }
-void AExtractionConvoyCar::EndPlay(const EEndPlayReason::Type Reason){Super::EndPlay(Reason);}
+void AExtractionConvoyCar::EndPlay(const EEndPlayReason::Type Reason){if(IsValid(SirenAudio))SirenAudio->Stop();Super::EndPlay(Reason);}
 
 void AExtractionConvoyCar::YieldTraffic(const FVector& Direction)
 {

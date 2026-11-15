@@ -1,5 +1,6 @@
 #if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
 #include "ExtractionPoint.h"
+#include "Components/AudioComponent.h"
 #include "Misc/AutomationTest.h"
 #include "Tests/AutomationCommon.h"
 #include "Tests/AutomationEditorCommon.h"
@@ -72,10 +73,16 @@ public:
    Test->TestTrue(TEXT("Shared F action handles the vehicle"),Interaction->TryInteract());
    if(!Test->TestTrue(TEXT("Explicit interaction inside range starts extraction"),P->State==EExtractionState::Extracting))return true;
    Test->TestFalse(TEXT("Repeated activation cannot restart countdown"),P->TryStart(PC));
+   Test->TestTrue(TEXT("Extraction starts heartbeat"),IsValid(P->HeartbeatAudio)&&P->HeartbeatAudio->IsPlaying());
+   if(P->HeartbeatAudio)Test->TestFalse(TEXT("Heartbeat respects gameplay pause"),P->HeartbeatAudio->bIsUISound);
+   auto* FirstHeartbeat=P->HeartbeatAudio.Get();
+   P->TryStart(PC);Test->TestTrue(TEXT("Repeated activation does not duplicate heartbeat"),P->HeartbeatAudio==FirstHeartbeat);
    Test->TestFalse(TEXT("World permits only one extraction"),W->GetSubsystem<UExtractionSubsystem>()->Claim(P));
    P->Advance(5);Test->TestEqual(TEXT("Countdown after five seconds"),P->RemainingSeconds,55.f);
    Player->SetActorLocation(Here-FVector(1251,0,0));P->Advance(.01f);
    Test->TestTrue(TEXT("Leaving radius cancels"),P->State==EExtractionState::Idle);
+   Test->TestNull(TEXT("Leaving radius releases heartbeat"),P->HeartbeatAudio.Get());
+   Test->TestFalse(TEXT("Cancelled heartbeat is stopped"),IsValid(FirstHeartbeat)&&FirstHeartbeat->IsPlaying());
    Test->TestNull(TEXT("Cancellation clears world alarm"),W->GetSubsystem<UExtractionSubsystem>()->GetExtractingPlayer());
    Player->SetActorLocation(Here);Test->TestTrue(TEXT("Re-entry restarts full timer"),P->TryStart(PC));
    Test->TestEqual(TEXT("Fresh timer"),P->RemainingSeconds,60.f);
@@ -114,6 +121,7 @@ public:
   P->Advance(.11f);
   Test->TestTrue(TEXT("60 seconds reaches successful existing settlement"),P->State==EExtractionState::Completed&&Library->bRoundEnded&&!Library->bEndedByDeath);
   Test->TestNull(TEXT("Completion releases world alarm"),W->GetSubsystem<UExtractionSubsystem>()->GetActivePoint());
+  Test->TestNull(TEXT("Completion releases heartbeat"),P->HeartbeatAudio.Get());
   return true;
  }
 private:

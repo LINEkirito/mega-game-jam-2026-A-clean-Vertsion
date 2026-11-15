@@ -94,7 +94,12 @@ public:
   for(int32 Step=0;Step<(Visual?1:12);++Step)
   {
    TArray<AExtractionConvoyCar*> Cars;for(TActorIterator<AExtractionConvoyCar> It(W);It;++It)Cars.Add(*It);
-   for(auto* C:Cars)if(IsValid(C))C->Tick(.05f);
+   for(auto* C:Cars)if(IsValid(C))
+   {
+    C->Tick(.05f);
+    if(IsValid(C)&&C->Phase==EConvoyCarPhase::Unloading&&!C->bPolice)
+     Test->TestTrue(TEXT("Arriving gang car played its brake cue"),C->bBrakeSoundPlayed);
+   }
    for(auto N:S->Responders)if(N.IsValid())N->SetActorTickEnabled(false);
   }
   Elapsed+=Visual?.05f:.6f;
