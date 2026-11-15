@@ -101,7 +101,7 @@ bool AExtractionPoint::TryStart(APlayerController* PC)
  Notice.Empty();NoticeSeconds=0;Session->UpdateResponse(0);NotifyState();
  HeartbeatAudio=UGameplayStatics::CreateSound2D(this,GameAudio::Sound(TEXT("ExtractionHeartbeat")),.4f);
  if(HeartbeatAudio){HeartbeatAudio->bIsUISound=false;HeartbeatAudio->Play();}
- GameAudio::Cue(this,TEXT("ExtractionEnter"));return true;
+ GameAudio::Cue(this,TEXT("ExtractionEnter"));GameAudio::PlayerLine(this,4);return true;
 }
 void AExtractionPoint::NotifyState()
 {

@@ -293,7 +293,7 @@ void ATacticalWeapon::Flash()
             FlashMesh->SetVisibility(false);
         }
     }
-    Sound(Kind==ETacticalWeaponKind::Pistol?TEXT("PistolFire"):Kind==ETacticalWeaponKind::Rifle?TEXT("RifleFire"):TEXT("ShotgunFire"),.7f);
+    Sound(Kind==ETacticalWeaponKind::Pistol?TEXT("PistolFire"):Kind==ETacticalWeaponKind::Rifle?TEXT("RifleFire"):TEXT("ShotgunFire"),.5f);
 }
 void ATacticalWeapon::AnimateParts()
 {

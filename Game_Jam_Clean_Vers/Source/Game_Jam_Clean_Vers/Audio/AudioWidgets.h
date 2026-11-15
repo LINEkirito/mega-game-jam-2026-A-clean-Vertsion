@@ -11,7 +11,7 @@ public:
  void Construct(const SButton::FArguments& Args)
  {
   auto WithAudio=Args;
-  const FSlateSound Click=GameAudio::UISound(TEXT("UI_Click")),Hover=GameAudio::UISound(TEXT("UI_Hover"));
+  const FSlateSound Click=GameAudio::UISound(TEXT("UI_JiegeClick")),Hover=GameAudio::UISound(TEXT("UI_JiegeHover"));
   // Slate widgets are not UObjects: explicitly keep override assets alive across GC.
   ClickResource.Reset(Click.GetResourceObject());HoverResource.Reset(Hover.GetResourceObject());
   WithAudio.PressedSoundOverride(Click);
@@ -33,7 +33,7 @@ protected:
  {
   const double Now=FPlatformTime::Seconds();
   if(!FMath::IsNearlyEqual(NewValue,GetValue())&&Now-LastTick>.08)
-  {FSlateApplication::Get().PlaySound(GameAudio::UISound(TEXT("UI_Slide")));LastTick=Now;}
+  {FSlateApplication::Get().PlaySound(GameAudio::UISound(TEXT("UI_JiegeTick")));LastTick=Now;}
   SSlider::CommitValue(NewValue);
  }
 private:

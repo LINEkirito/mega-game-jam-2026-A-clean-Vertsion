@@ -1,4 +1,5 @@
 #include "GameFrontend.h"
+#include "Frontend/MenuPresentation.h"
 #include "TitleMenu.h"
 #include "Audio/AudioWidgets.h"
 #include "Frontend/LocalUserSettings.h"
@@ -52,6 +53,10 @@ namespace
   return SNew(SAudioButton).ContentPadding(FMargin(22,13)).HAlign(HAlign_Center)
    .OnClicked_Lambda([Action=MoveTemp(Action)]{Action();return FReply::Handled();})[Label(Text,Size,0,GameLanguage::EFontRole::Emphasis)];
  }
+ TSharedRef<SWidget> MenuLabel(const TCHAR* Text,int Size=20,float Wrap=620,GameLanguage::EFontRole Role=GameLanguage::EFontRole::Automatic)
+ {return SNew(SMenuTextBlock).Font(GameLanguage::Font(Size,Role)).AutoWrapText(false).WrapTextAt(Wrap).Text(FText::FromString(Text));}
+ TSharedRef<SWidget> MenuButton(const TCHAR* Text,TFunction<void()> Action,int Size=20)
+ {return SNew(SMenuButton).ContentPadding(FMargin(22,13)).HAlign(HAlign_Center).OnClicked_Lambda([Action=MoveTemp(Action)]{Action();return FReply::Handled();})[MenuLabel(Text,Size,0)];}
  class SFrontendSettings final:public SCompoundWidget
  {
  public:
@@ -59,60 +64,69 @@ namespace
   virtual bool SupportsKeyboardFocus() const override{return true;}
   void Construct(const FArguments&,APlayerController* PC,TFunction<void()> Close,TFunction<void()> Language)
   {
-   Player=PC;Sensitivity=GameFrontend::Sensitivity();Effects=Read(TEXT("Effects"),1,0,1);Music=Read(TEXT("Music"),1,0,1);
+   Player=PC;Sensitivity=GameFrontend::Sensitivity();Voice=GameFrontend::VoiceVolume();Effects=Read(TEXT("Effects"),1,0,1);Music=Read(TEXT("Music"),1,0,1);
    auto General=SNew(SVerticalBox);
-   General->AddSlot().AutoHeight().Padding(0,18)[Label(TEXT("控制与音频"),28)];
-   General->AddSlot().AutoHeight().Padding(0,0,0,8)[Button(TEXT("语言 / Language"),Language)];
+   General->AddSlot().AutoHeight().Padding(0,18)[MenuLabel(TEXT("控制与音频"),28)];
+   General->AddSlot().AutoHeight().Padding(0,0,0,8)[MenuButton(TEXT("语言 / Language"),Language)];
    AddSlider(General,TEXT("鼠标灵敏度"),&Sensitivity,.1f,3.f,false);
+   AddSlider(General,TEXT("人物语音音量"),&Voice,0,1,true);
    AddSlider(General,TEXT("音效音量"),&Effects,0,1,true);
-   AddSlider(General,TEXT("音乐音量"),&Music,0,1,true);
-   General->AddSlot().AutoHeight().Padding(0,16)[Label(TEXT("音乐音量用于背景音乐；当前关卡尚未配置背景音乐。"),16)];
-   General->AddSlot().AutoHeight().Padding(0,16)[SNew(SLocalizedTextBlock).AutoWrapText(true).Text_Lambda([this]{return FText::FromString(bSaved?TEXT("设置已应用并保存。"):TEXT("调整后点击应用；关闭将放弃未应用的修改。"));})];
-   General->AddSlot().AutoHeight()[Button(TEXT("应用并保存"),[this]
+   AddSlider(General,TEXT("背景音乐音量"),&Music,0,1,true);
+   General->AddSlot().AutoHeight().Padding(0,16)[MenuLabel(TEXT("三类音量独立调整；100% 使用推荐混音，0% 静音。"),16)];
+   General->AddSlot().AutoHeight().Padding(0,16)[SNew(SMenuTextBlock).AutoWrapText(true).Text_Lambda([this]{return FText::FromString(bSaved?TEXT("设置已应用并保存。"):TEXT("调整后点击应用；关闭将放弃未应用的修改。"));})];
+   auto Footer=SNew(SHorizontalBox);
+   Footer->AddSlot().FillWidth(1.5f).Padding(0,0,6,0)[MenuButton(TEXT("恢复推荐音量"),[this]{Voice=Effects=Music=1.f;bSaved=false;},16)];
+   Footer->AddSlot().FillWidth(1).Padding(0,0,6,0)[MenuButton(TEXT("应用并保存"),[this]
    {
     GConfig->SetFloat(Section,TEXT("Sensitivity"),Sensitivity,GameLocalSettings::Filename());
+    GConfig->SetFloat(Section,TEXT("Voice"),Voice,GameLocalSettings::Filename());
     GConfig->SetFloat(Section,TEXT("Effects"),Effects,GameLocalSettings::Filename());
     GConfig->SetFloat(Section,TEXT("Music"),Music,GameLocalSettings::Filename());
     GConfig->Flush(false,GameLocalSettings::Filename());GameFrontend::ApplyAudio(Player.Get());bSaved=true;
    })];
-   General->AddSlot().AutoHeight().Padding(0,12)[Button(TEXT("返回"),Close)];
-   GeneralPanel=SNew(SScrollBox)+SScrollBox::Slot()[General];
+   Footer->AddSlot().FillWidth(1).Padding(6,0,0,0)[MenuButton(TEXT("返回"),Close)];
+   GeneralPanel=SNew(SVerticalBox)
+    +SVerticalBox::Slot().FillHeight(1)[SNew(SScrollBox)+SScrollBox::Slot()[General]]
+    +SVerticalBox::Slot().AutoHeight().Padding(0,16,0,4)[Footer];
    PerformancePanel=GamePerformance::MakePanel(Close,Language);
    ChildSlot[SNew(SBox).WidthOverride(700).HeightOverride(740)
     [SNew(SVerticalBox)
-     +SVerticalBox::Slot().AutoHeight()[Label(TEXT("设置"),30)]
+     +SVerticalBox::Slot().AutoHeight()[MenuLabel(TEXT("设置"),30)]
      +SVerticalBox::Slot().AutoHeight().Padding(0,12)[SNew(SHorizontalBox)
-      +SHorizontalBox::Slot().FillWidth(1).Padding(0,0,6,0)[Button(TEXT("控制与音频"),[this]{Host->SetContent(GeneralPanel.ToSharedRef());},18)]
-      +SHorizontalBox::Slot().FillWidth(1).Padding(6,0,0,0)[Button(TEXT("性能与画质"),[this]{Host->SetContent(PerformancePanel.ToSharedRef());},18)]]
+      +SHorizontalBox::Slot().FillWidth(1).Padding(0,0,6,0)[MenuButton(TEXT("控制与音频"),[this]{Host->SetContent(SNew(SMenuEntrance)[GeneralPanel.ToSharedRef()]);},18)]
+      +SHorizontalBox::Slot().FillWidth(1).Padding(6,0,0,0)[MenuButton(TEXT("性能与画质"),[this]{Host->SetContent(SNew(SMenuEntrance)[PerformancePanel.ToSharedRef()]);},18)]]
      +SVerticalBox::Slot().FillHeight(1)[SAssignNew(Host,SBorder).Padding(0).BorderImage(FCoreStyle::Get().GetBrush("NoBrush"))[GeneralPanel.ToSharedRef()]]]];
   }
  private:
   TWeakObjectPtr<APlayerController> Player;
   TSharedPtr<SWidget> GeneralPanel,PerformancePanel;
   TSharedPtr<SBorder> Host;
-  float Sensitivity=1,Effects=1,Music=1;bool bSaved=false;
+  float Sensitivity=1,Voice=1,Effects=1,Music=1;bool bSaved=false;
   void AddSlider(TSharedRef<SVerticalBox> Rows,const TCHAR* Text,float* Value,float Min,float Max,bool Percent)
   {
-   Rows->AddSlot().AutoHeight().Padding(0,16)[SNew(SVerticalBox)
-    +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,10)[Label(Text)]
+   Rows->AddSlot().AutoHeight().Padding(0,10)[SNew(SVerticalBox)
+    +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,10)[MenuLabel(Text)]
     +SVerticalBox::Slot().AutoHeight()[SNew(SHorizontalBox)
-     +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)[SNew(SAudioSlider).Value_Lambda([Value,Min,Max]{return (*Value-Min)/(Max-Min);})
+     +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)[SNew(SAudioSlider).Style(MenuPresentation::SliderStyle()).SliderBarColor(MenuPresentation::Paper()).SliderHandleColor(MenuPresentation::Red()).Value_Lambda([Value,Min,Max]{return (*Value-Min)/(Max-Min);})
       .OnValueChanged_Lambda([this,Value,Min,Max](float V){*Value=Min+V*(Max-Min);bSaved=false;})]
-     +SHorizontalBox::Slot().AutoWidth().Padding(16,0)[SNew(SBox).WidthOverride(80)[SNew(SLocalizedTextBlock).Text_Lambda([Value,Percent]{return FText::FromString(Percent?FString::Printf(TEXT("%.0f%%"),*Value*100):FString::Printf(TEXT("%.2f x"),*Value));})]]]];
+     +SHorizontalBox::Slot().AutoWidth().Padding(16,0)[SNew(SBox).WidthOverride(80)[SNew(SMenuTextBlock).Text_Lambda([Value,Percent]{return FText::FromString(Percent?FString::Printf(TEXT("%.0f%%"),*Value*100):FString::Printf(TEXT("%.2f x"),*Value));})]]]];
   }
  };
 }
 float GameFrontend::Sensitivity(){return Read(TEXT("Sensitivity"),1,.1f,3.f);}
+float GameFrontend::VoiceVolume(){return Read(TEXT("Voice"),1,0,1);}
 void GameFrontend::ApplyAudio(APlayerController* PC)
 {
  if(!PC)return;
+ auto* DialogueClass=LoadObject<USoundClass>(nullptr,TEXT("/Game/Audio/GameSFX/SC_Dialogue.SC_Dialogue"));
+ LoadObject<USoundClass>(nullptr,TEXT("/Game/Audio/GameSFX/SC_Music.SC_Music"));
  // Per-controller mix belongs to its world. Root classes avoid multiplying the slider at every child.
  auto* Mix=FindObject<USoundMix>(PC,TEXT("FrontendVolumeMix"));
  if(!Mix){Mix=NewObject<USoundMix>(PC,TEXT("FrontendVolumeMix"));Mix->Duration=-1;Mix->FadeInTime=0;UGameplayStatics::PushSoundMixModifier(PC,Mix);}
  for(TObjectIterator<USoundClass> It;It;++It)
  {
   auto* Class=*It;if(Class->HasAnyFlags(RF_ClassDefaultObject)||Class->ParentClass)continue;
-  UGameplayStatics::SetSoundMixClassOverride(PC,Mix,Class,Read(Class->Properties.bIsMusic?TEXT("Music"):TEXT("Effects"),1,0,1),1,0,true);
+  UGameplayStatics::SetSoundMixClassOverride(PC,Mix,Class,Read(Class==DialogueClass?TEXT("Voice"):Class->Properties.bIsMusic?TEXT("Music"):TEXT("Effects"),1,0,1),1,0,true);
  }
 }
 void GameFrontend::ReleaseAudio(APlayerController* PC)
@@ -128,22 +142,22 @@ TSharedRef<SWidget> GameFrontend::Main(TFunction<void()> Start,TFunction<void()>
 TSharedRef<SWidget> GameFrontend::Pause(TFunction<void()> Resume,TFunction<void()> Settings,TFunction<void()> Unstuck,TFunction<void()> Title,bool bUnstuckFailed)
 {
  return SNew(SBox).WidthOverride(520)[SNew(SVerticalBox)
-  +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,12)[Label(TEXT("游戏菜单"),32)]
-  +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,20)[Label(TEXT("菜单打开时游戏继续运行。"),16,500)]
-  +SVerticalBox::Slot().AutoHeight().Padding(0,6)[Button(TEXT("继续游戏"),MoveTemp(Resume))]
-  +SVerticalBox::Slot().AutoHeight().Padding(0,6)[Button(TEXT("设置"),MoveTemp(Settings))]
-  +SVerticalBox::Slot().AutoHeight().Padding(0,6)[Button(TEXT("脱离卡死"),MoveTemp(Unstuck))]
-  +SVerticalBox::Slot().AutoHeight().Padding(0,4,0,16)[Label(TEXT("返回本局出生点，保留当前生命值和物品。"),16,500)]
-  +SVerticalBox::Slot().AutoHeight().Padding(0,6)[Button(TEXT("返回标题界面"),MoveTemp(Title))]
-  +SVerticalBox::Slot().AutoHeight().Padding(0,4)[Label(TEXT("返回标题将结束本局，不进行撤离结算。"),16,500)]
-  +SVerticalBox::Slot().AutoHeight().Padding(0,12)[Label(bUnstuckFailed?TEXT("出生点被阻挡，暂时无法返回。请稍后重试。"):TEXT(""),16,500)]];
+  +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,12)[MenuLabel(TEXT("游戏菜单"),32)]
+  +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,20)[MenuLabel(TEXT("菜单打开时游戏继续运行。"),16,500)]
+  +SVerticalBox::Slot().AutoHeight().Padding(0,6)[MenuButton(TEXT("继续游戏"),MoveTemp(Resume))]
+  +SVerticalBox::Slot().AutoHeight().Padding(0,6)[MenuButton(TEXT("设置"),MoveTemp(Settings))]
+  +SVerticalBox::Slot().AutoHeight().Padding(0,6)[MenuButton(TEXT("脱离卡死"),MoveTemp(Unstuck))]
+  +SVerticalBox::Slot().AutoHeight().Padding(0,4,0,16)[MenuLabel(TEXT("返回本局出生点，保留当前生命值和物品。"),16,500)]
+  +SVerticalBox::Slot().AutoHeight().Padding(0,6)[MenuButton(TEXT("返回标题界面"),MoveTemp(Title))]
+  +SVerticalBox::Slot().AutoHeight().Padding(0,4)[MenuLabel(TEXT("返回标题将结束本局，不进行撤离结算。"),16,500)]
+  +SVerticalBox::Slot().AutoHeight().Padding(0,12)[MenuLabel(bUnstuckFailed?TEXT("出生点被阻挡，暂时无法返回。请稍后重试。"):TEXT(""),16,500)]];
 }
 TSharedRef<SWidget> GameFrontend::Tutorial(TFunction<void()> Close,bool Opening)
 {
  auto Rows=SNew(SVerticalBox);
  Rows->AddSlot().AutoHeight().Padding(0,0,0,20)[Label(TEXT("使用教程"),30)];
- const TCHAR* Keys[]={TEXT("W A S D"),TEXT("SHIFT / CTRL"),TEXT("SPACE"),TEXT("F / I"),TEXT("1  2  3  4"),TEXT("RMB → LMB"),TEXT("SCROLL / V"),TEXT("R / P")};
- const TCHAR* Texts[]={TEXT("移动"),TEXT("切换冲刺 / 蹲下"),TEXT("跳跃"),TEXT("拾取互动 / 背包"),TEXT("切换装备；滚轮也可切换"),TEXT("摄像机：举起取景器 → 开始或停止录像"),TEXT("取景时变焦 / 切换自拍"),TEXT("枪械装填 / 摄像机开关机")};
+ const TCHAR* Keys[]={TEXT("W A S D"),TEXT("SHIFT / CTRL"),TEXT("SPACE"),TEXT("F"),TEXT("1  2  3  4"),TEXT("RMB → LMB"),TEXT("SCROLL / V"),TEXT("R / P")};
+ const TCHAR* Texts[]={TEXT("移动"),TEXT("切换冲刺 / 蹲下"),TEXT("跳跃"),TEXT("拾取互动"),TEXT("切换装备；滚轮也可切换"),TEXT("摄像机：举起取景器 → 开始或停止录像"),TEXT("取景时变焦 / 切换自拍"),TEXT("枪械装填 / 摄像机开关机")};
  for(int32 I=0;I<8;++I)
   Rows->AddSlot().AutoHeight().Padding(0,5)[SNew(SHorizontalBox)
    +SHorizontalBox::Slot().AutoWidth()[SNew(SBox).WidthOverride(210)[SNew(SBorder).Padding(12).BorderBackgroundColor(FLinearColor(.08,.18,.22))[Label(Keys[I],18)]]]

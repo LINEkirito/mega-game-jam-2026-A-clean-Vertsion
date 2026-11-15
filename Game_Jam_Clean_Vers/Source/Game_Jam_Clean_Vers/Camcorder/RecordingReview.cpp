@@ -1,4 +1,5 @@
 #include "RecordingReview.h"
+#include "Audio/BackgroundMusic.h"
 #include "Audio/AudioWidgets.h"
 #include "RecordingLibrary.h"
 #include "Localization/GameLanguage.h"
@@ -27,7 +28,7 @@
 
 namespace
 {
- const FLinearColor Paper(.92f,.89f,.8f),Gold(1.f,.65f,.12f),Red(.55f,.012f,.018f),Ink(.012f,.01f,.012f);
+ const FLinearColor Paper(.92f,.89f,.8f),Gold(1.f,.65f,.12f),ReviewRed(.55f,.012f,.018f),Ink(.012f,.01f,.012f);
  constexpr float FilmWidth=820.f*2.f/3.f,FilmHeight=FilmWidth*9.f/16.f,FilmX=(1280-FilmWidth)*.5f,FilmY=96;
  constexpr float CountStart=.36f,CountDuration=1.2f,CountEnd=CountStart+CountDuration;
  constexpr float TypingDuration=.85f,IntertitleHold=3.f,IntertitleFade=.2f;
@@ -233,6 +234,7 @@ namespace
 void SRecordingReview::Construct(const FArguments& A)
 {
  Library=A._Library;
+ if(auto* L=Library.Get())if(auto* W=L->GetWorld())if(auto* Music=UBackgroundMusic::For(W->GetFirstPlayerController()))Music->SetStage(EBackgroundMusicStage::Ending);
  if(auto* L=Library.Get())for(int32 I=0;I<L->Clips.Num();++I)Thumbnails.Add(MakeShared<FThumbnail>());
  NextPop=.3f;LoadArt();Build();
 }
@@ -511,7 +513,7 @@ TSharedRef<SWidget> SRecordingReview::MakeSummary()
  {return Label(Text,Size,Color,Wrap,GameLanguage::EFontRole::Heading);};
  auto EndingButton=[](const FString& Text,TFunction<void()> Action)
  {return TextButton(Text,MoveTemp(Action),GameLanguage::EFontRole::Heading);};
- auto* L=Library.Get();auto C=SNew(SCanvas);Put(C,Fill(Red),0,0,1280,720);
+ auto* L=Library.Get();auto C=SNew(SCanvas);Put(C,Fill(ReviewRed),0,0,1280,720);
  SummaryCanvas.Reset();
  auto Stamp=[this](TSharedRef<SWidget> Content,float Delay,float Angle=0.f)->TSharedRef<SWidget>
  {

@@ -9,6 +9,7 @@ namespace GameAudio
  FSlateSound UISound(const TCHAR* Name);
  void Cue(const UObject* Context,const TCHAR* Name,float Volume=.35f);
  void Handling(AActor* Actor,const TCHAR* Name);
+ void PlayerLine(const UObject* Context,int32 Line);
  void PlayerHurt(AActor* Actor);
  void PlayerDeath(AActor* Actor);
 }

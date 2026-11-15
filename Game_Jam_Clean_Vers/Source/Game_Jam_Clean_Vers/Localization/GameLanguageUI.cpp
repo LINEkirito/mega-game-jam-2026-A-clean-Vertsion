@@ -1,6 +1,8 @@
 #include "GameLanguageUI.h"
+#include "Frontend/MenuPresentation.h"
 #include "Game_Jam_Clean_VersCharacter.h"
 #include "Audio/AudioWidgets.h"
+#include "Audio/BackgroundMusic.h"
 #include "GameFramework/GameModeBase.h"
 #include "Kismet/GameplayStatics.h"
 #include "GameLanguage.h"
@@ -117,14 +119,12 @@ namespace
   virtual bool HandleMouseMoveEvent(FSlateApplication&,const FPointerEvent& E) override
   {
    if(!bCountingDown||!InGameWindow())return false;
-   // Only the opening overlay handles this delta. No pawn/weapon input is dispatched while paused.
-   PendingMouseLook+=E.GetCursorDelta();return true;
+   // Consume look input until ACTION; no pawn or weapon input is dispatched while paused.
+   return true;
   }
   virtual bool HandleAnalogInputEvent(FSlateApplication&,const FAnalogInputEvent& E) override
   {
    if(!bCountingDown||!InGameWindow())return false;
-   if(E.GetKey()==EKeys::Gamepad_RightX)StickLook.X=E.GetAnalogValue();
-   if(E.GetKey()==EKeys::Gamepad_RightY)StickLook.Y=E.GetAnalogValue();
    return true;
   }
   virtual bool HandleMouseButtonDownEvent(FSlateApplication&,const FPointerEvent&) override{return bCountingDown&&InGameWindow();}
@@ -208,6 +208,7 @@ namespace
   TWeakPtr<SWidget> PreviousFocus;
   bool bPreviousUIOnly=false,bEndingSettings=false;
   bool bOpen=false,bCursor=false,bEatEscape=false;
+  bool bStyledMenu=false;
   bool bOnboarding=false,bIntro=false,bCountingDown=false,bLookReleased=false;
   bool bSavedPausedCamera=false,bCountdownCamera=false;
   float CountdownElapsed=0;
@@ -218,13 +219,14 @@ namespace
   float ScanTime=0;
   void ShowIntro()
   {
-   bMain=false;bOnboarding=true;bIntro=true;
+   bStyledMenu=false;bMain=false;bOnboarding=true;bIntro=true;
    PerformancePanel=IntroPresentation::Make([this]{ShowOpeningTutorial();});ShowPerformance();
   }
   void ShowOpeningTutorial()
   {
+   if(auto* Music=UBackgroundMusic::For(Player.Get()))Music->SetStage(EBackgroundMusicStage::Gameplay);
    if(!bOpen){bFrontend=true;Open(false);}
-   bMain=false;bIntro=false;bOnboarding=true;
+   bStyledMenu=false;bMain=false;bIntro=false;bOnboarding=true;
    PerformancePanel=GameFrontend::Tutorial([this]{BeginCountdown();},true);ShowPerformance();
   }
   void BeginCountdown()
@@ -237,7 +239,8 @@ namespace
    CountdownRoot=SNew(SScaleBox).Stretch(EStretch::ScaleToFit).Visibility(EVisibility::HitTestInvisible)
     [SAssignNew(Countdown,SOpeningCountdown)];
    V->AddViewportWidgetContent(CountdownRoot.ToSharedRef(),2000);
-   PC->SetIgnoreLookInput(false);bLookReleased=true;
+   // Keep the existing menu movement/look locks until ACTION.
+   bLookReleased=false;
    PC->bShowMouseCursor=false;
    if(PC->PlayerInput)PC->PlayerInput->FlushPressedKeys();
    PC->SetInputMode(FInputModeGameOnly());FSlateApplication::Get().SetAllUserFocusToGameViewport();
@@ -263,22 +266,12 @@ namespace
    auto* PC=Player.Get();
    if(bCountingDown&&PC)
    {
-    if(InGameWindow()&&PC->PlayerCameraManager)
-    {
-     const float Sensitivity=GameFrontend::Sensitivity();
-     const FVector2D Stick=FVector2D(FMath::Abs(StickLook.X)>.15f?StickLook.X:0,FMath::Abs(StickLook.Y)>.15f?StickLook.Y:0);
-     FRotator Rotation=PC->GetControlRotation();
-     FRotator Delta((-PendingMouseLook.Y+Stick.Y*DT*90)*Sensitivity,(PendingMouseLook.X+Stick.X*DT*90)*Sensitivity,0);
-     PC->PlayerCameraManager->ProcessViewRotation(DT,Rotation,Delta);
-     PC->SetControlRotation(Rotation);
-     PC->UpdateCameraManager(DT);
-    }
-    else StickLook=FVector2D::ZeroVector;
-    PendingMouseLook=FVector2D::ZeroVector;
+    PendingMouseLook=StickLook=FVector2D::ZeroVector;
     if(CountdownElapsed>=3.f)
     {
      ActionStartedAt=Now;
      RestoreCountdownCamera();bCountingDown=false;bOnboarding=false;bFrontend=false;bPerformance=true;
+     if(auto* Music=UBackgroundMusic::For(PC))Music->SetStage(EBackgroundMusicStage::Gameplay);
      Close();FSlateApplication::Get().SetAllUserFocusToGameViewport();
     }
    }
@@ -309,7 +302,7 @@ namespace
   void ShowSettings()
   {
    bPauseRoot=false;
-   bMain=false;PerformancePanel=GameFrontend::Settings(Player.Get(),[this]{Close();},[this]{ShowLanguage();});ShowPerformance();
+   bStyledMenu=true;bMain=false;PerformancePanel=GameFrontend::Settings(Player.Get(),[this]{Close();},[this]{ShowLanguage();});ShowPerformance();
   }
   void ResumeGame()
   {
@@ -317,7 +310,7 @@ namespace
   }
   void ShowPause(bool bUnstuckFailed=false)
   {
-   bPauseRoot=true;
+   bStyledMenu=true;bPauseRoot=true;
    PerformancePanel=GameFrontend::Pause([this]{ResumeGame();},[this]{ShowSettings();},[this]
    {
     auto* PC=Player.Get();auto* P=PC?Cast<AGame_Jam_Clean_VersCharacter>(PC->GetPawn()):nullptr;
@@ -333,12 +326,13 @@ namespace
   }
   void ShowMain()
   {
-   bMain=true;
+   if(auto* Music=UBackgroundMusic::For(Player.Get()))Music->SetStage(EBackgroundMusicStage::Menu);
+   bStyledMenu=false;bMain=true;
    // Reuse this title view when returning from a submenu so its entrance never restarts.
    if(!MainPanel)MainPanel=GameFrontend::Main([this]{ShowIntro();},[this]{ShowSettings();},[this]
    {
-    bMain=false;PerformancePanel=GameFrontend::Tutorial([this]{ShowMain();});ShowPerformance();
-   },[this]{bMain=false;PerformancePanel=GameFrontend::RunHistory([this]{ShowMain();});ShowPerformance();},[this]{if(auto* PC=Player.Get())UKismetSystemLibrary::QuitGame(PC,PC,EQuitPreference::Quit,false);});
+    bStyledMenu=false;bMain=false;PerformancePanel=GameFrontend::Tutorial([this]{ShowMain();});ShowPerformance();
+   },[this]{bStyledMenu=true;bMain=false;PerformancePanel=GameFrontend::RunHistory([this]{ShowMain();});ShowPerformance();},[this]{if(auto* PC=Player.Get())UKismetSystemLibrary::QuitGame(PC,PC,EQuitPreference::Quit,false);});
    else TitleMenu::FinishEntrance(MainPanel.ToSharedRef());
    PerformancePanel=MainPanel;ShowPerformance();
   }
@@ -366,25 +360,30 @@ namespace
    Backdrop->SetPadding(Title?0:20);Backdrop->SetBorderBackgroundColor(Title?FLinearColor::Black:FLinearColor(.008f,.013f,.022f,1.f));
    PanelHost->SetPadding(Title?0:26);PanelHost->SetBorderBackgroundColor(Title?FLinearColor::Transparent:FLinearColor(.025f,.04f,.06f));
    PanelScale->SetStretchDirection(Title?EStretchDirection::Both:EStretchDirection::DownOnly);
-   bPerformance=true;PanelHost->SetContent(PerformancePanel.ToSharedRef());FocusPanel(PerformancePanel);
+   if(bStyledMenu){Backdrop->SetBorderBackgroundColor(FLinearColor(.006f,.005f,.005f));PanelHost->SetBorderBackgroundColor(MenuPresentation::Surface());}
+   bPerformance=true;
+   if(bStyledMenu)PanelHost->SetContent(SNew(SMenuEntrance)[PerformancePanel.ToSharedRef()]);
+   else PanelHost->SetContent(PerformancePanel.ToSharedRef());
+   FocusPanel(PerformancePanel);
   }
   void ShowLanguage()
   {
    bPerformance=false;
    auto Choices=SNew(SVerticalBox);
-   Choices->AddSlot().AutoHeight().Padding(0,0,0,12)[SNew(SLocalizedTextBlock).Font(GameLanguage::Font(28)).Text(FText::FromString(TEXT("语言")))];
-   Choices->AddSlot().AutoHeight().Padding(0,0,0,18)[SNew(SLocalizedTextBlock).Text(FText::FromString(TEXT("选择后立即生效")))];
+   Choices->AddSlot().AutoHeight().Padding(0,0,0,12)[SNew(SMenuTextBlock).Font(GameLanguage::Font(28)).Text(FText::FromString(TEXT("语言")))];
+   Choices->AddSlot().AutoHeight().Padding(0,0,0,18)[SNew(SMenuTextBlock).Text(FText::FromString(TEXT("选择后立即生效")))];
    TSharedPtr<SButton> FocusChoice;
    for(bool English:{false,true})
    {
-    auto Choice=SNew(SAudioButton).ContentPadding(FMargin(22,14)).OnClicked_Lambda([English]{GameLanguage::SetEnglish(English);return FReply::Handled();})
-     [SNew(SLocalizedTextBlock).Font(GameLanguage::Font(24)).Text_Lambda([English]{return FText::FromString(FString(GameLanguage::IsEnglish()==English?TEXT("✓  "):TEXT("    "))+(English?TEXT("English"):TEXT("中文")));})];
+    auto Choice=SNew(SMenuButton).ContentPadding(FMargin(22,14)).OnClicked_Lambda([English]{GameLanguage::SetEnglish(English);return FReply::Handled();})
+     [SNew(SMenuTextBlock).Font(GameLanguage::Font(24)).Text_Lambda([English]{return FText::FromString(FString(GameLanguage::IsEnglish()==English?TEXT("✓  "):TEXT("    "))+(English?TEXT("English"):TEXT("中文")));})];
     if(English==GameLanguage::IsEnglish())FocusChoice=Choice;
     Choices->AddSlot().AutoHeight().Padding(0,6)[Choice];
    }
-   Choices->AddSlot().AutoHeight().Padding(0,20,0,0)[SNew(SAudioButton).ContentPadding(12).OnClicked_Lambda([this]{Close();return FReply::Handled();})
-    [SNew(SLocalizedTextBlock).Text(FText::FromString(TEXT("返回设置")))]];
-   PanelHost->SetContent(SNew(SBox).WidthOverride(400)[Choices]);FocusPanel(FocusChoice);
+   Choices->AddSlot().AutoHeight().Padding(0,20,0,0)[SNew(SMenuButton).ContentPadding(12).OnClicked_Lambda([this]{Close();return FReply::Handled();})
+    [SNew(SMenuTextBlock).Text(FText::FromString(TEXT("返回设置")))]];
+   Backdrop->SetBorderBackgroundColor(FLinearColor(.006f,.005f,.005f));PanelHost->SetBorderBackgroundColor(MenuPresentation::Surface());
+   PanelHost->SetContent(SNew(SMenuEntrance)[SNew(SBox).WidthOverride(400)[Choices]]);FocusPanel(FocusChoice);
   }
 
   void Close()

@@ -114,6 +114,8 @@ void UCamcorderEquipmentComponent::EquipCamera()
 void UCamcorderEquipmentComponent::ToggleBackpack() { SetBackpackOpen(!bBackpackOpen); }
 void UCamcorderEquipmentComponent::SetBackpackOpen(bool bOpen)
 {
+    // Inventory remains active for pickups, reloads and HUD queries; its window is unavailable.
+    if(bOpen) return;
     auto* PC=Player(); if(!PC || !Inventory || !BackpackHUD || bOpen==bBackpackOpen) return;
     if(bOpen && Tablet && Tablet->bOpen)Tablet->SetOpen(false);
     bBackpackOpen=bOpen; bAssignmentMenu=false; RecordHoldSeconds=0; bHoldTriggered=true;

@@ -416,6 +416,7 @@ bool AShoulderCamcorder::StartRecording()
     Capture->CaptureScene(); SampleRecording();
     UpdateScreen();
     GameAudio::Cue(this,TEXT("CameraRecordStart"),.35f);
+    GameAudio::PlayerLine(this,6);
     SetNotice(TEXT("录像中；右键退出取景时会自动保存")); return true;
 }
 void AShoulderCamcorder::SampleRecording()
@@ -443,7 +444,7 @@ void AShoulderCamcorder::StopRecording()
     MonitorTexture->ResizeTarget(1,1);
     if(GetOwner())if(auto* Library=GetOwner()->FindComponentByClass<URecordingLibrary>())Library->FinishClip(this,bOK);
     UpdateScreen();
-    if(bOK) { ++SavedClipCount; GameAudio::Cue(this,TEXT("CameraRecordSaved"),.35f); SetNotice(TEXT("录像已保存：Saved/Recordings/")+FPaths::GetCleanFilename(LastRecordingPath)); }
+    if(bOK) { ++SavedClipCount; GameAudio::Cue(this,TEXT("UI_JiegeSlide"),1.f); SetNotice(TEXT("录像已保存：Saved/Recordings/")+FPaths::GetCleanFilename(LastRecordingPath)); }
     else SetNotice(TEXT("录像保存异常：检查磁盘空间或输出日志；文件可能不完整"));
     UE_LOG(LogTemp,Log,TEXT("Camcorder clip %s: %s"),bOK?TEXT("saved"):TEXT("incomplete"),*LastRecordingPath);
 }

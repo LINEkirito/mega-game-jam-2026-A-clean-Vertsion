@@ -174,7 +174,13 @@ float APatrolEnemy::PlayerWarningRange()const
 }
 void APatrolEnemy::Say(const FString& Text,USoundBase* Sound)
 {
+ if(Voice->IsPlaying())return; // Keep the current spoken line and its bubble together.
  FString SpokenText=Text;
+ // Choose by original identity: becoming Injured must not change voice gender.
+ if(!UsesMaleVoice()){
+  if(Text==TEXT("AAAH!"))Sound=FemaleScreamSound;
+  else if(Text==TEXT("HELP!"))Sound=FemaleHelpSound;
+ }
  if(!Sound){
   Sound=NPCVoiceLines::Select(this,Text,SpokenText,IsBeingFilmed());
   if(Sound){if(GetWorld()->GetTimeSeconds()<NextVoiceTime)return;NextVoiceTime=GetWorld()->GetTimeSeconds()+5.f;}
@@ -320,8 +326,12 @@ float APatrolEnemy::TakeDamage(float Damage,const FDamageEvent&,AController* Eve
   }
  }
  const float Applied=FMath::Min(Damage,Health);Health-=Applied;
- if(Health>0&&AudioHurtCooldown<=0){CharacterAudio::Attached(GameAudio::Sound(TEXT("NPC_Hurt")),GetRootComponent(),ECharacterSound::Voice,.55f);AudioHurtCooldown=.65f;}
- if(Health<=0){AssaultTarget.Reset();RetaliationTarget.Reset();ReleasePartner();CombatTarget=nullptr;SetActivity(ENPCActivity::Dead);Speech->SetVisibility(false);Voice->Stop();if(auto* AI=Cast<AAIController>(GetController()))AI->StopMovement();GetCharacterMovement()->DisableMovement();GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);DropDeathAmmo();NPCBody->SetVisibility(false);GetMesh()->SetVisibility(true);if(HeldWeapon){HeldWeapon->CancelHandling();HeldWeapon->SetActorHiddenInGame(true);}GetMesh()->SetCollisionProfileName(TEXT("Ragdoll"));GetMesh()->SetSimulatePhysics(true);Rifle->SetVisibility(false);SetLifeSpan(30);}
+ if(Health>0&&AudioHurtCooldown<=0){
+  auto* HurtSound=UsesMaleVoice()?GameAudio::Sound(TEXT("NPC_Hurt")):(FemaleHurtSound?FemaleHurtSound.Get():GameAudio::Sound(TEXT("Female_Hurt")));
+  if(HurtSound)CharacterAudio::Attached(HurtSound,GetRootComponent(),ECharacterSound::Voice,.55f);
+  AudioHurtCooldown=.65f;
+ }
+ if(Health<=0){AssaultTarget.Reset();RetaliationTarget.Reset();ReleasePartner();CombatTarget=nullptr;SetActivity(ENPCActivity::Dead);Speech->SetVisibility(false);Voice->Stop();if(!UsesMaleVoice())CharacterAudio::At(this,GameAudio::Sound(TEXT("Female_NPCDeath")),GetActorLocation(),ECharacterSound::Voice,.7f);if(auto* AI=Cast<AAIController>(GetController()))AI->StopMovement();GetCharacterMovement()->DisableMovement();GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);DropDeathAmmo();NPCBody->SetVisibility(false);GetMesh()->SetVisibility(true);if(HeldWeapon){HeldWeapon->CancelHandling();HeldWeapon->SetActorHiddenInGame(true);}GetMesh()->SetCollisionProfileName(TEXT("Ragdoll"));GetMesh()->SetSimulatePhysics(true);Rifle->SetVisibility(false);SetLifeSpan(30);}
  else if(!Crossfire&&NPCRole!=ENPCRole::Injured&&Health<=GetDefault<UGlobalData>()->NPCInjuryHealth)BecomeInjured();
  else if(IsGang()&&Attacker){
   // Police support must not repeatedly reset an already-expired player warning.
@@ -731,7 +741,8 @@ void APatrolEnemy::Tick(float DT)
  }else AudioFootstepDistance=0;
  if(TickTrafficYield(DT)){SetMotion();UpdateWeaponPose(DT);return;}
  TickWeaponCarry(DT);
- if(SpeechTime<=0)Speech->SetVisibility(false);
+ if(Voice->IsPlaying())Speech->SetVisibility(true);
+ else if(SpeechTime<=0)Speech->SetVisibility(false);
  if(HeldWeapon){
   HeldWeapon->AdvanceHandling(DT);
   // Sustain faction firefights while retaining the normal reload/chamber cycle.

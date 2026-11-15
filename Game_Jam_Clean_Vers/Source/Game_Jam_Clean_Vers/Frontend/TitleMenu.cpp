@@ -15,7 +15,8 @@
 namespace
 {
  const FVector2D BoardSize(1043,745);
- const FLinearColor Paper=FLinearColor::FromSRGBColor(FColor(238,235,224));
+ constexpr float FirstBloodSplashTime=.10f;
+ const FLinearColor TitlePaper=FLinearColor::FromSRGBColor(FColor(238,235,224));
  const FLinearColor Ink=FLinearColor::FromSRGBColor(FColor(26,30,27));
  float Settle(float Age,float Duration)
  {
@@ -82,7 +83,7 @@ namespace
   {
    const float Time=Elapsed.Get(0);
    const FVector2D Pivots[]={{.89f,.08f},{.07f,.88f},{.99f,.97f}};
-   const float Delays[]={.31f,.10f,.52f};
+   const float Delays[]={.31f,FirstBloodSplashTime,.52f};
    for(int32 I=0;I<Regions.Num();++I)
    {
     const float T=FMath::Clamp((Time-Delays[I])/.38f,0.f,1.f);if(T<=0)continue;
@@ -120,6 +121,7 @@ namespace
   void Construct(const FArguments&,TArray<TFunction<void()>> Actions)
   {
    Board=MakeUnique<FTitleArt>(TEXT("Clapperboard.png"));Blood=MakeUnique<FTitleArt>(TEXT("Blood.png"));Button=MakeUnique<FTitleArt>(TEXT("Button.png"));
+   BloodSound=GameAudio::UISound(TEXT("UI_BloodSplash"));BloodSoundResource.Reset(BloodSound.GetResourceObject());
    auto Base=Button->Brush;Base.DrawAs=ESlateBrushDrawType::Box;Base.Margin=FMargin(4.f/280,4.f/60);
    auto Hover=Base;Hover.TintColor=FLinearColor(1,.88f,.66f);auto Pressed=Base;Pressed.TintColor=FLinearColor(.83f,.75f,.61f);
    ButtonStyle=FButtonStyle().SetNormal(Base).SetHovered(Hover).SetPressed(Pressed).SetDisabled(Base).SetNormalPadding(FMargin(0)).SetPressedPadding(FMargin(0));
@@ -141,7 +143,7 @@ namespace
     Wrapper->ForceVolatile(true);EntranceParts.Add(Wrapper);return Wrapper;
    };
    const auto TitleFont=GameLanguage::FittedFont(TEXT("DIRECTOR'S"),70,430);
-   for(int32 I=0;I<2;++I)Put(Entrance(SNew(SBox).VAlign(VAlign_Center)[SNew(SLocalizedTextBlock).Font(TitleFont).Text(FText::FromString(I?TEXT("SHOT"):TEXT("DIRECTOR'S"))).ColorAndOpacity(Paper).ShadowOffset(FVector2D(3,4)).ShadowColorAndOpacity(FLinearColor(0,0,0,.38f))],.06f+I*.09f,-1),48,228+I*99,440,100);
+   for(int32 I=0;I<2;++I)Put(Entrance(SNew(SBox).VAlign(VAlign_Center)[SNew(SLocalizedTextBlock).Font(TitleFont).Text(FText::FromString(I?TEXT("SHOT"):TEXT("DIRECTOR'S"))).ColorAndOpacity(TitlePaper).ShadowOffset(FVector2D(3,4)).ShadowColorAndOpacity(FLinearColor(0,0,0,.38f))],.06f+I*.09f,-1),48,228+I*99,440,100);
    const TCHAR* Names[]={TEXT("开始游戏"),TEXT("设置"),TEXT("使用教程"),TEXT("游玩记录"),TEXT("退出游戏")};
    for(int32 I=0;I<5;++I)
    {
@@ -159,7 +161,11 @@ namespace
    // first-use texture/font loading cannot skip the entire entrance in one frame.
    if(Elapsed<1.f)
    {
+    const float PreviousElapsed=Elapsed;
     Elapsed=FMath::Min(Elapsed+FMath::Clamp(DT,0.f,.08f),1.f);Splashes->Invalidate(EInvalidateWidgetReason::Paint);
+    // Match the first visible blood frame, including paused menus and load hitches.
+    if(PreviousElapsed<=FirstBloodSplashTime&&Elapsed>FirstBloodSplashTime)
+     FSlateApplication::Get().PlaySound(BloodSound);
     if(Elapsed>=1.f)FinishEntrance();
    }
   }
@@ -171,6 +177,7 @@ namespace
  private:
   TUniquePtr<FTitleArt> Board,Blood,Button;TSharedPtr<STitleSplashes> Splashes;FButtonStyle ButtonStyle;float Elapsed=0;
   TArray<TSharedPtr<SWidget>> EntranceParts;
+  FSlateSound BloodSound;TStrongObjectPtr<UObject> BloodSoundResource;
  };
 }
 TSharedRef<SWidget> TitleMenu::Make(TFunction<void()> Start,TFunction<void()> Settings,TFunction<void()> Tutorial,TFunction<void()> History,TFunction<void()> Quit)

@@ -51,6 +51,11 @@ public:
  UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="NPC|Presentation") TMap<ENPCActivity,TObjectPtr<class UAnimSequence>> ActivityAnimations;
  UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="NPC|Presentation") TObjectPtr<class USoundBase> ScreamSound;
  UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="NPC|Presentation") TObjectPtr<class USoundBase> HelpSound;
+ // Female voice slots stay empty until suitable recordings are supplied.
+ UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="NPC|Presentation") TObjectPtr<class USoundBase> FemaleHurtSound;
+ UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="NPC|Presentation") TObjectPtr<class USoundBase> FemaleScreamSound;
+ UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="NPC|Presentation") TObjectPtr<class USoundBase> FemaleHelpSound;
+ bool UsesMaleVoice() const {return IdentityRole==ENPCRole::GangBoss||IdentityRole==ENPCRole::GangMember||IdentityRole==ENPCRole::Police;}
  // Selected at construction/startup only: injury changes behavior, not identity.
  UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="NPC|Presentation") TMap<ENPCRole,TObjectPtr<class USkeletalMesh>> RoleAppearances;
  UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="NPC|Presentation") TObjectPtr<class USkeletalMesh> AppearanceOverride;
@@ -65,6 +70,7 @@ public:
  UFUNCTION() void WitnessViolence(AActor* Victim,APawn* Attacker,bool ProtectedVictim);
  UFUNCTION(BlueprintImplementableEvent,Category="NPC") void OnActivityChanged(ENPCActivity NewActivity);
 private:
+ friend class FJiegeVoiceCheck;
  FVector TrafficYieldPoint=FVector::ZeroVector;
  float NextVoiceTime=0;
  float TrafficYieldUntil=0,TrafficSavedSpeed=0;

@@ -1,5 +1,6 @@
 #if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
 #include "IntroPresentation.h"
+#include "Audio/BackgroundMusic.h"
 #include "Localization/GameLanguage.h"
 #include "Camcorder/CamcorderEquipmentComponent.h"
 #include "Camcorder/RecordingLibrary.h"
@@ -173,6 +174,7 @@ namespace
    }
    case 3:
     if(!Button(TEXT("准备好了")))return false;
+    Test->TestTrue(TEXT("Opening tutorial already uses main BGM"),UBackgroundMusic::For(PC)->GetStage()==EBackgroundMusicStage::Gameplay);
     Test->TestEqual(TEXT("All five supplied images were presented"),Page,6);FreezeCheck();
     Test->TestTrue(TEXT("Intro does not consume world time"),MaxFrozenTimeDrift<.01f);
     Shot(TEXT("Tutorial-en"));GameLanguage::SetEnglish(false);return Wait(.12);
@@ -194,7 +196,7 @@ namespace
      Test->TestTrue(TEXT("Screenshot stalls do not stretch the countdown"),Now-CountdownStarted<4.25);
      Test->TestTrue(TEXT("ACTION is visible when the world unlocks"),Countdown.IsValid());
      Test->TestFalse(TEXT("ACTION restores move input and hidden cursor"),PC->IsMoveInputIgnored()||PC->bShowMouseCursor);
-     Test->TestTrue(TEXT("Mouse look changed view during paused countdown"),!PC->GetControlRotation().Equals(BeforeLook,.1f));
+     Test->TestTrue(TEXT("Countdown keeps the view locked"),PC->GetControlRotation().Equals(BeforeLook,.1f));
      Test->TestTrue(TEXT("Blocked action inputs did not move the player"),FVector::Dist(PC->GetPawn()->GetActorLocation(),FrozenPosition)<10.f);
      Test->TestTrue(TEXT("Paused-camera render flag restores its previous value"),bool(World->bIsCameraMoveableWhenPaused)==OldMovable);
      ReleaseKeys(Window.ToSharedRef());return Wait(.16);
@@ -230,6 +232,7 @@ namespace
     OldPawn=PC->GetPawn();Button(TEXT("重新开始"))->SimulateClick();return Wait(.2);
    case 10:
     if(PC->GetPawn()==OldPawn.Get()||!Button(TEXT("准备好了")))return false;
+    Test->TestTrue(TEXT("Restart tutorial already uses main BGM"),UBackgroundMusic::For(PC)->GetStage()==EBackgroundMusicStage::Gameplay);
     Test->TestTrue(TEXT("Ending restart retains the existing StartRun route"),UGameplayStatics::HasOption(World->GetAuthGameMode()->OptionsString,TEXT("StartRun")));
     Test->TestFalse(TEXT("Restart skips Intro"),OpeningFindType(Window.ToSharedRef(),TEXT("SIntroPresentation")).IsValid());
     Test->TestTrue(TEXT("Restart waits at tutorial"),World->IsPaused());Shot(TEXT("Restart-tutorial"));

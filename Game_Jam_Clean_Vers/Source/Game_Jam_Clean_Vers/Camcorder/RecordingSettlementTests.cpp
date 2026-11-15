@@ -1,5 +1,6 @@
 ﻿#if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
 #include "RecordingLibrary.h"
+#include "Audio/BackgroundMusic.h"
 #include "RecordingReview.h"
 #include "CamcorderEquipmentComponent.h"
 #include "ShoulderCamcorder.h"
@@ -86,6 +87,7 @@ public:
   }
   auto Review=StaticCastSharedPtr<SRecordingReview>(Library->SettlementUI);
   if(!Review){Test->AddError(TEXT("Settlement review widget missing"));return true;}
+  Test->TestTrue(TEXT("Death and extraction review use ending BGM"),UBackgroundMusic::For(PC)->GetStage()==EBackgroundMusicStage::Ending);
   if(Review->GetPhase()==ERecordingReviewPhase::Overview||Review->GetPhase()==ERecordingReviewPhase::Intertitle)return false;
   Test->TestEqual(TEXT("Overview decoded actual first-frame thumbnail"),Review->GetThumbnailCount(),1);
   Test->TestEqual(TEXT("Overview automatically starts first clip"),Review->GetClipIndex(),0);

@@ -5,6 +5,7 @@ class SWidget;
 namespace GameFrontend
 {
  float Sensitivity();
+ float VoiceVolume();
  void ApplyAudio(APlayerController* Player);
  void ReleaseAudio(APlayerController* Player);
  TSharedRef<SWidget> Main(TFunction<void()> Start,TFunction<void()> Settings,TFunction<void()> Tutorial,TFunction<void()> History,TFunction<void()> Quit);

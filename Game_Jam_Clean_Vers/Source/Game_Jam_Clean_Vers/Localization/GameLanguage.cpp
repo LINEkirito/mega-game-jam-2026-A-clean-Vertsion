@@ -116,7 +116,7 @@ namespace
   return Out;
  }
 }
-bool GameLanguage::IsEnglish(){bool English=false;if(GConfig)GConfig->GetBool(TEXT("GameLanguage"),TEXT("English"),English,GameLocalSettings::Filename());return English;}
+bool GameLanguage::IsEnglish(){bool English=true;if(GConfig)GConfig->GetBool(TEXT("GameLanguage"),TEXT("English"),English,GameLocalSettings::Filename());return English;}
 void GameLanguage::SetEnglish(bool English){if(GConfig){GConfig->SetBool(TEXT("GameLanguage"),TEXT("English"),English,GameLocalSettings::Filename());GConfig->Flush(false,GameLocalSettings::Filename());}}
 FString GameLanguage::Translate(const FString& Source,bool English){return Convert(Source,English,0);}
 namespace

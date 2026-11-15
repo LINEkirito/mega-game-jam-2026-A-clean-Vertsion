@@ -90,7 +90,9 @@ public:
         case 8:
             Key(EKeys::F,IE_Released);Test->TestEqual(TEXT("Ammo recovered"),Bag->Count(AmmoId),AmmoCount);
             E->SetBackpackOpen(true);E->ShowAssignmentMenu(Slots[2]);
-            Test->TestTrue(TEXT("Right-click entry opens context menu"),FSlateApplication::Get().AnyMenusVisible());
+            Test->TestFalse(TEXT("Backpack window stays closed"),E->bBackpackOpen);
+            Test->TestFalse(TEXT("Hidden backpack cannot open a context menu"),FSlateApplication::Get().AnyMenusVisible());
+            Test->TestEqual(TEXT("Combat HUD reads recovered reserve ammunition"),Combat->Reserve(),AmmoCount);
             FSlateApplication::Get().DismissAllMenus();
             Test->TestTrue(TEXT("Drop unselected stored gun"),E->DropInventoryItem(Slots[2]));
             Test->TestEqual(TEXT("Stored gun removed"),Bag->Count(Slots[2]),0);

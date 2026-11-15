@@ -1,4 +1,5 @@
 #include "GamePerformanceSettings.h"
+#include "Frontend/MenuPresentation.h"
 #include "Audio/AudioWidgets.h"
 #include "GameFramework/GameUserSettings.h"
 #include "Frontend/LocalUserSettings.h"
@@ -49,22 +50,22 @@ namespace
    Close=MoveTemp(InClose);Language=MoveTemp(InLanguage);
    auto* Settings=UGameUserSettings::GetGameUserSettings();check(Settings);Draft=FGamePerformanceOptions::Read(*Settings);
    auto List=SNew(SVerticalBox);
-   List->AddSlot().AutoHeight().Padding(0,0,0,5)[SNew(SLocalizedTextBlock).Font(GameLanguage::Font(28)).Text(FText::FromString(TEXT("性能与画质")))];
-   List->AddSlot().AutoHeight().Padding(0,0,0,12)[SNew(SLocalizedTextBlock).AutoWrapText(true).Text(FText::FromString(TEXT("从 Esc 菜单进入设置 · 应用后保存")))];
+   List->AddSlot().AutoHeight().Padding(0,0,0,5)[SNew(SMenuTextBlock).Font(GameLanguage::Font(28)).Text(FText::FromString(TEXT("性能与画质")))];
+   List->AddSlot().AutoHeight().Padding(0,0,0,12)[SNew(SMenuTextBlock).AutoWrapText(true).Text(FText::FromString(TEXT("从 Esc 菜单进入设置 · 应用后保存")))];
    auto Presets=SNew(SHorizontalBox);
    for(int32 Level=0;Level<4;++Level)
     Presets->AddSlot().FillWidth(1).Padding(3,0)[Button(QualityName(Level),[this,Level]{Draft.SetPreset(Level);bDirty=true;})];
    List->AddSlot().AutoHeight().Padding(0,0,0,10)[Presets];
    auto Rows=SNew(SVerticalBox);
    AddChoice(Rows,TEXT("显示模式"),[this]{return FString(Draft.DisplayMode==0?TEXT("全屏"):Draft.DisplayMode==1?TEXT("无边框窗口"):TEXT("窗口化"));},[this]{Draft.DisplayMode=(Draft.DisplayMode+1)%3;bDirty=true;});
-   Rows->AddSlot().AutoHeight().Padding(0,3,0,8)[SNew(SLocalizedTextBlock).AutoWrapText(true).Font(GameLanguage::Font(14)).Text(FText::FromString(TEXT("无边框窗口使用桌面分辨率；全屏和窗口化使用所选分辨率。")))];
+   Rows->AddSlot().AutoHeight().Padding(0,3,0,8)[SNew(SMenuTextBlock).AutoWrapText(true).Font(GameLanguage::Font(14)).Text(FText::FromString(TEXT("无边框窗口使用桌面分辨率；全屏和窗口化使用所选分辨率。")))];
    AddChoice(Rows,TEXT("显示分辨率"),[this]{return FString::Printf(TEXT("%d × %d"),Draft.DisplayResolution.X,Draft.DisplayResolution.Y);},[this]
    {
     const FIntPoint Choices[]={{1280,720},{1920,1080},{2560,1440},{3840,2160}};
     int32 Index=INDEX_NONE;for(int32 I=0;I<UE_ARRAY_COUNT(Choices);++I)if(Choices[I]==Draft.DisplayResolution){Index=I;break;}
     Draft.DisplayResolution=Choices[(Index+1)%UE_ARRAY_COUNT(Choices)];bDirty=true;
    });
-   Rows->AddSlot().AutoHeight().Padding(0,3,0,10)[SNew(SLocalizedTextBlock).AutoWrapText(true).Font(GameLanguage::Font(14)).Text(FText::FromString(TEXT("点击切换分辨率，应用后生效；4K 为 3840 × 2160。实际显示受设备支持限制。")))];
+   Rows->AddSlot().AutoHeight().Padding(0,3,0,10)[SNew(SMenuTextBlock).AutoWrapText(true).Font(GameLanguage::Font(14)).Text(FText::FromString(TEXT("点击切换分辨率，应用后生效；4K 为 3840 × 2160。实际显示受设备支持限制。")))];
    AddQuality(Rows,TEXT("视距"),&Scalability::FQualityLevels::ViewDistanceQuality);
    AddQuality(Rows,TEXT("阴影"),&Scalability::FQualityLevels::ShadowQuality);
    AddQuality(Rows,TEXT("纹理"),&Scalability::FQualityLevels::TextureQuality);
@@ -75,10 +76,10 @@ namespace
    AddQuality(Rows,TEXT("全局光照"),&Scalability::FQualityLevels::GlobalIlluminationQuality);
    AddQuality(Rows,TEXT("反射"),&Scalability::FQualityLevels::ReflectionQuality);
    Rows->AddSlot().AutoHeight().Padding(0,8)[SNew(SHorizontalBox)
-    +SHorizontalBox::Slot().FillWidth(1)[SNew(SLocalizedTextBlock).Text(FText::FromString(TEXT("渲染比例")))]
-    +SHorizontalBox::Slot().FillWidth(1.2f).VAlign(VAlign_Center)[SNew(SAudioSlider).Value_Lambda([this]{return (Draft.ResolutionScale-50.f)/50.f;}).OnValueChanged_Lambda([this](float Value){Draft.ResolutionScale=FMath::RoundToFloat(50.f+Value*50.f);bDirty=true;})]
-    +SHorizontalBox::Slot().AutoWidth().Padding(12,0)[SNew(SLocalizedTextBlock).Text_Lambda([this]{return FText::FromString(FString::Printf(TEXT("%.0f%%"),Draft.ResolutionScale));})]];
-   Rows->AddSlot().AutoHeight().Padding(0,3)[SNew(SLocalizedTextBlock).AutoWrapText(true).Font(GameLanguage::Font(14)).Text(FText::FromString(TEXT("降低渲染比例可减轻显卡负担，但画面会变软；不改变显示分辨率。")))];
+    +SHorizontalBox::Slot().FillWidth(1)[SNew(SMenuTextBlock).Text(FText::FromString(TEXT("渲染比例")))]
+    +SHorizontalBox::Slot().FillWidth(1.2f).VAlign(VAlign_Center)[SNew(SAudioSlider).Style(MenuPresentation::SliderStyle()).SliderBarColor(MenuPresentation::Paper()).SliderHandleColor(MenuPresentation::Red()).Value_Lambda([this]{return (Draft.ResolutionScale-50.f)/50.f;}).OnValueChanged_Lambda([this](float Value){Draft.ResolutionScale=FMath::RoundToFloat(50.f+Value*50.f);bDirty=true;})]
+    +SHorizontalBox::Slot().AutoWidth().Padding(12,0)[SNew(SMenuTextBlock).Text_Lambda([this]{return FText::FromString(FString::Printf(TEXT("%.0f%%"),Draft.ResolutionScale));})]];
+   Rows->AddSlot().AutoHeight().Padding(0,3)[SNew(SMenuTextBlock).AutoWrapText(true).Font(GameLanguage::Font(14)).Text(FText::FromString(TEXT("降低渲染比例可减轻显卡负担，但画面会变软；不改变显示分辨率。")))];
    AddChoice(Rows,TEXT("帧率上限"),[this]{return Draft.FrameLimit<=0?FString(TEXT("不限")):FString::Printf(TEXT("%.0f 帧/秒"),Draft.FrameLimit);},[this]
    {
     const float Limits[]={30,60,90,120,144,165,240,0};float Next=0;
@@ -86,10 +87,10 @@ namespace
     Draft.FrameLimit=Next;bDirty=true;
    });
    AddChoice(Rows,TEXT("垂直同步"),[this]{return FString(Draft.bVSync?TEXT("开启"):TEXT("关闭"));},[this]{Draft.bVSync=!Draft.bVSync;bDirty=true;});
-   Rows->AddSlot().AutoHeight().Padding(0,12,0,4)[SNew(SLocalizedTextBlock).Text(FText::FromString(TEXT("NVIDIA DLSS / 帧生成：未集成")))];
-   Rows->AddSlot().AutoHeight()[SNew(SLocalizedTextBlock).AutoWrapText(true).Font(GameLanguage::Font(14)).Text(FText::FromString(TEXT("当前版本未集成兼容的 NVIDIA 插件，不能启用 DLSS 或帧生成。")))];
+   Rows->AddSlot().AutoHeight().Padding(0,12,0,4)[SNew(SMenuTextBlock).Text(FText::FromString(TEXT("NVIDIA DLSS / 帧生成：未集成")))];
+   Rows->AddSlot().AutoHeight()[SNew(SMenuTextBlock).AutoWrapText(true).Font(GameLanguage::Font(14)).Text(FText::FromString(TEXT("当前版本未集成兼容的 NVIDIA 插件，不能启用 DLSS 或帧生成。")))];
    List->AddSlot().FillHeight(1)[SNew(SScrollBox)+SScrollBox::Slot()[Rows]];
-   List->AddSlot().AutoHeight().Padding(0,12,0,8)[SNew(SLocalizedTextBlock).AutoWrapText(true).Text_Lambda([this]{return FText::FromString(bDirty?TEXT("有未应用的修改；关闭将放弃修改。"):bApplied?TEXT("设置已应用并保存。"):TEXT("选择适合设备的画质；部分选项取决于渲染模式。"));})];
+   List->AddSlot().AutoHeight().Padding(0,12,0,8)[SNew(SMenuTextBlock).AutoWrapText(true).Text_Lambda([this]{return FText::FromString(bDirty?TEXT("有未应用的修改；关闭将放弃修改。"):bApplied?TEXT("设置已应用并保存。"):TEXT("选择适合设备的画质；部分选项取决于渲染模式。"));})];
    List->AddSlot().AutoHeight()[SNew(SHorizontalBox)
     +SHorizontalBox::Slot().FillWidth(1).Padding(0,0,6,0)[Button(TEXT("应用并保存"),[this]{auto* S=UGameUserSettings::GetGameUserSettings();Draft.Write(*S);if(!GIsEditor){S->ApplyResolutionSettings(false);S->ConfirmVideoMode();}S->ApplyNonResolutionSettings();GameLocalSettings::SavePerformance();Draft=FGamePerformanceOptions::Read(*S);bDirty=false;bApplied=true;})]
     +SHorizontalBox::Slot().FillWidth(1).Padding(6,0)[Button(TEXT("语言 / Language"),[this]{Language();})]
@@ -102,15 +103,15 @@ namespace
   TFunction<void()> Close,Language;
   TSharedRef<SWidget> Button(const TCHAR* Text,TFunction<void()> Action)
   {
-   return SNew(SAudioButton).ContentPadding(FMargin(12,8)).HAlign(HAlign_Center).OnClicked_Lambda([Action=MoveTemp(Action)]{Action();return FReply::Handled();})
-    [SNew(SLocalizedTextBlock).Font(GameLanguage::Font(16)).Text(FText::FromString(Text))];
+   return SNew(SMenuButton).ContentPadding(FMargin(12,8)).HAlign(HAlign_Center).OnClicked_Lambda([Action=MoveTemp(Action)]{Action();return FReply::Handled();})
+    [SNew(SMenuTextBlock).Font(GameLanguage::Font(16)).Text(FText::FromString(Text))];
   }
   void AddChoice(TSharedRef<SVerticalBox> Rows,const TCHAR* Label,TFunction<FString()> Value,TFunction<void()> Action)
   {
    Rows->AddSlot().AutoHeight().Padding(0,3)[SNew(SHorizontalBox)
-    +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)[SNew(SLocalizedTextBlock).Font(GameLanguage::Font(17)).Text(FText::FromString(Label))]
-    +SHorizontalBox::Slot().FillWidth(1)[SNew(SAudioButton).ContentPadding(FMargin(10,5)).HAlign(HAlign_Center).OnClicked_Lambda([Action=MoveTemp(Action)]{Action();return FReply::Handled();})
-     [SNew(SLocalizedTextBlock).Font(GameLanguage::Font(17)).Text_Lambda([Value=MoveTemp(Value)]{return FText::FromString(Value());})]]];
+    +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)[SNew(SMenuTextBlock).Font(GameLanguage::Font(17)).Text(FText::FromString(Label))]
+    +SHorizontalBox::Slot().FillWidth(1)[SNew(SMenuButton).ContentPadding(FMargin(10,5)).HAlign(HAlign_Center).OnClicked_Lambda([Action=MoveTemp(Action)]{Action();return FReply::Handled();})
+     [SNew(SMenuTextBlock).Font(GameLanguage::Font(17)).Text_Lambda([Value=MoveTemp(Value)]{return FText::FromString(Value());})]]];
   }
   void AddQuality(TSharedRef<SVerticalBox> Rows,const TCHAR* Label,int32 Scalability::FQualityLevels::* Field)
   {

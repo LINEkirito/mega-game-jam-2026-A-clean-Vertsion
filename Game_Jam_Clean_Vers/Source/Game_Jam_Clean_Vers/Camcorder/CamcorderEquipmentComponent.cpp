@@ -123,7 +123,6 @@ void UCamcorderEquipmentComponent::TickComponent(float DT,ELevelTick Type,FActor
     if(auto* C=Cast<AGame_Jam_Clean_VersCharacter>(PC->GetPawn()))if(C->Health<=0)return;
     if(Tablet && Tablet->bOpen)return;
     if(bBackpackOpen) return;
-    if(PC->WasInputKeyJustPressed(EKeys::I)) { ToggleBackpack(); return; }
     const FKey Digits[]={EKeys::One,EKeys::Two,EKeys::Three,EKeys::Four};
     const FKey NumPad[]={EKeys::NumPadOne,EKeys::NumPadTwo,EKeys::NumPadThree,EKeys::NumPadFour};
     for(int32 Index=0;Index<UBackpackInventory::QuickSlotCount;++Index) if(PC->WasInputKeyJustPressed(Digits[Index]) || PC->WasInputKeyJustPressed(NumPad[Index])) ActivateQuickSlot(Index);
@@ -166,7 +165,7 @@ void UCamcorderEquipmentComponent::CreateHUD()
         FString S;
         switch(Kind)
         {
-        case 3: S=C->bInBackpack?TEXT("1 装备摄像机  |  I 打开背包"):(E->CanUse()?(C->bHeld?TEXT("右键切换 举机取景  |  Q 丢下  |  B 收入背包"):TEXT("F 拾取摄像机")):TEXT("摄像机已放下：靠近后按 F 拾取")); break;
+        case 3: S=C->bInBackpack?TEXT("1 装备摄像机"):(E->CanUse()?(C->bHeld?TEXT("右键切换 举机取景  |  Q 丢下  |  B 收入背包"):TEXT("F 拾取摄像机")):TEXT("摄像机已放下：靠近后按 F 拾取")); break;
         case 4: S=C->Notice; break;
         case 5: S=TEXT("电量耗尽后无法继续拍摄"); break;
         }
@@ -181,7 +180,7 @@ void UCamcorderEquipmentComponent::CreateHUD()
        +SVerticalBox::Slot().AutoHeight().Padding(0,2)[SNew(SLocalizedTextBlock).Font(Font).Text(FText::FromString(TEXT("V 自拍/前拍  |  左键开始/停止录像  |  鼠标转向 / 滚轮变焦  |  Esc 放下取景")))]
        +SVerticalBox::Slot().AutoHeight().Padding(0,2)[SNew(SLocalizedTextBlock).Font(Font).Text(FText::FromString(TEXT("P 开关机  |  WASD 移动  |  鼠标环顾  |  Space 跳跃")))]
        +SVerticalBox::Slot().AutoHeight().Padding(0,2)[SNew(SLocalizedTextBlock).Font(Font).Text_Lambda([Text]{return Text(5);})]
-       +SVerticalBox::Slot().AutoHeight().Padding(0,2)[SNew(SLocalizedTextBlock).Font(Font).Text(FText::FromString(TEXT("I 背包  |  1–4 快捷槽")))]
+       +SVerticalBox::Slot().AutoHeight().Padding(0,2)[SNew(SLocalizedTextBlock).Font(Font).Text(FText::FromString(TEXT("1–4 快捷槽")))]
        +SVerticalBox::Slot().AutoHeight()[SNew(SLocalizedTextBlock).Font(Font).WrapTextAt(700).ColorAndOpacity(FLinearColor(1,.8f,.25f)).Text_Lambda([Text]{return Text(4);})]
       ] ]
     +SOverlay::Slot()[SNew(SCamcorderViewfinder).Equipment(WeakThis)];

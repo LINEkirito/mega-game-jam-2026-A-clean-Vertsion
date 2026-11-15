@@ -47,7 +47,7 @@ namespace
  {
   if(!W->GetVisibility().IsVisible())return;
   // Audit the game's text widgets. The surrounding Unreal editor uses its own language.
-  if(W->GetTypeAsString()==TEXT("SLocalizedTextBlock"))
+  if((W->GetTypeAsString()==TEXT("SLocalizedTextBlock")||W->GetTypeAsString()==TEXT("SMenuTextBlock")))
   {const FString Text=StaticCastSharedRef<STextBlock>(W)->GetText().ToString();Test->TestFalse(*(Page+TEXT(" contains no Chinese: ")+Text),HasChinese(Text));}
   auto* C=W->GetChildren();for(int32 I=0;I<C->Num();++I)AuditEnglish(C->GetChildAt(I),Test,Page);
  }
