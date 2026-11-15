@@ -143,8 +143,7 @@ bool FEquipmentIntegration::RunTest(const FString&)
  Step([this,Weak,Key]{auto* E=Weak.Get();if(!E){AddError(TEXT("Escape incorrectly ended PIE"));return;}TestFalse(TEXT("Escape leaves viewfinder while RMB held"),E->Camcorder->bViewfinderRaised);Key(EKeys::RightMouseButton,IE_Released);E->StoreCamera();TestTrue(TEXT("Camera stored"),E->Camcorder->bInBackpack);TestFalse(TEXT("Stowing resets selfie"),E->Camcorder->bSelfie);TestFalse(TEXT("Stowing never shows duplicate hands"),E->Camcorder->HoldingHands->IsVisible());TestFalse(TEXT("Camera remains visible during lowering"),E->Camcorder->IsHidden());});Wait(.35f);
  Step([this,Weak]{auto* E=Weak.Get();if(!E)return;TestFalse(TEXT("Stored hands hidden after lowering"),E->Camcorder->HoldingHands->IsVisible());E->ReplaceBattery();TestEqual(TEXT("No replacement battery"),E->GetBatteryCount(),0);E->EquipCamera();TestFalse(TEXT("Equipping never shows duplicate hands"),E->Camcorder->HoldingHands->IsVisible());TestTrue(TEXT("Original body remains visible"),Cast<AGame_Jam_Clean_VersCharacter>(Cast<APlayerController>(E->GetOwner())->GetPawn())->GetFirstPersonMesh()->IsVisible());
  E->SetBackpackOpen(true);
- TestNotNull(TEXT("Opening backpack creates item inspection"),E->ItemPreview.Get());
- if(E->ItemPreview){TestTrue(TEXT("Camera preview includes purchased body and display"),E->ItemPreview->PartCount()>=2);const FTransform Before=E->Camcorder->GetActorTransform();const float Focal=E->Camcorder->FocalLength;E->ItemPreview->Rotate(80,30);E->ItemPreview->Zoom(2);TestTrue(TEXT("Inspecting does not rotate equipped camera"),Before.Equals(E->Camcorder->GetActorTransform()));TestEqual(TEXT("Inspection zoom does not change shooting focal length"),E->Camcorder->FocalLength,Focal);E->ItemPreview->ResetView();TestEqual(TEXT("Inspection reset restores zoom"),E->ItemPreview->ZoomAmount,1.f);}
+ TestFalse(TEXT("Backpack window remains disabled"),E->bBackpackOpen);TestNull(TEXT("Disabled backpack does not create inspection"),E->ItemPreview.Get());
  TestFalse(TEXT("Spare batteries cannot enter inventory"),E->Inventory->Add(UBackpackInventory::BatteryId,TEXT("Battery"),TEXT("Disabled")));
  E->HandleBackpackKey(EKeys::Two);TestEqual(TEXT("Only four quick slots"),E->Inventory->Slots.Num(),4);TestEqual(TEXT("Battery cannot register"),E->Inventory->SlotIndex(UBackpackInventory::BatteryId),INDEX_NONE);E->SetBackpackOpen(false);TestNull(TEXT("Closing backpack releases inspection actor"),E->ItemPreview.Get());
  auto* C=Cast<AGame_Jam_Clean_VersCharacter>(Cast<APlayerController>(E->GetOwner())->GetPawn());FDamageEvent D;TestEqual(TEXT("First damage"),C->TakeDamage(20,D,nullptr,nullptr),20.f);TestEqual(TEXT("Protection ignores repeated damage"),C->TakeDamage(20,D,nullptr,nullptr),0.f);TestEqual(TEXT("Health 80"),C->Health,80.f);
@@ -162,8 +161,8 @@ bool FEquipmentIntegration::RunTest(const FString&)
  // EquipWeapon completes on a timer; inspect only after the equip wait above.
  if(!E->Combat->ActiveWeapon){AddError(TEXT("Pistol did not finish equipping"));return;}
  E->SetBackpackOpen(true);auto* Equipped=E->Combat->ActiveWeapon.Get();const int32 Magazine=Equipped->Magazine;
- for(auto& Pair:E->Combat->Weapons){E->SelectInventoryItem(Pair.Key);TestTrue(TEXT("Each gun has inspectable geometry"),E->ItemPreview && E->ItemPreview->PartCount()>0);}
- E->SelectInventoryItem(TEXT("Ammo556"));TestTrue(TEXT("Ammo has inspectable geometry"),E->ItemPreview && E->ItemPreview->PartCount()==1);
+ for(auto& Pair:E->Combat->Weapons){E->SelectInventoryItem(Pair.Key);TestNull(TEXT("Disabled backpack does not create gun inspection"),E->ItemPreview.Get());}
+ E->SelectInventoryItem(TEXT("Ammo556"));TestNull(TEXT("Disabled backpack does not create ammo inspection"),E->ItemPreview.Get());
  TestTrue(TEXT("Browsing guns does not equip them"),Equipped==E->Combat->ActiveWeapon);TestEqual(TEXT("Browsing does not fire or reload"),Equipped->Magazine,Magazine);E->SetBackpackOpen(false);
  auto* C=E->Combat.Get();auto* PC=Cast<APlayerController>(E->GetOwner());FVector Eye;FRotator Aim;PC->GetPlayerViewPoint(Eye,Aim);auto* Target=E->GetWorld()->SpawnActor<ACombatTarget>(Eye+Aim.Vector()*150,FRotator::ZeroRotator);Target->SetActorScale3D(FVector(.5f,1.5f,1.5f));TestTrue(TEXT("Pistol fires"),C->Fire());TestTrue(TEXT("Shot applies target damage"),Target->Health<100);Target->Destroy();TestEqual(TEXT("Pistol consumes one round"),C->ActiveWeapon->Magazine,C->ActiveWeapon->Spec().Capacity-1);TestFalse(TEXT("Rate limit blocks duplicate"),C->Fire());TestTrue(TEXT("Reload begins"),C->Reload());TestEqual(TEXT("Magazine reload is active"),C->ActiveWeapon->CurrentAnimationName(),FString(TEXT("MagazineReload")));}});Wait(.7f);
  Step([this,Weak]{if(auto* E=Weak.Get()){auto* Gun=E->Combat->ActiveWeapon.Get();if(!Gun){AddError(TEXT("Missing pistol during reload"));return;}TestTrue(TEXT("Right hand keeps physical grip contact during reload"),Gun->GripError(false)<.1f);}});AddCommand(new FEquipmentWeaponWait(E->Combat,ETacticalWeaponKind::Pistol,this));
@@ -190,20 +189,17 @@ bool FEquipmentIntegration::RunTest(const FString&)
  Step([this,Weak,Key]{if(auto* E=Weak.Get()){auto* C=Cast<AGame_Jam_Clean_VersCharacter>(Cast<APlayerController>(E->GetOwner())->GetPawn());TestTrue(TEXT("Ctrl crouches despite held Shift"),C->bIsCrouched);TestFalse(TEXT("Crouch cancels sprint"),C->bSprinting);C->ProcessEvent(C->FindFunctionChecked(TEXT("DoJumpStart")),nullptr);}Key(EKeys::LeftControl,IE_Released);Key(EKeys::LeftShift,IE_Released);});Wait(.15f);
  Step([this,Weak,Key]{if(auto* E=Weak.Get()){auto* C=Cast<AGame_Jam_Clean_VersCharacter>(Cast<APlayerController>(E->GetOwner())->GetPawn());TestFalse(TEXT("Jump uncrouches with clear ceiling"),C->bIsCrouched);TestTrue(TEXT("Jump leaves ground"),C->GetCharacterMovement()->IsFalling());TestEqual(TEXT("Single jump only"),C->JumpMaxCount,1);C->ProcessEvent(C->FindFunctionChecked(TEXT("DoJumpEnd")),nullptr);}});
  Step([Weak]{if(auto* E=Weak.Get()){E->Camcorder->BatteryPercent=100;E->Camcorder->bPowered=true;}});
- // Background-safe model and isolation checks. Routed pointer input is a separate opt-in test below.
+ // The disabled backpack must not create a preview or change gameplay state.
  Step([this,Weak]{
     auto* E=Weak.Get();if(!E)return;
-    E->SetBackpackOpen(true);E->SelectInventoryItem(UBackpackInventory::CameraId);
-    if(!E->ItemPreview){AddError(TEXT("Inspection unavailable for model test"));E->SetBackpackOpen(false);return;}
     const float Focal=E->Camcorder->FocalLength;const int32 Shots=E->Combat->ShotsFired;
     const FRotator Look=Cast<APlayerController>(E->GetOwner())->GetControlRotation();
-    E->ItemPreview->ResetView();E->ItemPreview->Rotate(35,20);E->ItemPreview->Zoom(1);
-    TestFalse(TEXT("Inspection model rotates"),E->ItemPreview->ViewRotation.IsNearlyZero());
-    TestTrue(TEXT("Inspection model zooms"),E->ItemPreview->ZoomAmount>1);
+    E->SetBackpackOpen(true);E->SelectInventoryItem(UBackpackInventory::CameraId);
+    TestFalse(TEXT("Backpack remains closed after camera selection"),E->bBackpackOpen);
+    TestNull(TEXT("Camera selection cannot create disabled inspection"),E->ItemPreview.Get());
     TestEqual(TEXT("Inspection does not fire"),E->Combat->ShotsFired,Shots);
     TestEqual(TEXT("Inspection does not zoom gameplay camera"),E->Camcorder->FocalLength,Focal);
     TestTrue(TEXT("Inspection does not turn player"),Look.Equals(Cast<APlayerController>(E->GetOwner())->GetControlRotation()));
-    E->ItemPreview->ResetView();TestEqual(TEXT("Inspection reset restores zoom"),E->ItemPreview->ZoomAmount,1.f);
     E->SetBackpackOpen(false);
  });
  AddCommand(new FEndPlayMapCommand());

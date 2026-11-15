@@ -1,4 +1,4 @@
-﻿#include "CamcorderEquipmentComponent.h"
+#include "CamcorderEquipmentComponent.h"
 #include "Audio/CharacterAudio.h"
 #include "RecordingLibrary.h"
 #include "RecordingTabletComponent.h"
@@ -159,31 +159,7 @@ void UCamcorderEquipmentComponent::CreateHUD()
 {
     if(!GetWorld()->GetGameViewport() || !Camcorder) return;
     const TWeakObjectPtr<UCamcorderEquipmentComponent> WeakThis(this);
-    auto Text=[WeakThis](int32 Kind)->FText
-    {
-        const auto* E=WeakThis.Get(); if(!E || !E->Camcorder) return FText::GetEmpty(); const auto* C=E->Camcorder.Get();
-        FString S;
-        switch(Kind)
-        {
-        case 3: S=C->bInBackpack?TEXT("1 装备摄像机"):(E->CanUse()?(C->bHeld?TEXT("右键切换 举机取景  |  Q 丢下  |  B 收入背包"):TEXT("F 拾取摄像机")):TEXT("摄像机已放下：靠近后按 F 拾取")); break;
-        case 4: S=C->Notice; break;
-        case 5: S=TEXT("电量耗尽后无法继续拍摄"); break;
-        }
-        return FText::FromString(S);
-    };
-    const auto Font=FCoreStyle::GetDefaultFontStyle("Regular",16);
-    HUD=SNew(SOverlay)
-    +SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Bottom).Padding(22,22,22,220)
-    [ SNew(SBorder).Visibility_Lambda([WeakThis]{auto* E=WeakThis.Get();return E && ((E->RecordingLibrary && E->RecordingLibrary->bRoundEnded) || (E->Camcorder && E->Camcorder->bViewfinderRaised) || (E->Combat && E->Combat->ActiveWeapon))?EVisibility::Collapsed:EVisibility::HitTestInvisible;}).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(FLinearColor(.01f,.015f,.02f,.88f)).Padding(12)
-      [SNew(SVerticalBox)
-       +SVerticalBox::Slot().AutoHeight().Padding(0,2)[SNew(SLocalizedTextBlock).Font(Font).ColorAndOpacity(FLinearColor(.4f,.9f,1)).Text_Lambda([Text]{return Text(3);})]
-       +SVerticalBox::Slot().AutoHeight().Padding(0,2)[SNew(SLocalizedTextBlock).Font(Font).Text(FText::FromString(TEXT("V 自拍/前拍  |  左键开始/停止录像  |  鼠标转向 / 滚轮变焦  |  Esc 放下取景")))]
-       +SVerticalBox::Slot().AutoHeight().Padding(0,2)[SNew(SLocalizedTextBlock).Font(Font).Text(FText::FromString(TEXT("P 开关机  |  WASD 移动  |  鼠标环顾  |  Space 跳跃")))]
-       +SVerticalBox::Slot().AutoHeight().Padding(0,2)[SNew(SLocalizedTextBlock).Font(Font).Text_Lambda([Text]{return Text(5);})]
-       +SVerticalBox::Slot().AutoHeight().Padding(0,2)[SNew(SLocalizedTextBlock).Font(Font).Text(FText::FromString(TEXT("1–4 快捷槽")))]
-       +SVerticalBox::Slot().AutoHeight()[SNew(SLocalizedTextBlock).Font(Font).WrapTextAt(700).ColorAndOpacity(FLinearColor(1,.8f,.25f)).Text_Lambda([Text]{return Text(4);})]
-      ] ]
-    +SOverlay::Slot()[SNew(SCamcorderViewfinder).Equipment(WeakThis)];
+    HUD=SNew(SCamcorderViewfinder).Equipment(WeakThis);
     HUD->SetVisibility(EVisibility::HitTestInvisible);
     GetWorld()->GetGameViewport()->AddViewportWidgetContent(HUD.ToSharedRef(),10);
 }

@@ -275,13 +275,10 @@ void UCamcorderEquipmentComponent::CreateBackpackHUD()
     const auto Font=FCoreStyle::GetDefaultFontStyle("Regular",18);
     auto Label=[Font](const FString& Text){return SNew(SLocalizedTextBlock).Font(Font).Text(FText::FromString(Text));};
     auto Button=[Label](const FString& Text,TFunction<void()> Action){return SNew(SAudioButton).IsFocusable(false).ContentPadding(FMargin(16,10)).OnClicked_Lambda([Action]{Action();return FReply::Handled();})[Label(Text)];};
-    auto Bar=SNew(SHorizontalBox);
+
     auto Slots=SNew(SHorizontalBox);
     for(int32 I=0;I<UBackpackInventory::QuickSlotCount;++I)
     {
-        Bar->AddSlot().AutoWidth().Padding(3)[SNew(SBorder).Padding(10).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
-            .BorderBackgroundColor_Lambda([Weak,I]{auto* E=Weak.Get();return E && E->Inventory->ActiveSlot==I?FLinearColor(.07f,.35f,.42f,.95f):FLinearColor(.02f,.03f,.05f,.95f);})
-            [SNew(SLocalizedTextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",14)).WrapTextAt(270).Text_Lambda([Weak,I]{auto* E=Weak.Get();return FText::FromString(E?E->SlotTitle(I):TEXT(""));})]];
         Slots->AddSlot().FillWidth(1).Padding(3)[SNew(SAudioButton).IsFocusable(false).ContentPadding(8)
             .OnClicked_Lambda([Weak,I]{if(auto* E=Weak.Get()) E->AssignQuickSlot(I);return FReply::Handled();})
             [SNew(SLocalizedTextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",14)).AutoWrapText(true).Text_Lambda([Weak,I]{auto* E=Weak.Get();return FText::FromString(E?E->SlotTitle(I):TEXT(""));})]];
@@ -316,8 +313,6 @@ void UCamcorderEquipmentComponent::CreateBackpackHUD()
     BackpackHUD=SNew(SCamcorderBackpackRoot).Equipment(Weak)
       .Visibility_Lambda([Weak]{auto* E=Weak.Get();return E && E->bBackpackOpen?EVisibility::Visible:EVisibility::SelfHitTestInvisible;})
       [SNew(SOverlay)
-        +SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Bottom).Padding(0,0,0,20)
-        [SNew(SBox).Visibility_Lambda([Weak]{auto* E=Weak.Get();return E && !E->bBackpackOpen && E->Camcorder && !E->Camcorder->bViewfinderRaised?EVisibility::HitTestInvisible:EVisibility::Collapsed;})[Bar]]
         +SOverlay::Slot()
         [SNew(SBorder).Visibility_Lambda([Weak]{auto* E=Weak.Get();return E && E->bBackpackOpen?EVisibility::Visible:EVisibility::Collapsed;})
          .Padding(35).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(FLinearColor(0,0,0,.75f))

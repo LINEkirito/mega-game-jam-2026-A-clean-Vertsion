@@ -549,3 +549,16 @@ PAIR("我得离开这里！", "I'm getting out of here!")
 PAIR("糟了，情况不妙。", "Oh, that's not good.")
 PAIR("好，开始录了。", "Okay, we're rolling.")
 PAIR("这也太疯狂了。", "This is insane.")
+// Compact player equipment HUD.
+PAIR("ME", "ME")
+PAIR("步枪", "RIFLE")
+PAIR("手枪", "PISTOL")
+PAIR("霰弹枪", "SHOTGUN")
+PAIR("摄像机", "CAMERA")
+PAIR("空手", "EMPTY")
+
+// Contextual equipment HUD status.
+PAIR("换弹中…", "Reloading…")
+PAIR("录像中  %02d:%02d", "REC  %02d:%02d")
+PAIR("电量不足  %.0f / 100", "Low battery  %.0f / 100")
+PAIR("录像已保存", "Recording saved")
