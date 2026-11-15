@@ -6,6 +6,8 @@
 #include "GameLanguage.h"
 #include "Frontend/GameFrontend.h"
 #include "Frontend/TitleMenu.h"
+#include "Frontend/IntroPresentation.h"
+#include "Frontend/OpeningCountdown.h"
 #include "Frontend/LocalUserSettings.h"
 #include "Frontend/RunScoreHistoryPanel.h"
 #if WITH_EDITOR
@@ -18,6 +20,7 @@
 #include "Framework/Application/SlateApplication.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerInput.h"
+#include "Camera/PlayerCameraManager.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -45,6 +48,9 @@ namespace
   virtual ~FLanguageInput() override {Shutdown();}
   void Shutdown()
   {
+   RestoreCountdownCamera();
+   RemoveCountdown();
+   bOnboarding=false;bCountingDown=false;
 #if WITH_EDITOR
    if(auto* PC=Player.Get())if(auto* V=PC->GetWorld()->GetGameViewport())if(DebugRoot)V->RemoveViewportWidgetContent(DebugRoot.ToSharedRef());
    DebugRoot.Reset();
@@ -74,6 +80,8 @@ namespace
   virtual bool HandleKeyDownEvent(FSlateApplication&,const FKeyEvent& E) override
   {
    if(!InGameWindow())return false;
+   if(bCountingDown)return true;
+   if(bOnboarding&&E.GetKey()==EKeys::Escape)return true;
 #if WITH_EDITOR
    if(E.GetKey()==EKeys::F2){if(!E.IsRepeat())ToggleDebug();return true;}
 #endif
@@ -99,23 +107,42 @@ namespace
   {
    if(E.GetKey()==EKeys::Escape&&bEatEscape){bEatEscape=false;return true;}
    if(!InGameWindow())return false;
+   if(bCountingDown)return true;
    const FKey Key=E.GetKey();
 #if WITH_EDITOR
    if(Key==EKeys::F2)return true;
 #endif
    return (bOpen&&Key!=EKeys::Tab&&Key!=EKeys::Enter&&Key!=EKeys::SpaceBar&&Key!=EKeys::Up&&Key!=EKeys::Down&&Key!=EKeys::Left&&Key!=EKeys::Right);
   }
+  virtual bool HandleMouseMoveEvent(FSlateApplication&,const FPointerEvent& E) override
+  {
+   if(!bCountingDown||!InGameWindow())return false;
+   // Only the opening overlay handles this delta. No pawn/weapon input is dispatched while paused.
+   PendingMouseLook+=E.GetCursorDelta();return true;
+  }
+  virtual bool HandleAnalogInputEvent(FSlateApplication&,const FAnalogInputEvent& E) override
+  {
+   if(!bCountingDown||!InGameWindow())return false;
+   if(E.GetKey()==EKeys::Gamepad_RightX)StickLook.X=E.GetAnalogValue();
+   if(E.GetKey()==EKeys::Gamepad_RightY)StickLook.Y=E.GetAnalogValue();
+   return true;
+  }
+  virtual bool HandleMouseButtonDownEvent(FSlateApplication&,const FPointerEvent&) override{return bCountingDown&&InGameWindow();}
+  virtual bool HandleMouseButtonUpEvent(FSlateApplication&,const FPointerEvent&) override{return bCountingDown&&InGameWindow();}
+  virtual bool HandleMouseButtonDoubleClickEvent(FSlateApplication&,const FPointerEvent&) override{return bCountingDown&&InGameWindow();}
+  virtual bool HandleMouseWheelOrGestureEvent(FSlateApplication&,const FPointerEvent&,const FPointerEvent*) override{return bCountingDown&&InGameWindow();}
   virtual void Tick(float DT,FSlateApplication&,TSharedRef<ICursor>) override
   {
    auto* PC=Player.Get();if(!PC||!PC->GetWorld())return;
+   TickOpening(FMath::Clamp(DT,0.f,.1f));
    if(bOpen&&!bFrontend&&!bEndingSettings)
    {
     auto* P=Cast<AGame_Jam_Clean_VersCharacter>(PC->GetPawn());
     auto* Equipment=PC->FindComponentByClass<UCamcorderEquipmentComponent>();
     if(!P||P->Health<=0||P->HasDeathFallStarted()||(Equipment&&Equipment->RecordingLibrary&&Equipment->RecordingLibrary->bRoundEnded))ResumeGame();
    }
-   if(bBoot && PC->GetWorld()->GetAuthGameMode() && UGameplayStatics::HasOption(PC->GetWorld()->GetAuthGameMode()->OptionsString,TEXT("StartRun")))
-   {bBoot=false;GameLocalSettings::LoadPerformance();GameFrontend::ApplyAudio(PC);}
+   if(bBoot && PC->GetPawn() && PC->GetWorld()->GetGameViewport() && PC->GetWorld()->GetAuthGameMode() && UGameplayStatics::HasOption(PC->GetWorld()->GetAuthGameMode()->OptionsString,TEXT("StartRun")))
+   {bBoot=false;GameLocalSettings::LoadPerformance();GameFrontend::ApplyAudio(PC);ShowOpeningTutorial();}
    if(bBoot && GIsAutomationTesting && !(PC->GetWorld()->GetAuthGameMode() && UGameplayStatics::HasOption(PC->GetWorld()->GetAuthGameMode()->OptionsString,TEXT("ShowTitle"))))bBoot=false;
    if(bBoot && PC->GetPawn() && PC->GetWorld()->GetGameViewport()){bBoot=false;bFrontend=true;GameLocalSettings::LoadPerformance();Open(false);ShowMain();GameFrontend::ApplyAudio(PC);}
    ScanTime-=DT;
@@ -181,7 +208,82 @@ namespace
   TWeakPtr<SWidget> PreviousFocus;
   bool bPreviousUIOnly=false,bEndingSettings=false;
   bool bOpen=false,bCursor=false,bEatEscape=false;
+  bool bOnboarding=false,bIntro=false,bCountingDown=false,bLookReleased=false;
+  bool bSavedPausedCamera=false,bCountdownCamera=false;
+  float CountdownElapsed=0;
+  double CountdownStartedAt=0,ActionStartedAt=0;
+  FVector2D PendingMouseLook=FVector2D::ZeroVector,StickLook=FVector2D::ZeroVector;
+  TSharedPtr<SWidget> CountdownRoot;
+  TSharedPtr<SOpeningCountdown> Countdown;
   float ScanTime=0;
+  void ShowIntro()
+  {
+   bMain=false;bOnboarding=true;bIntro=true;
+   PerformancePanel=IntroPresentation::Make([this]{ShowOpeningTutorial();});ShowPerformance();
+  }
+  void ShowOpeningTutorial()
+  {
+   if(!bOpen){bFrontend=true;Open(false);}
+   bMain=false;bIntro=false;bOnboarding=true;
+   PerformancePanel=GameFrontend::Tutorial([this]{BeginCountdown();},true);ShowPerformance();
+  }
+  void BeginCountdown()
+  {
+   auto* PC=Player.Get();auto* W=PC?PC->GetWorld():nullptr;auto* V=W?W->GetGameViewport():nullptr;
+   if(!V||bCountingDown)return;
+   bCountingDown=true;CountdownElapsed=0;CountdownStartedAt=FPlatformTime::Seconds();PendingMouseLook=StickLook=FVector2D::ZeroVector;
+   bSavedPausedCamera=W->bIsCameraMoveableWhenPaused;W->bIsCameraMoveableWhenPaused=true;bCountdownCamera=true;
+   if(Root)V->RemoveViewportWidgetContent(Root.ToSharedRef());
+   CountdownRoot=SNew(SScaleBox).Stretch(EStretch::ScaleToFit).Visibility(EVisibility::HitTestInvisible)
+    [SAssignNew(Countdown,SOpeningCountdown)];
+   V->AddViewportWidgetContent(CountdownRoot.ToSharedRef(),2000);
+   PC->SetIgnoreLookInput(false);bLookReleased=true;
+   PC->bShowMouseCursor=false;
+   if(PC->PlayerInput)PC->PlayerInput->FlushPressedKeys();
+   PC->SetInputMode(FInputModeGameOnly());FSlateApplication::Get().SetAllUserFocusToGameViewport();
+  }
+  void RestoreCountdownCamera()
+  {
+   if(bCountdownCamera)if(auto* PC=Player.Get())if(auto* W=PC->GetWorld())W->bIsCameraMoveableWhenPaused=bSavedPausedCamera;
+   bCountdownCamera=false;
+  }
+  void RemoveCountdown()
+  {
+   if(auto* PC=Player.Get())if(auto* V=PC->GetWorld()->GetGameViewport())if(CountdownRoot)V->RemoveViewportWidgetContent(CountdownRoot.ToSharedRef());
+   CountdownRoot.Reset();Countdown.Reset();
+  }
+  void TickOpening(float DT)
+  {
+   if(!CountdownRoot)return;
+   // A countdown is wall-clock time, even when rendering stalls. Give ACTION its
+   // own clock so the release cue is always drawn before the overlay disappears.
+   const double Now=FPlatformTime::Seconds();
+   CountdownElapsed=bCountingDown?FMath::Min(float(Now-CountdownStartedAt),3.f):3.f+float(Now-ActionStartedAt);
+   Countdown->SetElapsed(CountdownElapsed);
+   auto* PC=Player.Get();
+   if(bCountingDown&&PC)
+   {
+    if(InGameWindow()&&PC->PlayerCameraManager)
+    {
+     const float Sensitivity=GameFrontend::Sensitivity();
+     const FVector2D Stick=FVector2D(FMath::Abs(StickLook.X)>.15f?StickLook.X:0,FMath::Abs(StickLook.Y)>.15f?StickLook.Y:0);
+     FRotator Rotation=PC->GetControlRotation();
+     FRotator Delta((-PendingMouseLook.Y+Stick.Y*DT*90)*Sensitivity,(PendingMouseLook.X+Stick.X*DT*90)*Sensitivity,0);
+     PC->PlayerCameraManager->ProcessViewRotation(DT,Rotation,Delta);
+     PC->SetControlRotation(Rotation);
+     PC->UpdateCameraManager(DT);
+    }
+    else StickLook=FVector2D::ZeroVector;
+    PendingMouseLook=FVector2D::ZeroVector;
+    if(CountdownElapsed>=3.f)
+    {
+     ActionStartedAt=Now;
+     RestoreCountdownCamera();bCountingDown=false;bOnboarding=false;bFrontend=false;bPerformance=true;
+     Close();FSlateApplication::Get().SetAllUserFocusToGameViewport();
+    }
+   }
+   if(CountdownElapsed>=3.7f)RemoveCountdown();
+  }
   void Open(bool Performance)
   {
    auto* PC=Player.Get();auto* V=PC?PC->GetWorld()->GetGameViewport():nullptr;if(!V)return;
@@ -233,7 +335,7 @@ namespace
   {
    bMain=true;
    // Reuse this title view when returning from a submenu so its entrance never restarts.
-   if(!MainPanel)MainPanel=GameFrontend::Main([this]{bFrontend=false;bPerformance=true;Close();FSlateApplication::Get().SetAllUserFocusToGameViewport();},[this]{ShowSettings();},[this]
+   if(!MainPanel)MainPanel=GameFrontend::Main([this]{ShowIntro();},[this]{ShowSettings();},[this]
    {
     bMain=false;PerformancePanel=GameFrontend::Tutorial([this]{ShowMain();});ShowPerformance();
    },[this]{bMain=false;PerformancePanel=GameFrontend::RunHistory([this]{ShowMain();});ShowPerformance();},[this]{if(auto* PC=Player.Get())UKismetSystemLibrary::QuitGame(PC,PC,EQuitPreference::Quit,false);});
@@ -259,7 +361,7 @@ namespace
   }
   void ShowPerformance()
   {
-   const bool Title=bFrontend&&bMain;
+   const bool Title=bFrontend&&(bMain||bIntro);
    Backdrop->SetHAlign(Title?HAlign_Fill:HAlign_Center);Backdrop->SetVAlign(Title?VAlign_Fill:VAlign_Center);
    Backdrop->SetPadding(Title?0:20);Backdrop->SetBorderBackgroundColor(Title?FLinearColor::Black:FLinearColor(.008f,.013f,.022f,1.f));
    PanelHost->SetPadding(Title?0:26);PanelHost->SetBorderBackgroundColor(Title?FLinearColor::Transparent:FLinearColor(.025f,.04f,.06f));
@@ -293,7 +395,7 @@ namespace
    auto* PC=Player.Get();bOpen=false;if(!PC)return;
    if(auto* V=PC->GetWorld()->GetGameViewport())if(Root)V->RemoveViewportWidgetContent(Root.ToSharedRef());Root.Reset();PanelHost.Reset();PerformancePanel.Reset();MainPanel.Reset();Backdrop.Reset();PanelScale.Reset();
    if(bPausedByMenu){PC->SetPause(false);bPausedByMenu=false;}
-   PC->SetIgnoreMoveInput(false);PC->SetIgnoreLookInput(false);
+   PC->SetIgnoreMoveInput(false);if(!bLookReleased)PC->SetIgnoreLookInput(false);bLookReleased=false;
    if(PC->PlayerInput)PC->PlayerInput->FlushPressedKeys();
    // Extraction may finish while this non-pausing menu is open. Keep the
    // settlement's newly established focus/cursor instead of restoring gameplay.

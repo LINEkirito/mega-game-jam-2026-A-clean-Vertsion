@@ -26,12 +26,16 @@ public:
  int32 GetPlaybackRate()const{return bHoldFast?2:PlaybackRate;}
  bool IsPlaying()const{return bPlaying;}
  ERecordingReviewPhase GetPhase()const{return Phase;}
+ float GetPhaseElapsed()const{return PhaseSeconds;}
  int32 GetDecodedFrame()const{return LastFrame;}
  int32 GetThumbnailCount()const{return LoadedThumbnails;}
  URecordingLibrary* GetLibrary()const{return Library.Get();}
  // Presentation only: these never write back into recordings or the persisted round score.
  int32 GetPresentedScore()const;
  int32 GetAwardTier()const;
+ float GetAnimatedFinalScore()const;
+ float GetAwardProgress()const;
+ FString GetIntertitleText()const;
  void BeginScoreReveal();
 private:
  struct FThumbnail {TStrongObjectPtr<UTexture2D> Texture;FSlateBrush Brush;bool bLoaded=false;};
@@ -40,13 +44,17 @@ private:
  TArray<TSharedPtr<FThumbnail>> Art;
  FSlateBrush CurtainBrush,AudienceBrush;
  TArray<float> PopTimes;
+ TSharedPtr<class SUniformGridPanel> OverviewGrid;
+ TSharedPtr<class SScrollBox> OverviewScroll;
+ TArray<TSharedPtr<class SWidget>> OverviewCards;
+ TSharedPtr<class SWidget> SummaryCanvas;
  TStrongObjectPtr<UTexture2D> VideoTexture;
  FSlateBrush VideoBrush;
  FCamcorderPlayback Playback;
  ERecordingReviewPhase Phase=ERecordingReviewPhase::Overview;
  int32 SelectedClip=INDEX_NONE,LastFrame=INDEX_NONE,PlaybackRate=1,Revealed=0,LoadedThumbnails=0;
  float PlaybackSeconds=0,OverviewSeconds=0,Duration=0,PhaseSeconds=0,NextPop=0,LastPop=0,PulseSeconds=10;
- int32 PreviousScore=0;
+ int32 PreviousScore=0,PendingOverviewScrollFrames=0;
  bool bPlaying=false,bHoldFast=false;
  FString PlaybackError;
  void Build();
@@ -54,6 +62,8 @@ private:
  void UpdateFrame();
  void SetPhase(ERecordingReviewPhase NewPhase);
  void LoadArt();
+ void AppendOverviewCard(int32 Index);
+ FString IntertitleFullText()const;
  TSharedRef<SWidget> MakeOverview();
  TSharedRef<SWidget> MakeTheater();
  TSharedRef<SWidget> MakeSummary();

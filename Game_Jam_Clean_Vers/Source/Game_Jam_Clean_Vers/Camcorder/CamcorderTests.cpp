@@ -105,11 +105,33 @@ bool FEquipmentIntegration::RunTest(const FString&)
  TWeakObjectPtr<UCamcorderEquipmentComponent> Weak(E);TWeakObjectPtr<APlayerController> WP(PC);
  auto Key=[WP](FKey K,EInputEvent V){if(auto* P=WP.Get())P->InputKey(FInputKeyEventArgs::CreateSimulated(K,V,V==IE_Pressed?1.f:0.f));};
  auto Step=[this](TFunction<void()> F){AddCommand(new FEquipmentStep(MoveTemp(F)));};auto Wait=[this,W](float S){AddCommand(new FEquipmentGameWait(W,S));};
+ auto CameraReadiness=[this,Weak,WP](const TCHAR* Stage)
+ {
+  auto* Equipment=Weak.Get();auto* Player=WP.Get();if(!Equipment||!Equipment->Camcorder||!Player)return;
+  auto* Camera=Equipment->Camcorder.Get();auto* World=Player->GetWorld();
+  AddInfo(FString::Printf(TEXT("Initial camera %s: world=%.3f age=%.3f held=%d backpack=%d powered=%d paused=%d cursor=%d activeWeapon=%s notice=%s"),
+   Stage,World?World->GetTimeSeconds():-1.f,Camera->GetGameTimeSinceCreation(),Camera->bHeld,Camera->bInBackpack,Camera->bPowered,
+   World&&World->IsPaused(),Player->bShowMouseCursor,*GetNameSafe(Equipment->Combat->ActiveWeapon.Get()),*Camera->Notice));
+ };
  TestEqual(TEXT("Standby has no preview-sized render target"),E->Camcorder->MonitorTexture->SizeX,1);
  TestFalse(TEXT("Standby capture is not automatic"),E->Camcorder->Capture->bCaptureEveryFrame);
  TestFalse(TEXT("Moving camera does not capture standby"),E->Camcorder->Capture->bCaptureOnMovement);
  TestFalse(TEXT("Cannot record at hip"),E->Camcorder->StartRecording());TestEqual(TEXT("No spare batteries"),E->GetBatteryCount(),0);
- Step([Key]{Key(EKeys::RightMouseButton,IE_Pressed);});Wait(.25f);
+ CameraReadiness(TEXT("before equip wait"));
+ // Initial resource loading can consume the real-time PIE wait without advancing
+ // the camera's equip animation. Use the same world-time convention as later switches.
+ Wait(1.f);
+ Step([this,Weak,Key,CameraReadiness]
+ {
+  CameraReadiness(TEXT("after equip wait"));
+  if(auto* Equipment=Weak.Get())if(auto* Camera=Equipment->Camcorder.Get())
+  {
+   TestTrue(TEXT("Initial camera is held before input"),Camera->bHeld);
+   TestTrue(TEXT("Initial camera is powered before input"),Camera->bPowered);
+   TestFalse(TEXT("Initial camera is not stowed before input"),Camera->bInBackpack);
+  }
+  Key(EKeys::RightMouseButton,IE_Pressed);
+ });Wait(.25f);
  Step([this,Weak,Key]{auto* E=Weak.Get();if(!E){AddError(TEXT("PIE ended"));return;}TestTrue(TEXT("RMB raises viewfinder"),E->Camcorder->bViewfinderRaised);Key(EKeys::LeftMouseButton,IE_Pressed);});Wait(.3f);
  Step([this,Weak,Key]{if(auto* E=Weak.Get())TestTrue(TEXT("LMB records"),E->Camcorder->bRecording);Key(EKeys::LeftMouseButton,IE_Released);Key(EKeys::MouseScrollUp,IE_Pressed);});Wait(.15f);
  Step([this,Weak,Key]{if(auto* E=Weak.Get())TestTrue(TEXT("Wheel zooms"),E->Camcorder->FocalLength>35);Key(EKeys::MouseScrollUp,IE_Released);Key(EKeys::RightMouseButton,IE_Released);});Wait(.3f);

@@ -9,6 +9,7 @@
 #include "Kismet/KismetSystemLibrary.h"
 #include "Engine/World.h"
 #include "Framework/Application/SlateApplication.h"
+#include "Fonts/FontMeasure.h"
 #include "Widgets/SCanvas.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/SOverlay.h"
@@ -28,6 +29,69 @@ namespace
 {
  const FLinearColor Paper(.92f,.89f,.8f),Gold(1.f,.65f,.12f),Red(.55f,.012f,.018f),Ink(.012f,.01f,.012f);
  constexpr float FilmWidth=820.f*2.f/3.f,FilmHeight=FilmWidth*9.f/16.f,FilmX=(1280-FilmWidth)*.5f,FilmY=96;
+ constexpr float CountStart=.36f,CountDuration=1.2f,CountEnd=CountStart+CountDuration;
+ constexpr float TypingDuration=.85f,IntertitleHold=3.f,IntertitleFade=.2f;
+ float ImpactScale(float Age,float Duration=.25f,float Large=1.55f)
+ {
+  const float T=FMath::Clamp(Age/Duration,0.f,1.f);
+  return T<.7f?FMath::Lerp(Large,.94f,1-FMath::Pow(1-T/.7f,3.f)):FMath::Lerp(.94f,1.f,1-FMath::Pow(1-(T-.7f)/.3f,2.f));
+ }
+ class SAwardRail final:public SLeafWidget
+ {
+ public:
+  SLATE_BEGIN_ARGS(SAwardRail){}SLATE_ATTRIBUTE(float,Progress)SLATE_END_ARGS()
+  void Construct(const FArguments& A){Progress=A._Progress;SetVisibility(EVisibility::HitTestInvisible);}
+  virtual FVector2D ComputeDesiredSize(float)const override{return FVector2D(50,430);}
+  virtual int32 OnPaint(const FPaintArgs&,const FGeometry& G,const FSlateRect&,FSlateWindowElementList& Out,int32 L,const FWidgetStyle& Style,bool)const override
+  {
+   auto Box=[&](float X,float Y,float W,float H,FLinearColor Color){if(W>0&&H>0)FSlateDrawElement::MakeBox(Out,L,G.ToPaintGeometry(FVector2D(W,H),FSlateLayoutTransform(FVector2D(X,Y))),FCoreStyle::Get().GetBrush("WhiteBrush"),ESlateDrawEffect::None,Color*Style.GetColorAndOpacityTint());};
+   const float P=FMath::Clamp(Progress.Get(),0.f,1.f);
+   Box(22,24,6,382,FLinearColor(.21f,.025f,.025f));Box(22,406-P*382,6,P*382,Gold);
+   for(int32 I=0;I<4;++I)Box(14,395-I*(382.f/3),22,22,P+UE_SMALL_NUMBER>=I/3.f?Gold:Paper*.25f);
+   if(P>0&&P<1){Box(17,402-P*382,16,8,Gold*.6f);Box(12,399-P*382,26,14,FLinearColor(1,.65f,.12f,.18f));}
+   return L;
+  }
+ private:TAttribute<float> Progress;
+ };
+ // Translate the complete sentence before revealing characters. Each line keeps its
+ // final centered position, avoiding both translation of fragments and line reflow.
+ class SIntertitleTypewriter final:public SLeafWidget
+ {
+ public:
+  SLATE_BEGIN_ARGS(SIntertitleTypewriter){}SLATE_ATTRIBUTE(FString,FullText)SLATE_ATTRIBUTE(float,Elapsed)SLATE_END_ARGS()
+  void Construct(const FArguments& A){Source=A._FullText;Elapsed=A._Elapsed;SetVisibility(EVisibility::HitTestInvisible);}
+  virtual FVector2D ComputeDesiredSize(float)const override{return FVector2D(980,230);}
+  virtual int32 OnPaint(const FPaintArgs&,const FGeometry& G,const FSlateRect&,FSlateWindowElementList& Out,int32 L,const FWidgetStyle& Style,bool)const override
+  {
+   const FString Full=Source.Get();const float Width=G.GetLocalSize().X;const auto Font=GameLanguage::Font(32,GameLanguage::EFontRole::Heading);
+   const auto Measure=FSlateApplication::Get().GetRenderer()->GetFontMeasureService();
+   if(Full!=Cached||!FMath::IsNearlyEqual(Width,CachedWidth))
+   {
+    Cached=Full;CachedWidth=Width;Lines.Reset();
+    for(int32 Start=0;Start<Full.Len();)
+    {
+     int32 End=Start,Space=INDEX_NONE;
+     while(End<Full.Len()&&Full[End]!='\n'&&Measure->Measure(Full.Mid(Start,End-Start+1),Font).X<=Width){if(Full[End]==' ')Space=End;++End;}
+     if(End<Full.Len()&&Full[End]!='\n'&&Space>Start)End=Space;
+     if(End==Start)++End;
+     Lines.Add({Full.Mid(Start,End-Start),Start});Start=End;
+     while(Start<Full.Len()&&(Full[Start]==' '||Full[Start]=='\n'))++Start;
+    }
+   }
+   const float Age=Elapsed.Get(),LineHeight=Measure->Measure(TEXT("Ag"),Font).Y+12;
+   const int32 Count=FMath::FloorToInt(Full.Len()*FMath::Clamp(Age/TypingDuration,0.f,1.f));
+   const float Alpha=1-FMath::Clamp((Age-TypingDuration-IntertitleHold)/IntertitleFade,0.f,1.f);
+   for(int32 I=0;I<Lines.Num();++I)
+   {
+    const auto& Line=Lines[I];const FString Typed=Line.Text.Left(FMath::Clamp(Count-Line.Start,0,Line.Text.Len()));
+    if(!Typed.IsEmpty())FSlateDrawElement::MakeText(Out,L,G.ToPaintGeometry(G.GetLocalSize(),FSlateLayoutTransform(FVector2D((Width-Measure->Measure(Line.Text,Font).X)*.5f,(G.GetLocalSize().Y-LineHeight*Lines.Num())*.5f+I*LineHeight))),Typed,Font,ESlateDrawEffect::None,Paper*FLinearColor(1,1,1,Alpha)*Style.GetColorAndOpacityTint());
+   }
+   return L;
+  }
+ private:
+  struct FLine{FString Text;int32 Start;};TAttribute<FString> Source;TAttribute<float> Elapsed;
+  mutable FString Cached;mutable float CachedWidth=-1;mutable TArray<FLine> Lines;
+ };
  TSharedRef<SLocalizedTextBlock> Label(const FString& Text,int32 Size=22,FLinearColor Color=Paper,float Wrap=0,GameLanguage::EFontRole Role=GameLanguage::EFontRole::Automatic)
  {
   return SNew(SLocalizedTextBlock).Text(FText::FromString(Text)).Font(GameLanguage::Font(Size,Role))
@@ -45,9 +109,67 @@ namespace
  {
   return SNew(SBox).HAlign(HAlign_Fill).VAlign(VAlign_Center)[Widget];
  }
+ // Kept local to the ending; gameplay buttons retain their existing presentation.
+ class SEndingButton final:public SAudioButton
+ {
+ public:
+  void Construct(const SButton::FArguments& A){SAudioButton::Construct(A);SetRenderTransformPivot(FVector2D(.5,.5));}
+  virtual void Tick(const FGeometry& G,double Now,float DT)override
+  {
+   SAudioButton::Tick(G,Now,DT);const float Step=FMath::Clamp(DT,0.f,.04f);
+   Focus=FMath::FInterpTo(Focus,IsHovered()||HasKeyboardFocus()?1.f:0.f,Step,16);
+   const float Target=IsPressed()?.965f:1.f+.025f*Focus;
+   Velocity+=(Target-Scale)*420.f*Step-Velocity*29.f*Step;Scale+=Velocity*Step;
+   SetRenderTransform(FSlateRenderTransform(FScale2D(Scale),FVector2D(0,IsPressed()?2.f:-3.f*Focus)));
+   if(Focus>.001f||FMath::Abs(Velocity)>.001f)Invalidate(EInvalidateWidgetReason::Paint);
+  }
+  virtual int32 OnPaint(const FPaintArgs& A,const FGeometry& G,const FSlateRect& C,FSlateWindowElementList& Out,int32 L,const FWidgetStyle& WidgetStyle,bool Enabled)const override
+  {
+   FSlateDrawElement::MakeBox(Out,L,G.ToPaintGeometry(G.GetLocalSize(),FSlateLayoutTransform(FVector2D(0,4+2*Focus))),FCoreStyle::Get().GetBrush("WhiteBrush"),ESlateDrawEffect::None,FLinearColor(0,0,0,.2f)*WidgetStyle.GetColorAndOpacityTint());
+   const int32 Top=SAudioButton::OnPaint(A,G,C,Out,L+1,WidgetStyle,Enabled);
+   if(Focus>.001f)
+    FSlateDrawElement::MakeBox(Out,Top+1,G.ToPaintGeometry(FVector2D((G.GetLocalSize().X-24)*Focus,2),FSlateLayoutTransform(FVector2D(12,G.GetLocalSize().Y-5))),FCoreStyle::Get().GetBrush("WhiteBrush"),ESlateDrawEffect::None,FLinearColor(Gold.R,Gold.G,Gold.B,Focus)*WidgetStyle.GetColorAndOpacityTint());
+   return Top+1;
+  }
+ private:float Focus=0,Scale=1,Velocity=0;
+ };
+ class SOverviewCard final:public SBorder
+ {
+ public:
+  void Construct(const SBorder::FArguments& A){SBorder::Construct(A);}
+  virtual int32 OnPaint(const FPaintArgs& A,const FGeometry& G,const FSlateRect& C,FSlateWindowElementList& Out,int32 L,const FWidgetStyle& Style,bool Enabled)const override
+  {
+   for(int32 I=3;I>0;--I)
+    FSlateDrawElement::MakeBox(Out,L,G.ToPaintGeometry(G.GetLocalSize()+FVector2D(I*2,I*2),FSlateLayoutTransform(FVector2D(3-I,6-I))),FCoreStyle::Get().GetBrush("WhiteBrush"),ESlateDrawEffect::None,FLinearColor(0,0,0,.10f)*Style.GetColorAndOpacityTint());
+   return SBorder::OnPaint(A,G,C,Out,L+1,Style,Enabled);
+  }
+ };
+ class SAwardImpact final:public SLeafWidget
+ {
+ public:
+  SLATE_BEGIN_ARGS(SAwardImpact){}SLATE_ATTRIBUTE(float,Age)SLATE_END_ARGS()
+  void Construct(const FArguments& A){Age=A._Age;SetVisibility(EVisibility::HitTestInvisible);}
+  virtual FVector2D ComputeDesiredSize(float)const override{return FVector2D(340,446);}
+  virtual int32 OnPaint(const FPaintArgs&,const FGeometry& G,const FSlateRect&,FSlateWindowElementList& Out,int32 L,const FWidgetStyle& Style,bool)const override
+  {
+   const float T=Age.Get();if(T<0||T>.5f)return L;
+   const float Progress=T/.5f,Opacity=FMath::Sin(Progress*PI)*.65f;
+   // One small burst around the award, not a full-panel flash or an idle loop.
+   for(int32 I=0;I<8;++I)
+   {
+    const float Angle=(I+.5f)*PI/4;
+    const FVector2D Direction(FMath::Cos(Angle),FMath::Sin(Angle)),CenterPoint(170,223);
+    const FVector2D Start=CenterPoint+Direction*FVector2D(120+Progress*20,173+Progress*20);
+    TArray<FVector2D> Points{Start,Start+Direction*(20*(1-Progress)+5)};
+    FSlateDrawElement::MakeLines(Out,L,G.ToPaintGeometry(),Points,ESlateDrawEffect::None,FLinearColor(Gold.R,Gold.G,Gold.B,Opacity)*Style.GetColorAndOpacityTint(),true,3);
+   }
+   return L;
+  }
+ private:TAttribute<float> Age;
+ };
  TSharedRef<SWidget> TextButton(const FString& Text,TFunction<void()> Action,GameLanguage::EFontRole Role=GameLanguage::EFontRole::Emphasis)
  {
-  return SNew(SAudioButton).ButtonStyle(FCoreStyle::Get(),"Button").ContentPadding(FMargin(12,3)).NormalPaddingOverride(FMargin(0)).PressedPaddingOverride(FMargin(0,1,0,0))
+  return SNew(SEndingButton).ButtonStyle(FCoreStyle::Get(),"Button").ContentPadding(FMargin(12,3)).NormalPaddingOverride(FMargin(0)).PressedPaddingOverride(FMargin(0,1,0,0))
    .ButtonColorAndOpacity(Ink).HAlign(HAlign_Center).VAlign(VAlign_Center)
    .OnClicked_Lambda([Action]{Action();return FReply::Handled();})[Label(Text,18,Paper,0,Role)];
  }
@@ -112,7 +234,7 @@ void SRecordingReview::Construct(const FArguments& A)
 {
  Library=A._Library;
  if(auto* L=Library.Get())for(int32 I=0;I<L->Clips.Num();++I)Thumbnails.Add(MakeShared<FThumbnail>());
- LoadArt();Build();
+ NextPop=.3f;LoadArt();Build();
 }
 void SRecordingReview::LoadArt()
 {
@@ -199,10 +321,24 @@ int32 SRecordingReview::GetAwardTier()const
  // A display badge, not a reward, score mutation, or persistent unlock. Negative scores use the no-award presentation.
  return Score>=300?3:Score>=200?2:Score>=100?1:0;
 }
+float SRecordingReview::GetAnimatedFinalScore()const
+{
+ const auto* L=Library.Get();if(!L)return 0;
+ const float T=FMath::Clamp((PhaseSeconds-CountStart)/CountDuration,0.f,1.f);
+ return L->RoundScore*(1-FMath::Pow(1-T,3.f));
+}
+float SRecordingReview::GetAwardProgress()const{return FMath::Clamp(GetAnimatedFinalScore()/300.f,0.f,1.f);}
+FString SRecordingReview::IntertitleFullText()const
+{
+ const auto* L=Library.Get();return GameLanguage::Display(L&&L->bEndedByDeath?TEXT("你的朋友帮你投递了 Gunnes。"):TEXT("你拍到了史上最伟大的影片，投递了 Gunnes。"));
+}
+FString SRecordingReview::GetIntertitleText()const
+{
+ const FString Full=IntertitleFullText();return Full.Left(FMath::FloorToInt(Full.Len()*FMath::Clamp(PhaseSeconds/TypingDuration,0.f,1.f)));
+}
 float SRecordingReview::PopScale(int32 Index)const
 {
- const float T=FMath::Clamp((OverviewSeconds-PopTimes[Index])/.32f,0.f,1.f)-1;
- return 1+2.70158f*T*T*T+1.70158f*T*T;
+ return PopTimes.IsValidIndex(Index)?ImpactScale(OverviewSeconds-PopTimes[Index],.32f,1.7f):1.f;
 }
 void SRecordingReview::Tick(const FGeometry& G,double Now,float DT)
 {
@@ -213,12 +349,17 @@ void SRecordingReview::Tick(const FGeometry& G,double Now,float DT)
   OverviewSeconds+=DT;
   if(Revealed<L->Clips.Num()&&OverviewSeconds>=NextPop)
   {
-   LoadThumbnail(Revealed++);PopTimes.Add(OverviewSeconds);LastPop=OverviewSeconds;
-   NextPop=OverviewSeconds+FMath::Max(.055f,.2f/(1+Revealed*.07f));Build();
+   const int32 Index=Revealed++;LoadThumbnail(Index);PopTimes.Add(OverviewSeconds);LastPop=OverviewSeconds;
+   NextPop=OverviewSeconds+FMath::Max(.055f,.2f/(1+Revealed*.07f));AppendOverviewCard(Index);
   }
+  for(int32 I=0;I<OverviewCards.Num();++I)OverviewCards[I]->ForceVolatile(OverviewSeconds-PopTimes[I]<.34f);
+  // The grid needs one completed layout pass before the scroll box can read
+  // the new row's extent. Scroll the grid, not the card's temporary large transform.
+  if(PendingOverviewScrollFrames>0&&--PendingOverviewScrollFrames==0&&OverviewScroll)
+   OverviewScroll->ScrollDescendantIntoView(OverviewGrid,true,EDescendantScrollDestination::BottomOrRight,0);
   if(Revealed==L->Clips.Num()&&OverviewSeconds>LastPop+3.f)SetPhase(ERecordingReviewPhase::Intertitle);
  }
- else if(Phase==ERecordingReviewPhase::Intertitle&&PhaseSeconds>=3)
+ else if(Phase==ERecordingReviewPhase::Intertitle&&PhaseSeconds>=TypingDuration+IntertitleHold+IntertitleFade)
  {
   if(L->Clips.IsEmpty())BeginScoreReveal();else PlayClip(0);
  }
@@ -229,6 +370,7 @@ void SRecordingReview::Tick(const FGeometry& G,double Now,float DT)
   UpdateFrame();const int32 Score=GetPresentedScore();if(Score!=PreviousScore){PulseSeconds=0;PreviousScore=Score;}
  }
  else if(Phase==ERecordingReviewPhase::ScoreReveal&&PhaseSeconds>=(L->bEndedByDeath?3.2f:1.8f))ShowSummary();
+ else if(Phase==ERecordingReviewPhase::Summary&&SummaryCanvas)SummaryCanvas->ForceVolatile(PhaseSeconds<3.f);
 }
 FReply SRecordingReview::OnKeyDown(const FGeometry&,const FKeyEvent& E)
 {
@@ -270,9 +412,21 @@ TSharedRef<SWidget> SRecordingReview::MakeOverview()
  Put(C,Fill(FLinearColor(.027f,.025f,.025f)),0,0,1280,720);
  Put(C,SNew(SFilmPerforations),0,0,1280,720);
  Put(C,Center(Label(TEXT("素材回顾"),38)),160,20,960,62);
- auto Grid=SNew(SUniformGridPanel).SlotPadding(FMargin(14,12));
- for(int32 I=0;I<Revealed;++I)
- {
+ OverviewCards.Reset();OverviewGrid=SNew(SUniformGridPanel).SlotPadding(FMargin(12,12));
+ // Four invisible anchors reserve the columns before the first clip, so adding
+ // a card never stretches or reflows the cards already on screen.
+ for(int32 I=0;I<4;++I)OverviewGrid->AddSlot(I,0)[SNew(SBox).WidthOverride(252).HeightOverride(172.125f).Visibility(EVisibility::Hidden)];
+ OverviewScroll=SNew(SScrollBox).ScrollBarVisibility(EVisibility::Collapsed).ConsumeMouseWheel(EConsumeMouseWheel::Always)
+  +SScrollBox::Slot()[OverviewGrid.ToSharedRef()];
+ for(int32 I=0;I<Revealed;++I)AppendOverviewCard(I);
+ Put(C,OverviewScroll.ToSharedRef(),86,98,1108,516);
+ Put(C,Center(SNew(SLocalizedTextBlock).Font(GameLanguage::Font(28)).Justification(ETextJustify::Center).ColorAndOpacity(Paper)
+  .Text_Lambda([this]{auto* Lib=Library.Get();return FText::FromString(Lib&&Revealed==Lib->Clips.Num()?FString::Printf(TEXT("共 %d 段录像"),Lib->Clips.Num()):FString::Printf(TEXT("正在整理素材  %d / %d"),Revealed,Lib?Lib->Clips.Num():0));})),150,634,980,52);
+ return C;
+}
+void SRecordingReview::AppendOverviewCard(int32 I)
+{
+ auto* L=Library.Get();if(!L||!OverviewGrid||!L->Clips.IsValidIndex(I))return;
   const auto& Clip=L->Clips[I];auto Card=SNew(SVerticalBox);
   Card->AddSlot().AutoHeight()[SNew(SBox).WidthOverride(242).HeightOverride(136.125f)
    [SNew(SOverlay)+SOverlay::Slot()[Fill(Ink)]
@@ -280,25 +434,16 @@ TSharedRef<SWidget> SRecordingReview::MakeOverview()
     +SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Top).Padding(6)[Label(FString::Printf(TEXT("%04d"),I+1),16)]
     +SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center)[Label(Thumbnails[I]->Texture.IsValid()?TEXT(""):TEXT("预览不可用"),16)]]];
   Card->AddSlot().AutoHeight()[SNew(SBox).HeightOverride(26)[Center(Label(FString::Printf(TEXT("%02d:%02d"),int32(Clip.Seconds)/60,int32(Clip.Seconds)%60),18,Ink))]];
-  Grid->AddSlot(I%4,I/4)[SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).Padding(5)
-   .BorderBackgroundColor_Lambda([this,I]{auto Color=Paper;Color.A=FMath::Clamp((OverviewSeconds-PopTimes[I])/.12f,0.f,1.f);return Color;})
-   .ColorAndOpacity_Lambda([this,I]{return FLinearColor(1,1,1,FMath::Clamp((OverviewSeconds-PopTimes[I])/.12f,0.f,1.f));})
-   .RenderTransformPivot(FVector2D(.5f,.5f)).RenderTransform_Lambda([this,I]{return FSlateRenderTransform(FScale2D(PopScale(I)));})[Card]];
- }
- auto Scroll=SNew(SScrollBox).ScrollBarVisibility(EVisibility::Collapsed).ConsumeMouseWheel(EConsumeMouseWheel::Always)
-  +SScrollBox::Slot()[Grid];
- if(Revealed>8)Scroll->ScrollToEnd();
- Put(C,Scroll,86,98,1108,516);
- Put(C,Center(SNew(SLocalizedTextBlock).Font(GameLanguage::Font(28)).Justification(ETextJustify::Center).ColorAndOpacity(Paper)
-  .Text_Lambda([this]{auto* Lib=Library.Get();return FText::FromString(Lib&&Revealed==Lib->Clips.Num()?FString::Printf(TEXT("共 %d 段录像"),Lib->Clips.Num()):FString::Printf(TEXT("正在整理素材  %d / %d"),Revealed,Lib?Lib->Clips.Num():0));})),150,634,980,52);
- return C;
+  auto AnimatedCard=SNew(SOverviewCard).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).Padding(5).BorderBackgroundColor(Paper)
+   .RenderTransformPivot(FVector2D(.5f,.5f)).RenderTransform_Lambda([this,I]{return FSlateRenderTransform(FScale2D(PopScale(I)));})[Card];
+  AnimatedCard->ForceVolatile(true);OverviewCards.Add(AnimatedCard);OverviewGrid->AddSlot(I%4,I/4)[AnimatedCard];
+  if(I>=8&&I%4==0)PendingOverviewScrollFrames=2;
 }
 TSharedRef<SWidget> SRecordingReview::MakeIntertitle()
 {
- auto* L=Library.Get();auto C=SNew(SCanvas);Put(C,Fill(Ink),0,0,1280,720);
- const FString Text=L->bEndedByDeath?TEXT("你的朋友帮你投递了 Gunnes。"):TEXT("你拍到了史上最伟大的影片，投递了 Gunnes。");
- Put(C,SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("NoBrush")).Padding(0).VAlign(VAlign_Center)
-  .ColorAndOpacity_Lambda([this]{return FLinearColor(1,1,1,FMath::Min(FMath::Clamp(PhaseSeconds/.5f,0.f,1.f),FMath::Clamp((3-PhaseSeconds)/.5f,0.f,1.f)));})[Label(Text,36,Paper,980)],150,245,980,230);
+ auto C=SNew(SCanvas);Put(C,Fill(Ink),0,0,1280,720);
+ auto Typewriter=SNew(SIntertitleTypewriter).FullText_Lambda([this]{return IntertitleFullText();}).Elapsed_Lambda([this]{return PhaseSeconds;});Typewriter->ForceVolatile(true);
+ Put(C,Typewriter,150,245,980,230);
  return C;
 }
 FString SRecordingReview::ScoreCaption(bool bNegative)const
@@ -367,8 +512,16 @@ TSharedRef<SWidget> SRecordingReview::MakeSummary()
  auto EndingButton=[](const FString& Text,TFunction<void()> Action)
  {return TextButton(Text,MoveTemp(Action),GameLanguage::EFontRole::Heading);};
  auto* L=Library.Get();auto C=SNew(SCanvas);Put(C,Fill(Red),0,0,1280,720);
- Put(C,Fill(Gold),48,42,5,54);auto Logo=EndingText(TEXT("Gunnes"),38);Logo->SetJustification(ETextJustify::Left);Put(C,Logo,72,40,280,60);
- Put(C,EndingText(TEXT("电影节 · 本届评选"),12),48,108,360,32);
+ SummaryCanvas.Reset();
+ auto Stamp=[this](TSharedRef<SWidget> Content,float Delay,float Angle=0.f)->TSharedRef<SWidget>
+ {
+  return SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("NoBrush")).Padding(0)
+   .ColorAndOpacity_Lambda([this,Delay]{return FLinearColor(1,1,1,FMath::Clamp((PhaseSeconds-Delay)/.035f,0.f,1.f));})
+   .RenderTransformPivot(FVector2D(.5f,.5f)).RenderTransform_Lambda([this,Delay,Angle]
+   {return Concatenate(FSlateRenderTransform(FScale2D(ImpactScale(PhaseSeconds-Delay))),FSlateRenderTransform(FQuat2D(FMath::DegreesToRadians(Angle))));})[Content];
+ };
+ Put(C,Fill(Gold),48,42,5,54);auto Logo=EndingText(TEXT("Gunnes"),38);Logo->SetJustification(ETextJustify::Left);
+ Put(C,Phase==ERecordingReviewPhase::Summary?Stamp(Logo,0):StaticCastSharedRef<SWidget>(Logo),72,40,280,60);
  if(Phase==ERecordingReviewPhase::ScoreReveal)
  {
   int32 Raw=0;for(const auto& Clip:L->Clips)Raw+=Clip.Score;
@@ -381,31 +534,43 @@ TSharedRef<SWidget> SRecordingReview::MakeSummary()
  const int32 Tier=GetAwardTier();
  const TCHAR* Names[]={TEXT("金粪奖"),TEXT("银子弹奖"),TEXT("痛斯卡奖"),TEXT("屠戮金棕榈奖")};
  const TCHAR* Comments[]={TEXT("厉害！史上最烂的电影！"),TEXT("比那些冲奖片强多了。"),TEXT("真是一部直击脑门的电影！"),TEXT("黑帮巨作！")};
- Put(C,EndingText(TEXT("最终得分"),20),72,192,430,38);
- Put(C,Center(EndingText(FString::Printf(TEXT("%.1f"),L->RoundScore),68)),72,234,430,100);
- Put(C,Center(EndingText(Names[Tier],28,Gold,414)),72,344,430,110);
- Put(C,Center(EndingText(Comments[Tier],24,Paper,426)),74,476,426,112);
- Put(C,SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("NoBrush")).Padding(0)
-  .ColorAndOpacity_Lambda([this]{return FLinearColor(1,1,1,FMath::Clamp(PhaseSeconds/.45f,0.f,1.f));})
-  .RenderTransformPivot(FVector2D(.5f,.8f)).RenderTransform_Lambda([this]{const float T=FMath::Clamp(PhaseSeconds/.65f,0.f,1.f)-1;return FSlateRenderTransform(FScale2D(1+2.70158f*T*T*T+1.70158f*T*T));})
-  [SNew(SScaleBox).Stretch(EStretch::ScaleToFit)[SNew(SImage).Image(&Art[6+Tier]->Brush)]],565,130,340,446);
- // Four thresholds rise from the no-award state. Fractional scores are not rounded for badge selection.
- Put(C,Fill(FLinearColor(.21f,.025f,.025f)),1194,148,6,382);
- const float Progress=FMath::Clamp(L->RoundScore/300.f,0.f,1.f)*382;
- Put(C,Fill(Gold),1194,530-Progress,6,Progress);
+ Put(C,Stamp(Center(EndingText(TEXT("最终得分"),20)),.15f),72,276,430,38);
+ auto Highlight=[this]{const float T=(PhaseSeconds-CountEnd)/.26f;return T>0&&T<1?FMath::Sin(PI*T):0.f;};
+ auto Number=SNew(SLocalizedTextBlock).Justification(ETextJustify::Center)
+  .Font_Lambda([this,Highlight]
+  {
+   auto Font=GameLanguage::FittedFont(FString::Printf(TEXT("%.1f"),GetAnimatedFinalScore()),68,430);
+   Font.OutlineSettings.OutlineSize=FMath::RoundToInt(3*Highlight());Font.OutlineSettings.OutlineColor=Gold;return Font;
+  })
+  .ColorAndOpacity_Lambda([Highlight]{return FMath::Lerp(Paper,Gold,Highlight());})
+  .RenderTransformPivot(FVector2D(.5f,.5f)).RenderTransform_Lambda([Highlight]{return FSlateRenderTransform(FScale2D(1+.065f*Highlight()));})
+  .Text_Lambda([this]{return FText::FromString(FString::Printf(TEXT("%.1f"),GetAnimatedFinalScore()));});
+ Put(C,Stamp(Center(Number),.27f),72,318,430,110);
+ Put(C,SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).Padding(0)
+  .BorderBackgroundColor_Lambda([Highlight]{return FLinearColor(Gold.R,Gold.G,Gold.B,.8f*Highlight());}),84,432,406,3);
+ Put(C,Stamp(Center(EndingText(Names[Tier],28,Gold,438)),1.84f),60,446,460,115);
+ Put(C,Stamp(Center(EndingText(Comments[Tier],24,FLinearColor::Black,394)),2.04f,-5.f),146,118,400,136);
+ Put(C,SNew(SAwardImpact).Age_Lambda([this]{return PhaseSeconds-2.25f;}),565,130,340,446);
+ auto Trophy=SNew(SOverlay)
+  +SOverlay::Slot()[SNew(SScaleBox).Stretch(EStretch::ScaleToFit)[SNew(SImage).Image(&Art[6+Tier]->Brush).ColorAndOpacity(FLinearColor(0,0,0,.24f)).RenderTransform(FSlateRenderTransform(FVector2D(7,9)))]]
+  +SOverlay::Slot()[SNew(SScaleBox).Stretch(EStretch::ScaleToFit)[SNew(SImage).Image(&Art[6+Tier]->Brush)]];
+ Put(C,Stamp(Trophy,2.25f),565,130,340,446);
+ Put(C,SNew(SAwardRail).Progress_Lambda([this]{return GetAwardProgress();}),1172,124,50,430);
  for(int32 I=0;I<4;++I)
  {
   const float Y=519-I*(382.f/3);
-  Put(C,Fill(I<=Tier?Gold:Paper*.25f),1186,Y,22,22);
-  auto Marker=EndingText(FString::Printf(TEXT("%s · %d"),Names[I],I*100),14,I==Tier?Gold:Paper);Marker->SetWrapTextAt(228);Marker->SetAutoWrapText(false);
-  Put(C,Center(Marker),934,Y-15,232,54);
-  if(I==Tier)Put(C,Center(EndingText(TEXT("◆"),20,Gold)),1212,Y-7,36,36);
+  auto Marker=Label(FString::Printf(TEXT("%s · %d"),Names[I],I*100),22,Paper,244,GameLanguage::EFontRole::Body);
+  Marker->SetColorAndOpacity(TAttribute<FSlateColor>::CreateLambda([this,I,Tier]{return FSlateColor(I==Tier&&PhaseSeconds>=CountEnd?Gold:Paper);}));
+  Put(C,Center(Marker),920,Y-25,244,74);
+  if(I==Tier)Put(C,SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("NoBrush")).Padding(0).VAlign(VAlign_Center)
+   .ColorAndOpacity_Lambda([this]{return FLinearColor(1,1,1,FMath::Clamp((PhaseSeconds-CountEnd)/.2f,0.f,1.f));})[EndingText(TEXT("◆"),20,Gold)],1212,Y-7,36,36);
  }
  auto Buttons=SNew(SHorizontalBox);
  Buttons->AddSlot().FillWidth(1).Padding(6,0)[EndingButton(TEXT("重新开始"),[this]{Navigate(false);})];
  Buttons->AddSlot().FillWidth(1).Padding(6,0)[EndingButton(TEXT("返回主菜单"),[this]{Navigate(true);})];
- Buttons->AddSlot().FillWidth(1).Padding(6,0)[EndingButton(TEXT("退出游戏"),[this]{if(auto* Lib=Library.Get())if(auto* PC=Cast<APlayerController>(Lib->GetOwner()))UKismetSystemLibrary::QuitGame(PC,PC,EQuitPreference::Quit,false);})];
+ Buttons->AddSlot().FillWidth(1).Padding(6,0)[EndingButton(TEXT("QUIT GAME"),[this]{if(auto* Lib=Library.Get())if(auto* PC=Cast<APlayerController>(Lib->GetOwner()))UKismetSystemLibrary::QuitGame(PC,PC,EQuitPreference::Quit,false);})];
  Put(C,Buttons,270,630,740,56);
+ SummaryCanvas=C;SummaryCanvas->ForceVolatile(true);
  return C;
 }
 void SRecordingReview::Navigate(bool bTitle)
@@ -426,6 +591,6 @@ void SRecordingReview::Build()
  ChildSlot[SNew(SOverlay)+SOverlay::Slot()[Fill(FLinearColor::Black)]
   +SOverlay::Slot()[SNew(SScaleBox).Stretch(EStretch::ScaleToFit)[SNew(SBox).WidthOverride(1280).HeightOverride(720)
    [SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("NoBrush")).Padding(0)
-    .ColorAndOpacity_Lambda([this]{return FLinearColor(1,1,1,FMath::Clamp(PhaseSeconds/.3f,0.f,1.f));})[Body]]]]];
+    .ColorAndOpacity_Lambda([this]{return FLinearColor(1,1,1,Phase==ERecordingReviewPhase::Summary?1.f:FMath::Clamp(PhaseSeconds/.3f,0.f,1.f));})[Body]]]]];
  if(bRestoreFocus)FSlateApplication::Get().SetKeyboardFocus(SharedThis(this),EFocusCause::SetDirectly);
 }

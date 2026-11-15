@@ -118,12 +118,10 @@ namespace
     {auto Start=FindButton(Title.ToSharedRef(),GameLanguage::Display(TEXT("开始游戏")));Test->TestTrue(TEXT("Keyboard focus returns to Start"),Start&&Start->HasKeyboardFocus());}
     Key(EKeys::Enter);return Wait();
    case 14:
-    Test->TestFalse(TEXT("Start restores gameplay without changing its semantics"),W->IsPaused()||PC->bShowMouseCursor||PC->IsMoveInputIgnored()||PC->IsLookInputIgnored());
-    for(TActorIterator<APatrolEnemy> It(W);It;++It)It->SetActorTickEnabled(false);
-    Audit(TEXT("Gameplay HUD"));E->SetBackpackOpen(true);return Wait();
-   case 15:Audit(TEXT("Backpack"));Shot(TEXT("Backpack-en"));E->SetBackpackOpen(false);E->Tablet->SetOpen(true);return Wait();
-   case 16:Audit(TEXT("Tablet"));Shot(TEXT("Tablet-en"));E->Tablet->SetOpen(false);return Wait();
-   default:Test->TestFalse(TEXT("Closing media UI restores cursor"),PC->bShowMouseCursor);return true;
+    Test->TestTrue(TEXT("Start keeps world paused for the approved intro"),W->IsPaused()&&PC->IsMoveInputIgnored());
+    Test->TestTrue(TEXT("Start shows intro continuation affordance"),HasText(Window.ToSharedRef(),GameLanguage::Display(TEXT("单击继续"))));
+    Audit(TEXT("Intro"));Shot(TEXT("Intro-start-en"));return true;
+   default:return true;
    }
   }
  };

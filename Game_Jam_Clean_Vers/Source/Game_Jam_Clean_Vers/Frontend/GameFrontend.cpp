@@ -138,7 +138,7 @@ TSharedRef<SWidget> GameFrontend::Pause(TFunction<void()> Resume,TFunction<void(
   +SVerticalBox::Slot().AutoHeight().Padding(0,4)[Label(TEXT("返回标题将结束本局，不进行撤离结算。"),16,500)]
   +SVerticalBox::Slot().AutoHeight().Padding(0,12)[Label(bUnstuckFailed?TEXT("出生点被阻挡，暂时无法返回。请稍后重试。"):TEXT(""),16,500)]];
 }
-TSharedRef<SWidget> GameFrontend::Tutorial(TFunction<void()> Close)
+TSharedRef<SWidget> GameFrontend::Tutorial(TFunction<void()> Close,bool Opening)
 {
  auto Rows=SNew(SVerticalBox);
  Rows->AddSlot().AutoHeight().Padding(0,0,0,20)[Label(TEXT("使用教程"),30)];
@@ -163,6 +163,9 @@ TSharedRef<SWidget> GameFrontend::Tutorial(TFunction<void()> Close)
  Rows->AddSlot().AutoHeight().Padding(0,0,0,12)[Label(TEXT("警车送来增援，警察下车后追击你。"),16,700)];
  Rows->AddSlot().AutoHeight().Padding(0,8,0,4)[Label(TEXT("甩开警察"),23,700)];
  Rows->AddSlot().AutoHeight().Padding(0,0,0,12)[Label(TEXT("甩开警察的视线并躲藏，可以摆脱通缉。"),16,700)];
+ if(Opening)return SNew(SBox).WidthOverride(760).HeightOverride(700)[SNew(SVerticalBox)
+  +SVerticalBox::Slot().FillHeight(1)[SNew(SScrollBox)+SScrollBox::Slot()[Rows]]
+  +SVerticalBox::Slot().AutoHeight().Padding(0,16,0,0)[Button(TEXT("准备好了"),MoveTemp(Close),24)]];
  Rows->AddSlot().AutoHeight()[Button(TEXT("返回"),MoveTemp(Close))];
  return SNew(SBox).WidthOverride(760).HeightOverride(700)[SNew(SScrollBox)+SScrollBox::Slot()[Rows]];
 }

@@ -85,7 +85,7 @@ class FTypographyVisualCheck final:public IAutomationLatentCommand
    if(Step>=10&&Step!=11)
    {
     Library->RoundScore=Step==12?0:Step==13?100:Step==14?200:300;
-    Review->ShowSummary();Advance(.8f);
+    Review->ShowSummary();Advance(3.f);
    }
    View=Review;
   }
