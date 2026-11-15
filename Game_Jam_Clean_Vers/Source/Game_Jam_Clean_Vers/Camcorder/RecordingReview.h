@@ -8,7 +8,11 @@ class URecordingLibrary;
 enum class ERecordingReviewPhase : uint8 { Overview, Intertitle, Review, ScoreReveal, Summary };
 class SRecordingReview : public SCompoundWidget {
 public:
- SLATE_BEGIN_ARGS(SRecordingReview){} SLATE_ARGUMENT(TWeakObjectPtr<URecordingLibrary>,Library) SLATE_END_ARGS()
+ SLATE_BEGIN_ARGS(SRecordingReview){} SLATE_ARGUMENT(TWeakObjectPtr<URecordingLibrary>,Library)
+#if WITH_EDITOR
+ SLATE_ARGUMENT(TSharedPtr<SWidget>,PreviewControls)
+#endif
+ SLATE_END_ARGS()
  void Construct(const FArguments& Args);
  virtual void Tick(const FGeometry&,double,float) override;
  virtual bool SupportsKeyboardFocus()const override{return true;}
@@ -38,6 +42,9 @@ public:
  FString GetIntertitleText()const;
  void BeginScoreReveal();
 private:
+#if WITH_EDITOR
+ TSharedPtr<SWidget> PreviewControls;
+#endif
  struct FThumbnail {TStrongObjectPtr<UTexture2D> Texture;FSlateBrush Brush;bool bLoaded=false;};
  TWeakObjectPtr<URecordingLibrary> Library;
  TArray<TSharedPtr<FThumbnail>> Thumbnails;

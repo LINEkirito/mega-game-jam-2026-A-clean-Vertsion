@@ -1,4 +1,15 @@
 // Display-only bilingual catalog. Keep printf placeholders in the same order.
+#if WITH_EDITOR
+PAIR("结算调试 · F3", "Ending preview · F3")
+PAIR("仅编辑器预览，不记录成绩。选择奖项，在对应区间内随机生成分数。", "Editor preview only. Scores are not saved. Choose an award to randomize its score within the shown range.")
+PAIR("金粪奖 · 0–99", "Gold Shit · 0–99")
+PAIR("银子弹奖 · 100–199", "Silver Bullet · 100–199")
+PAIR("痛斯卡奖 · 200–299", "The Ouch-scar · 200–299")
+PAIR("屠戮金棕榈奖 · 300–399", "Palme d'Or du Massacre · 300–399")
+PAIR("关闭预览", "Close preview")
+PAIR("重新随机", "Reroll score")
+PAIR("选择奖项", "Choose award")
+#endif
 PAIR("1280×720 / 15 帧/秒", "1280×720 / 15 FPS")
 PAIR("你已死亡", "You died")
 PAIR("手持摄像机", "Handheld camcorder")

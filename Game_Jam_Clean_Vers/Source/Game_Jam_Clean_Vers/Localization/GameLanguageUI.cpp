@@ -14,6 +14,7 @@
 #include "Frontend/RunScoreHistoryPanel.h"
 #if WITH_EDITOR
 #include "Frontend/EventDebugOverlay.h"
+#include "Frontend/SettlementDebugPanel.h"
 #endif
 #include "Kismet/KismetSystemLibrary.h"
 #include "Performance/GamePerformanceSettings.h"
@@ -86,6 +87,7 @@ namespace
    if(bOnboarding&&E.GetKey()==EKeys::Escape)return true;
 #if WITH_EDITOR
    if(E.GetKey()==EKeys::F2){if(!E.IsRepeat())ToggleDebug();return true;}
+   if(E.GetKey()==EKeys::F3){if(!E.IsRepeat()&&!bOnboarding){if(!bOpen)Open(true);ShowSettlementDebug();}return true;}
 #endif
    if(E.GetKey()==EKeys::Escape)
    {
@@ -112,7 +114,7 @@ namespace
    if(bCountingDown)return true;
    const FKey Key=E.GetKey();
 #if WITH_EDITOR
-   if(Key==EKeys::F2)return true;
+   if(Key==EKeys::F2||Key==EKeys::F3)return true;
 #endif
    return (bOpen&&Key!=EKeys::Tab&&Key!=EKeys::Enter&&Key!=EKeys::SpaceBar&&Key!=EKeys::Up&&Key!=EKeys::Down&&Key!=EKeys::Left&&Key!=EKeys::Right);
   }
@@ -187,6 +189,12 @@ namespace
  private:
 #if WITH_EDITOR
   TSharedPtr<SWidget> DebugRoot;
+  void ShowSettlementDebug()
+  {
+   if(!bOpen)return;
+   bStyledMenu=false;bMain=false;bPauseRoot=false;
+   PerformancePanel=SettlementDebug::Make([this]{Close();});ShowPerformance();
+  }
   void ToggleDebug()
   {
    auto* PC=Player.Get();auto* V=PC?PC->GetWorld()->GetGameViewport():nullptr;if(!V)return;

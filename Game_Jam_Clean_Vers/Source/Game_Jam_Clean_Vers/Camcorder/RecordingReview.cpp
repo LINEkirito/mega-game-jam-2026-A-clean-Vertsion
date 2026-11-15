@@ -234,6 +234,9 @@ namespace
 void SRecordingReview::Construct(const FArguments& A)
 {
  Library=A._Library;
+#if WITH_EDITOR
+ PreviewControls=A._PreviewControls;
+#endif
  if(auto* L=Library.Get())if(auto* W=L->GetWorld())if(auto* Music=UBackgroundMusic::For(W->GetFirstPlayerController()))Music->SetStage(EBackgroundMusicStage::Ending);
  if(auto* L=Library.Get())for(int32 I=0;I<L->Clips.Num();++I)Thumbnails.Add(MakeShared<FThumbnail>());
  NextPop=.3f;LoadArt();Build();
@@ -576,7 +579,11 @@ TSharedRef<SWidget> SRecordingReview::MakeSummary()
  Buttons->AddSlot().FillWidth(1).Padding(6,0)[EndingButton(TEXT("重新开始"),[this]{Navigate(false);})];
  Buttons->AddSlot().FillWidth(1).Padding(6,0)[EndingButton(TEXT("返回主菜单"),[this]{Navigate(true);})];
  Buttons->AddSlot().FillWidth(1).Padding(6,0)[EndingButton(TEXT("QUIT GAME"),[this]{if(auto* Lib=Library.Get())if(auto* PC=Cast<APlayerController>(Lib->GetOwner()))UKismetSystemLibrary::QuitGame(PC,PC,EQuitPreference::Quit,false);})];
+#if WITH_EDITOR
+ Put(C,PreviewControls.IsValid()?PreviewControls.ToSharedRef():StaticCastSharedRef<SWidget>(Buttons),270,630,740,56);
+#else
  Put(C,Buttons,270,630,740,56);
+#endif
  SummaryCanvas=C;SummaryCanvas->ForceVolatile(true);
  return C;
 }

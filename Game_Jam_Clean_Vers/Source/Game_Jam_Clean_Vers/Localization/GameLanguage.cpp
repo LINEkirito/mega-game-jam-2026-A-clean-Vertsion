@@ -186,7 +186,7 @@ FSlateFontInfo GameLanguage::FittedFont(const FString& Text,int32 Size,float Wid
  return Result;
 }
 
-#if !UE_BUILD_SHIPPING
+#if WITH_EDITOR
 // Background visual QA uses the exact same preference setter as the menu buttons.
 static FAutoConsoleCommand LanguagePreviewCommand(TEXT("Game.Language.Set"),TEXT("Set UI language for visual QA: en or zh"),
  FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
