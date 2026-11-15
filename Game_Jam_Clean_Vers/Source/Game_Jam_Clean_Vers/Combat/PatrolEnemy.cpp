@@ -191,7 +191,7 @@ void APatrolEnemy::Say(const FString& Text,USoundBase* Sound)
    Attenuation.FalloffDistance=Range-Attenuation.AttenuationShapeExtents.X;
   }
   Voice->bAllowSpatialization=true;Voice->bOverrideAttenuation=true;Voice->AdjustAttenuation(Attenuation);
-  Voice->SetSound(Sound);Voice->SetVolumeMultiplier(Dialogue?1.f:.7f);Voice->Play();
+  Voice->SetSound(Sound);Voice->SetVolumeMultiplier(Dialogue?1.25f:.7f);Voice->Play();
  }
 }
 void APatrolEnemy::SetActivity(ENPCActivity Next)
