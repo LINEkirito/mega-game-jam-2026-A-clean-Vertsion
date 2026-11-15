@@ -2,6 +2,7 @@
 #include "PoliceReinforcements.h"
 #include "Extraction/ExtractionPoint.h"
 #include "Audio/GameAudio.h"
+#include "Audio/NPCVoiceLines.h"
 #include "Audio/CharacterAudio.h"
 #include "WorldEvents.h"
 #include "Data/GlobalData.h"
@@ -173,8 +174,25 @@ float APatrolEnemy::PlayerWarningRange()const
 }
 void APatrolEnemy::Say(const FString& Text,USoundBase* Sound)
 {
- Speech->SetText(FText::FromString(Text));Speech->SetVisibility(true);SpeechTime=2.5f;
- if(Sound){Voice->bAllowSpatialization=true;Voice->bOverrideAttenuation=true;Voice->AdjustAttenuation(CharacterAudio::Settings(ECharacterSound::Voice));Voice->SetSound(Sound);Voice->SetVolumeMultiplier(.7f);Voice->Play();}
+ FString SpokenText=Text;
+ if(!Sound){
+  Sound=NPCVoiceLines::Select(this,Text,SpokenText,IsBeingFilmed());
+  if(Sound){if(GetWorld()->GetTimeSeconds()<NextVoiceTime)return;NextVoiceTime=GetWorld()->GetTimeSeconds()+5.f;}
+  else if(Text==TEXT("COMBAT!")||Text==TEXT("MAKE WAY!"))return;
+ }
+ Speech->SetText(FText::FromString(SpokenText));Speech->SetVisibility(true);SpeechTime=2.5f;
+ if(Sound){
+  const bool Dialogue=Sound->GetName().StartsWith(TEXT("Voice_"));
+  auto Attenuation=CharacterAudio::Settings(ECharacterSound::Voice);
+  if(Dialogue){
+   // Preserve the outer audible range, but keep nearby dialogue at full level.
+   const float Range=Attenuation.AttenuationShapeExtents.X+Attenuation.FalloffDistance;
+   Attenuation.AttenuationShapeExtents.X=FMath::Min(600.f,Range*.5f);
+   Attenuation.FalloffDistance=Range-Attenuation.AttenuationShapeExtents.X;
+  }
+  Voice->bAllowSpatialization=true;Voice->bOverrideAttenuation=true;Voice->AdjustAttenuation(Attenuation);
+  Voice->SetSound(Sound);Voice->SetVolumeMultiplier(Dialogue?1.25f:.7f);Voice->Play();
+ }
 }
 void APatrolEnemy::SetActivity(ENPCActivity Next)
 {
@@ -196,7 +214,7 @@ void APatrolEnemy::SetTarget(AActor* Target)
  if(auto* Extraction=GetWorld()->GetSubsystem<UExtractionSubsystem>();Extraction&&!Extraction->AllowsPlayerTarget(this,Target))return;
  if(IsActivePoliceGangCrossfire(this,Target)&&(CrossfireCooldown>0||CastChecked<APatrolEnemy>(Target)->CrossfireCooldown>0))return;
  AssaultTarget.Reset();RetaliationTarget.Reset();if(EscalationTarget.Get()!=Target)EscalationTarget.Reset();
- if(CombatTarget!=Target){ReleasePartner();ShotTime=.7f;LostTime=0;}
+ if(CombatTarget!=Target){ReleasePartner();ShotTime=.7f;LostTime=0;Say(TEXT("COMBAT!"));}
  CombatTarget=Target;LastKnown=Target->GetActorLocation();SetActivity(ENPCActivity::Combat);
  if(auto* Events=GetWorld()->GetSubsystem<UWorldEvents>())Events->ObserveCombat(this,Cast<APatrolEnemy>(Target));
 }
@@ -280,32 +298,31 @@ float APatrolEnemy::TakeDamage(float Damage,const FDamageEvent&,AController* Eve
  if(Health<=0||Damage<=0)return 0;
  auto* Attacker=EventInstigator?EventInstigator->GetPawn().Get():Cast<APawn>(Causer);
  if(!Attacker&&Causer)Attacker=Causer->GetInstigator();
- // Police/gang crossfire cannot cause either injury or death, including boss NPCs.
- // Identity survives BecomeInjured so an opponent cannot finish a downed NPC.
+ // Keep the low crossfire damage, but never replenish a living combatant's health.
+ bool Crossfire=false;
  if(const auto* NPC=Cast<APatrolEnemy>(Attacker))
  {
   const auto IsGangRole=[](ENPCRole Faction){return Faction==ENPCRole::GangMember||Faction==ENPCRole::GangBoss;};
-  const bool Crossfire=(IdentityRole==ENPCRole::Police&&IsGangRole(NPC->IdentityRole))
+  Crossfire=(IdentityRole==ENPCRole::Police&&IsGangRole(NPC->IdentityRole))
    ||(IsGangRole(IdentityRole)&&NPC->IdentityRole==ENPCRole::Police);
   if(Crossfire)
   {
-   // Never revive a player-downed NPC. Living combatants recover a small buffer
-   // before a low-damage hit so every later hit still reaches the event bus.
+   // A player-downed opponent is still no longer a combat target.
    if(NPCRole==ENPCRole::Injured)return 0;
    const auto* Rules=GetDefault<UGlobalData>();
-   const float HealthFloor=FMath::Max(0.f,Rules->NPCInjuryHealth)+1.f;
    Damage=FMath::Min(Damage*FMath::Clamp(Rules->PoliceGangDamageScale,.001f,1.f),FMath::Max(.01f,Rules->PoliceGangMaxHitDamage));
-   if(Health-Damage<HealthFloor)
-   {
-    Health=HealthFloor+FMath::Max(Damage,FMath::Max(1.f,Rules->PoliceGangRecoveryHealth));
-    GetWorld()->GetSubsystem<UDataTransmitter>()->NotifyChange(this,TEXT("Health"),Health);
-   }
+  }
+  // End gang violence at civilian incapacitation, including bullets already in flight.
+  if(IsGangRole(NPC->IdentityRole)&&(IdentityRole==ENPCRole::Civilian||IdentityRole==ENPCRole::Merchant))
+  {
+   if(NPCRole==ENPCRole::Injured)return 0;
+   Damage=FMath::Min(Damage,FMath::Max(0.f,Health-FMath::Max(1.f,GetDefault<UGlobalData>()->NPCInjuryHealth)));
   }
  }
  const float Applied=FMath::Min(Damage,Health);Health-=Applied;
  if(Health>0&&AudioHurtCooldown<=0){CharacterAudio::Attached(GameAudio::Sound(TEXT("NPC_Hurt")),GetRootComponent(),ECharacterSound::Voice,.55f);AudioHurtCooldown=.65f;}
  if(Health<=0){AssaultTarget.Reset();RetaliationTarget.Reset();ReleasePartner();CombatTarget=nullptr;SetActivity(ENPCActivity::Dead);Speech->SetVisibility(false);Voice->Stop();if(auto* AI=Cast<AAIController>(GetController()))AI->StopMovement();GetCharacterMovement()->DisableMovement();GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);DropDeathAmmo();NPCBody->SetVisibility(false);GetMesh()->SetVisibility(true);if(HeldWeapon){HeldWeapon->CancelHandling();HeldWeapon->SetActorHiddenInGame(true);}GetMesh()->SetCollisionProfileName(TEXT("Ragdoll"));GetMesh()->SetSimulatePhysics(true);Rifle->SetVisibility(false);SetLifeSpan(30);}
- else if(NPCRole!=ENPCRole::Injured&&Health<=GetDefault<UGlobalData>()->NPCInjuryHealth)BecomeInjured();
+ else if(!Crossfire&&NPCRole!=ENPCRole::Injured&&Health<=GetDefault<UGlobalData>()->NPCInjuryHealth)BecomeInjured();
  else if(IsGang()&&Attacker){
   // Police support must not repeatedly reset an already-expired player warning.
   auto* Player=UGameplayStatics::GetPlayerPawn(this,0);
@@ -480,7 +497,7 @@ float APatrolEnemy::ShotHitChance(const AActor* Target) const
 void APatrolEnemy::TickCombat(float DT)
 {
  if(Health<=0||NPCRole==ENPCRole::Injured)return;
- if(!IsCombatTargetAlive(CombatTarget)){CombatTarget=nullptr;EscalationTarget.Reset();SetActivity(ENPCActivity::Idle);return;}
+ if(!IsCombatTargetAlive(CombatTarget)){LeaveFinishedEncounter();return;}
  const bool Crossfire=IsActivePoliceGangCrossfire(this,CombatTarget);
  const bool Seen=CanSeeActor(CombatTarget,false);
  const auto* Extraction=GetWorld()->GetSubsystem<UExtractionSubsystem>();
@@ -884,8 +901,19 @@ bool APatrolEnemy::TickCameraReaction(float DT)
 // Decisions are sampled once per encounter/cooldown, never every frame.
 bool APatrolEnemy::IsCombatTargetAlive(AActor* Target) const
 {
- if(auto* N=Cast<APatrolEnemy>(Target);IsValid(N)&&EscalationTarget.Get()==N)return N->Health>0;
  return IsLiving(Target);
+}
+void APatrolEnemy::LeaveFinishedEncounter()
+{
+ const AActor* FinishedTarget=CombatTarget?CombatTarget.Get():AssaultTarget.Get();
+ if(FinishedTarget)DangerLocation=FinishedTarget->GetActorLocation();
+ CombatTarget=nullptr;EscalationTarget.Reset();AssaultTarget.Reset();RetaliationTarget.Reset();
+ SocialCooldown=GetDefault<UGlobalData>()->NPCInteractionRetrySeconds;
+ if(HeldWeapon)HeldWeapon->CancelHandling();
+ if(auto* AI=Cast<AAIController>(GetController()))AI->StopMovement();
+ SetActivity(ENPCActivity::Idle);
+ if(ChooseDestination(FinishedTarget!=nullptr))ChangePatrolPhase(EPatrolPhase::Walking);
+ else ChangePatrolPhase(EPatrolPhase::WaitingBeforeTurn);
 }
 void APatrolEnemy::BeginAssault(APatrolEnemy* Target)
 {
@@ -909,7 +937,7 @@ void APatrolEnemy::RespondToAssault(APatrolEnemy* Gang)
 void APatrolEnemy::TickAssault(float DT)
 {
  auto* Target=AssaultTarget.Get();
- auto Stop=[&]{AssaultTarget.Reset();SocialCooldown=GetDefault<UGlobalData>()->NPCInteractionRetrySeconds;if(auto* AI=Cast<AAIController>(GetController()))AI->StopMovement();SetActivity(ENPCActivity::Idle);};
+ auto Stop=[&]{LeaveFinishedEncounter();};
  if(!IsLiving(Target)){Stop();return;}
  const bool Seen=CanSeeActor(Target,false);
  if(Seen){LastKnown=Target->GetActorLocation();AssaultLostTime=0;}else AssaultLostTime+=DT;
@@ -961,7 +989,7 @@ bool APatrolEnemy::RequestTrafficYield(const FVector& Point)
  if(!Path||!Path->IsValid()||Path->IsPartial()||Path->GetPathLength()>1000.f)return false;
  TrafficSavedSpeed=GetCharacterMovement()->MaxWalkSpeed;
  if(!MoveTo(Ground.Location,20.f))return false;
- TrafficYieldPoint=Ground.Location;TrafficYieldUntil=GetWorld()->GetTimeSeconds()+1.2f;bTrafficYielding=true;
+ TrafficYieldPoint=Ground.Location;TrafficYieldUntil=GetWorld()->GetTimeSeconds()+1.2f;if(!bTrafficYielding&&NPCRole==ENPCRole::Police)Say(TEXT("MAKE WAY!"));bTrafficYielding=true;
  return true;
 }
 bool APatrolEnemy::TickTrafficYield(float DT)

@@ -311,9 +311,16 @@ bool FNPCStreetConflictCheck::Update()
   Test->TestEqual(TEXT("Retaliation escalates gang to firearm combat"),G->CombatTarget.Get(),static_cast<AActor*>(V));
   Test->TestTrue(TEXT("Gang abandons melee after escalation"),G->bCombat&&!G->AssaultTarget.IsValid());
   Hit(V,G,110);Test->TestEqual(TEXT("Victim becomes injured"),V->NPCRole,ENPCRole::Injured);
-  Test->TestTrue(TEXT("Escalated gun target remains valid through injury"),G->IsCombatTargetAlive(V));
-  Hit(V,G,1000);Test->TestFalse(TEXT("Escalated target ends only at death"),G->IsCombatTargetAlive(V));
-  Test->TestEqual(TEXT("No resurrection: original corpse lifetime"),V->GetLifeSpan(),30.f);
+  Test->TestFalse(TEXT("Downed civilian is no longer a gun target"),G->IsCombatTargetAlive(V));
+  const float DownedHealth=V->Health;
+  Test->TestEqual(TEXT("In-flight gang hit does not finish civilian"),Hit(V,G,1000),0.f);
+  Test->TestEqual(TEXT("Civilian remains alive on the ground"),V->Health,DownedHealth);
+  G->TickCombat(.1f);
+  Test->TestNull(TEXT("Gang releases downed target"),G->CombatTarget.Get());
+  Test->TestFalse(TEXT("Gang releases escalation lock"),G->EscalationTarget.IsValid());
+  Test->TestFalse(TEXT("Gang leaves combat after civilian falls"),G->bCombat);
+  G->SetTarget(V);G->Think();
+  Test->TestTrue(TEXT("Downed civilian cannot be reacquired"),G->CombatTarget!=V&&G->AssaultTarget.Get()!=V);
   Clear();
  }
  {

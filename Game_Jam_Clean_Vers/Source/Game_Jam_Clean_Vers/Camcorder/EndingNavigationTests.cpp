@@ -68,7 +68,8 @@ namespace
     case 3:
      if(!Button(TEXT("返回主菜单")))return false;
      FSlateApplication::Get().ProcessWindowActivatedEvent(FWindowActivateEvent(FWindowActivateEvent::EA_Activate,Window.ToSharedRef()));
-     Key(EKeys::F10);return Wait();
+     Key(EKeys::F10);Test->TestFalse(TEXT("F10 no longer opens settings"),Button(TEXT("语言 / Language")).IsValid());
+     Key(EKeys::Escape);return Wait();
     case 4:
      if(auto B=Button(TEXT("语言 / Language"))){B->SimulateClick();return Wait();}return false;
     case 5:

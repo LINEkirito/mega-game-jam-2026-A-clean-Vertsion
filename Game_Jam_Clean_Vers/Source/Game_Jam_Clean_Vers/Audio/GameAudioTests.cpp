@@ -21,6 +21,11 @@ bool FGameAudioAssetsTest::RunTest(const FString&)
    TestFalse(FString(Name)+TEXT(" is one shot"),Wave->bLooping);
   }
  }
+ for(const auto& Group:TArray<TPair<FString,int32>>{{TEXT("Boss"),3},{TEXT("Gang"),8},{TEXT("Police"),7}})
+  for(int32 I=1;I<=Group.Value;++I){const FString Name=FString::Printf(TEXT("Voice_%s_%02d"),*Group.Key,I);
+   auto* Wave=Cast<USoundWave>(GameAudio::Sound(*Name));
+   if(TestNotNull(Name,Wave)){TestTrue(Name+TEXT(" duration"),Wave->Duration>.1f&&Wave->Duration<5.f);TestEqual(Name+TEXT(" mono"),Wave->NumChannels,1);TestFalse(Name+TEXT(" one shot"),Wave->bLooping);}
+  }
  if(auto* Hover=Cast<USoundWave>(GameAudio::Sound(TEXT("UI_Hover"))))if(auto* Click=Cast<USoundWave>(GameAudio::Sound(TEXT("UI_Click"))))
   TestTrue(TEXT("Hover is quieter than click"),Hover->Volume<Click->Volume);
  auto Button=SNew(SAudioButton).OnClicked_Lambda([]{return FReply::Handled();});

@@ -186,10 +186,10 @@ public:
   }
   if(Step==2){GameLanguage::SetEnglish(true);++Step;return false;}
   if(Step==3){FScreenshotRequest::RequestScreenshot(TEXT("G:/TheTechfiles/ThefinalGameJam/Events/Debug-en.png"),true,false);++Step;return false;}
-  if(Step==4){Key(EKeys::F10);++Step;return false;}
+  if(Step==4){Key(EKeys::Escape);++Step;return false;}
   if(Step==5){Key(EKeys::Escape);++Step;return false;}
-  Test->TestTrue(TEXT("Overlay survives returning from settings"),FindOverlay(Window->GetContent()).IsValid());
-  Test->TestFalse(TEXT("Returning from settings restores gameplay"),PC->IsPaused()||PC->IsMoveInputIgnored()||PC->IsLookInputIgnored());
+  Test->TestTrue(TEXT("Overlay survives returning from the Esc menu"),FindOverlay(Window->GetContent()).IsValid());
+  Test->TestFalse(TEXT("Returning from the Esc menu restores gameplay"),PC->IsPaused()||PC->IsMoveInputIgnored()||PC->IsLookInputIgnored());
   Key(EKeys::F2);Test->TestFalse(TEXT("F2 closes overlay"),FindOverlay(Window->GetContent()).IsValid());
   Key(EKeys::F2);Test->TestTrue(TEXT("F2 reopens without a password"),FindOverlay(Window->GetContent()).IsValid());Key(EKeys::F2);
   GameLanguage::SetEnglish(PreviousLanguage);return true;
