@@ -181,7 +181,18 @@ void APatrolEnemy::Say(const FString& Text,USoundBase* Sound)
   else if(Text==TEXT("COMBAT!")||Text==TEXT("MAKE WAY!"))return;
  }
  Speech->SetText(FText::FromString(SpokenText));Speech->SetVisibility(true);SpeechTime=2.5f;
- if(Sound){Voice->bAllowSpatialization=true;Voice->bOverrideAttenuation=true;Voice->AdjustAttenuation(CharacterAudio::Settings(ECharacterSound::Voice));Voice->SetSound(Sound);Voice->SetVolumeMultiplier(.7f);Voice->Play();}
+ if(Sound){
+  const bool Dialogue=Sound->GetName().StartsWith(TEXT("Voice_"));
+  auto Attenuation=CharacterAudio::Settings(ECharacterSound::Voice);
+  if(Dialogue){
+   // Preserve the outer audible range, but keep nearby dialogue at full level.
+   const float Range=Attenuation.AttenuationShapeExtents.X+Attenuation.FalloffDistance;
+   Attenuation.AttenuationShapeExtents.X=FMath::Min(600.f,Range*.5f);
+   Attenuation.FalloffDistance=Range-Attenuation.AttenuationShapeExtents.X;
+  }
+  Voice->bAllowSpatialization=true;Voice->bOverrideAttenuation=true;Voice->AdjustAttenuation(Attenuation);
+  Voice->SetSound(Sound);Voice->SetVolumeMultiplier(Dialogue?1.f:.7f);Voice->Play();
+ }
 }
 void APatrolEnemy::SetActivity(ENPCActivity Next)
 {
