@@ -119,7 +119,45 @@ namespace
 bool GameLanguage::IsEnglish(){bool English=false;if(GConfig)GConfig->GetBool(TEXT("GameLanguage"),TEXT("English"),English,GameLocalSettings::Filename());return English;}
 void GameLanguage::SetEnglish(bool English){if(GConfig){GConfig->SetBool(TEXT("GameLanguage"),TEXT("English"),English,GameLocalSettings::Filename());GConfig->Flush(false,GameLocalSettings::Filename());}}
 FString GameLanguage::Translate(const FString& Source,bool English){return Convert(Source,English,0);}
-FSlateFontInfo GameLanguage::Font(int32 Size){return FSlateFontInfo(FPaths::EngineContentDir()/TEXT("Slate/Fonts/DroidSansFallback.ttf"),Size);}
+namespace
+{
+ // Immutable display resources, shared across widgets. They contain no gameplay or world state.
+ TSharedRef<const FCompositeFont> GameTypeface()
+ {
+  static const TSharedRef<const FCompositeFont> Family=[]()->TSharedRef<const FCompositeFont>
+  {
+   auto Result=MakeShared<FCompositeFont>();
+   const FString Folder=FPaths::ProjectContentDir()/TEXT("UI/Fonts");
+   Result->DefaultTypeface.Fonts.Emplace(TEXT("Body"),Folder/TEXT("YanoneKaffeesatz-Regular.ttf"),EFontHinting::Default,EFontLoadingPolicy::LazyLoad);
+   Result->DefaultTypeface.Fonts.Emplace(TEXT("Emphasis"),Folder/TEXT("YanoneKaffeesatz-Medium.ttf"),EFontHinting::Default,EFontLoadingPolicy::LazyLoad);
+   Result->DefaultTypeface.Fonts.Emplace(TEXT("Heading"),Folder/TEXT("Slackey-Regular.ttf"),EFontHinting::Default,EFontLoadingPolicy::LazyLoad);
+   const FString Chinese=FPaths::EngineContentDir()/TEXT("Slate/Fonts/DroidSansFallback.ttf");
+   auto& CJK=Result->SubTypefaces.AddDefaulted_GetRef();
+   CJK.CharacterRanges={FInt32Range(0x2e80,0xa000),FInt32Range(0xf900,0xfb00),FInt32Range(0xfe30,0xfff0),FInt32Range(0x20000,0x32400)};
+   for(const FName Name:{FName(TEXT("Body")),FName(TEXT("Emphasis")),FName(TEXT("Heading"))})
+   {
+    CJK.Typeface.Fonts.Emplace(Name,Chinese,EFontHinting::Default,EFontLoadingPolicy::LazyLoad);
+    Result->FallbackTypeface.Typeface.Fonts.Emplace(Name,Chinese,EFontHinting::Default,EFontLoadingPolicy::LazyLoad);
+   }
+   return Result;
+  }();
+  return Family;
+ }
+}
+FSlateFontInfo GameLanguage::Font(int32 Size,EFontRole Role)
+{
+ if(Role==EFontRole::Automatic)Role=Size>=23?EFontRole::Heading:EFontRole::Body;
+ const FName Face=Role==EFontRole::Heading?TEXT("Heading"):Role==EFontRole::Emphasis?TEXT("Emphasis"):TEXT("Body");
+ return FSlateFontInfo(GameTypeface(),Size,Face);
+}
+FSlateFontInfo GameLanguage::ResolveFont(const FSlateFontInfo& Requested)
+{
+ // Preserve explicit roles, including small type on the final award panel.
+ if(Requested.CompositeFont==GameTypeface())return Requested;
+ auto Result=Font(FMath::RoundToInt(Requested.Size));
+ Result.OutlineSettings=Requested.OutlineSettings;Result.LetterSpacing=Requested.LetterSpacing;
+ return Result;
+}
 FSlateFontInfo GameLanguage::FittedFont(const FString& Text,int32 Size,float Width)
 {
  auto Result=Font(Size);

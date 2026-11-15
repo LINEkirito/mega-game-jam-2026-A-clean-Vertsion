@@ -63,7 +63,8 @@ bool FEndingPresentation::RunTest(const FString&)
  Advance(UI,1.2f);Shot(TEXT("OverviewEnd_zh"));
  TestEqual(TEXT("13 real first-frame thumbnails decode"),UI->GetThumbnailCount(),13);
  TestEqual(TEXT("Overview stays until every pop and end hold complete"),UI->GetPhase(),ERecordingReviewPhase::Overview);
- Advance(UI,1.3f);TestEqual(TEXT("Overview enters intertitle before playback"),UI->GetPhase(),ERecordingReviewPhase::Intertitle);
+ Advance(UI,1.3f);TestEqual(TEXT("Overview no longer leaves after the old 1.5 second hold"),UI->GetPhase(),ERecordingReviewPhase::Overview);
+ Advance(UI,1.8f);TestEqual(TEXT("Overview enters intertitle after the extended hold"),UI->GetPhase(),ERecordingReviewPhase::Intertitle);
  Advance(UI,.5f);Shot(TEXT("Intertitle_zh"));
  GameLanguage::SetEnglish(true);Shot(TEXT("Intertitle_en"));
  Advance(UI,3);TestEqual(TEXT("Intertitle enters review"),UI->GetPhase(),ERecordingReviewPhase::Review);
@@ -91,7 +92,7 @@ bool FEndingPresentation::RunTest(const FString&)
  TestTrue(TEXT("Quit action visible"),ContainsText(UI,GameLanguage::Display(TEXT("退出游戏"))));
  TestEqual(TEXT("Playback did not mutate raw clip score"),L->Clips[0].Score,24);
  TStrongObjectPtr<URecordingLibrary> Empty(NewObject<URecordingLibrary>());
- auto EmptyUI=SNew(SRecordingReview).Library(Empty.Get());Advance(EmptyUI,7);
+ auto EmptyUI=SNew(SRecordingReview).Library(Empty.Get());Advance(EmptyUI,9);
  TestEqual(TEXT("Empty round automatically reaches final panel"),EmptyUI->GetPhase(),ERecordingReviewPhase::Summary);
  GameLanguage::SetEnglish(OldEnglish);
  return true;

@@ -10,7 +10,9 @@ namespace GameLanguage
  GAME_JAM_CLEAN_VERS_API FString Translate(const FString& Source, bool English);
  inline FString Display(const FString& Source) { return Translate(Source, IsEnglish()); }
  inline FText Text(const FString& Source) { return FText::FromString(Display(Source)); }
- GAME_JAM_CLEAN_VERS_API FSlateFontInfo Font(int32 Size);
+ enum class EFontRole : uint8 { Automatic, Body, Emphasis, Heading };
+ GAME_JAM_CLEAN_VERS_API FSlateFontInfo Font(int32 Size,EFontRole Role=EFontRole::Automatic);
+ GAME_JAM_CLEAN_VERS_API FSlateFontInfo ResolveFont(const FSlateFontInfo& Requested);
  GAME_JAM_CLEAN_VERS_API FSlateFontInfo FittedFont(const FString& Text,int32 Size,float Width);
 }
 
@@ -44,8 +46,9 @@ public:
    { LastSource=Value;bLastEnglish=English;bCached=true;LastText=FText::FromString(GameLanguage::Translate(Value,English)); }
    return LastText;
   });
-  const auto OriginalFont=Args._Font.Get(FCoreStyle::GetDefaultFontStyle("Regular",18));
-  LocalArgs.Font(GameLanguage::Font(OriginalFont.Size));
+  const TAttribute<FSlateFontInfo> RequestedFont=Args._Font;
+  LocalArgs.Font_Lambda([RequestedFont]
+  {return GameLanguage::ResolveFont(RequestedFont.Get(FCoreStyle::GetDefaultFontStyle("Regular",18)));});
   STextBlock::Construct(LocalArgs);
  }
 private:

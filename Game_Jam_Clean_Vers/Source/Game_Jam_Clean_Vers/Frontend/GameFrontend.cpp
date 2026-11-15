@@ -44,12 +44,12 @@ namespace
   float V=Default;GConfig->GetFloat(Section,Key,V,GameLocalSettings::Filename());
   return FMath::IsFinite(V)?FMath::Clamp(V,Min,Max):Default;
  }
- TSharedRef<SWidget> Label(const TCHAR* Text,int Size=20,float Wrap=620)
- { return SNew(SLocalizedTextBlock).Font(GameLanguage::Font(Size)).AutoWrapText(false).WrapTextAt(Wrap).Text(FText::FromString(Text)); }
+ TSharedRef<SWidget> Label(const TCHAR* Text,int Size=20,float Wrap=620,GameLanguage::EFontRole Role=GameLanguage::EFontRole::Automatic)
+ { return SNew(SLocalizedTextBlock).Font(GameLanguage::Font(Size,Role)).AutoWrapText(false).WrapTextAt(Wrap).Text(FText::FromString(Text)); }
  TSharedRef<SWidget> Button(const TCHAR* Text,TFunction<void()> Action,int Size=20)
  {
   return SNew(SAudioButton).ContentPadding(FMargin(22,13)).HAlign(HAlign_Center)
-   .OnClicked_Lambda([Action=MoveTemp(Action)]{Action();return FReply::Handled();})[Label(Text,Size,0)];
+   .OnClicked_Lambda([Action=MoveTemp(Action)]{Action();return FReply::Handled();})[Label(Text,Size,0,GameLanguage::EFontRole::Emphasis)];
  }
  class SFrontendSettings final:public SCompoundWidget
  {
@@ -122,8 +122,9 @@ TSharedRef<SWidget> GameFrontend::Settings(APlayerController* PC,TFunction<void(
 {return SNew(SFrontendSettings,PC,MoveTemp(Close),MoveTemp(Language));}
 TSharedRef<SWidget> GameFrontend::Main(TFunction<void()> Start,TFunction<void()> Settings,TFunction<void()> Tutorial,TFunction<void()> History,TFunction<void()> Quit)
 {
+ auto MainTitle=SNew(SLocalizedTextBlock).Font(GameLanguage::FittedFont(TEXT("DIRECTOR'S SHOT"),42,500)).Text(FText::FromString(TEXT("DIRECTOR'S SHOT")));
  return SNew(SBox).WidthOverride(520)[SNew(SVerticalBox)
-  +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,12)[Label(TEXT("DIRECTOR'S SHOT"),42)]
+  +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,12)[MainTitle]
   +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,38)[Label(TEXT("观察 · 拍摄 · 带回你的故事"),20)]
   +SVerticalBox::Slot().AutoHeight().Padding(0,6)[Button(TEXT("开始游戏"),MoveTemp(Start))]
   +SVerticalBox::Slot().AutoHeight().Padding(0,6)[Button(TEXT("设置"),MoveTemp(Settings))]

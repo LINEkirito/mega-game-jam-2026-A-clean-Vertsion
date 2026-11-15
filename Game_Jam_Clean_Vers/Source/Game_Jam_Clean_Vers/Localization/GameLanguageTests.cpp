@@ -35,4 +35,30 @@ bool FGameLanguageCheck::RunTest(const FString&)
  GameLanguage::SetEnglish(Previous);
  return true;
 }
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGameTypographyCheck,"Game.Localization.Typography",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
+bool FGameTypographyCheck::RunTest(const FString&)
+{
+ const auto Body=GameLanguage::Font(18),Heading=GameLanguage::Font(34);
+ const auto Ending=GameLanguage::Font(14,GameLanguage::EFontRole::Heading);
+ TestEqual(TEXT("Small UI uses body typeface"),Body.TypefaceFontName,FName(TEXT("Body")));
+ TestEqual(TEXT("Large UI uses heading typeface"),Heading.TypefaceFontName,FName(TEXT("Heading")));
+ auto Label=SNew(SLocalizedTextBlock).Font(Ending).Text(FText::FromString(TEXT("Gunnes")));
+ Label->SlatePrepass(1);
+ TestEqual(TEXT("Localized widget preserves small final-panel heading typeface"),Label->GetFont().TypefaceFontName,Ending.TypefaceFontName);
+ auto Legacy=SNew(SLocalizedTextBlock).Font(FCoreStyle::GetDefaultFontStyle("Bold",28));
+ Legacy->SlatePrepass(1);
+ TestEqual(TEXT("Legacy font requests are converted to project typography"),Legacy->GetFont().TypefaceFontName,FName(TEXT("Heading")));
+ const auto& Family=*Body.CompositeFont;
+ TestTrue(TEXT("Body resolves to the supplied Yanone font"),Family.DefaultTypeface.Fonts[0].Font.GetFontFilename().EndsWith(TEXT("YanoneKaffeesatz-Regular.ttf")));
+ TestTrue(TEXT("Headings resolve to the supplied Slackey font"),Family.DefaultTypeface.Fonts[2].Font.GetFontFilename().EndsWith(TEXT("Slackey-Regular.ttf")));
+ TestTrue(TEXT("Chinese retains an explicit character-range fallback"),Family.SubTypefaces[0].CharacterRanges.ContainsByPredicate([](const FInt32Range& Range){return Range.Contains(0x4e2d);}));
+ TestTrue(TEXT("Chinese uses the existing engine font"),Family.SubTypefaces[0].Typeface.Fonts[0].Font.GetFontFilename().EndsWith(TEXT("DroidSansFallback.ttf")));
+ int32 DynamicSize=28;
+ auto Fitted=SNew(SLocalizedTextBlock).Font_Lambda([&DynamicSize]{return GameLanguage::Font(DynamicSize,GameLanguage::EFontRole::Heading);});
+ Fitted->SlatePrepass(1);
+ TestEqual(TEXT("Dynamic font starts at requested size"),Fitted->GetFont().Size,28.f);
+ DynamicSize=20;Fitted->Invalidate(EInvalidateWidgetReason::Prepass);Fitted->SlatePrepass(1);
+ TestEqual(TEXT("Dynamic text fitting survives the localized wrapper"),Fitted->GetFont().Size,20.f);
+ return true;
+}
 #endif

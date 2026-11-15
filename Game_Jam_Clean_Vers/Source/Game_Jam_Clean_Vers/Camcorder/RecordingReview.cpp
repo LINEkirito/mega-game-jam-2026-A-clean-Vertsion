@@ -27,9 +27,10 @@
 namespace
 {
  const FLinearColor Paper(.92f,.89f,.8f),Gold(1.f,.65f,.12f),Red(.55f,.012f,.018f),Ink(.012f,.01f,.012f);
- TSharedRef<SLocalizedTextBlock> Label(const FString& Text,int32 Size=22,FLinearColor Color=Paper,float Wrap=0)
+ constexpr float FilmWidth=820.f*2.f/3.f,FilmHeight=FilmWidth*9.f/16.f,FilmX=(1280-FilmWidth)*.5f,FilmY=96;
+ TSharedRef<SLocalizedTextBlock> Label(const FString& Text,int32 Size=22,FLinearColor Color=Paper,float Wrap=0,GameLanguage::EFontRole Role=GameLanguage::EFontRole::Automatic)
  {
-  return SNew(SLocalizedTextBlock).Text(FText::FromString(Text)).Font(GameLanguage::Font(Size))
+  return SNew(SLocalizedTextBlock).Text(FText::FromString(Text)).Font(GameLanguage::Font(Size,Role))
    .ColorAndOpacity(Color).Justification(ETextJustify::Center).AutoWrapText(false).WrapTextAt(Wrap);
  }
  TSharedRef<SWidget> Fill(FLinearColor Color)
@@ -44,12 +45,38 @@ namespace
  {
   return SNew(SBox).HAlign(HAlign_Fill).VAlign(VAlign_Center)[Widget];
  }
- TSharedRef<SWidget> TextButton(const FString& Text,TFunction<void()> Action)
+ TSharedRef<SWidget> TextButton(const FString& Text,TFunction<void()> Action,GameLanguage::EFontRole Role=GameLanguage::EFontRole::Emphasis)
  {
   return SNew(SAudioButton).ButtonStyle(FCoreStyle::Get(),"Button").ContentPadding(FMargin(12,3)).NormalPaddingOverride(FMargin(0)).PressedPaddingOverride(FMargin(0,1,0,0))
    .ButtonColorAndOpacity(Ink).HAlign(HAlign_Center).VAlign(VAlign_Center)
-   .OnClicked_Lambda([Action]{Action();return FReply::Handled();})[Label(Text,18)];
+   .OnClicked_Lambda([Action]{Action();return FReply::Handled();})[Label(Text,18,Paper,0,Role)];
  }
+ class SCinemaAtmosphere final : public SLeafWidget
+ {
+ public:
+  SLATE_BEGIN_ARGS(SCinemaAtmosphere){}SLATE_ATTRIBUTE(float,Elapsed)SLATE_END_ARGS()
+  void Construct(const FArguments& Args){Elapsed=Args._Elapsed;SetVisibility(EVisibility::HitTestInvisible);}
+  virtual FVector2D ComputeDesiredSize(float)const override{return FVector2D(1280,720);}
+  virtual int32 OnPaint(const FPaintArgs&,const FGeometry& G,const FSlateRect&,FSlateWindowElementList& Out,int32 Layer,const FWidgetStyle& Style,bool)const override
+  {
+   const float Breath=.94f+.06f*FMath::Sin(Elapsed.Get(0.f)*.7f);
+   const auto Tint=Style.GetColorAndOpacityTint();
+   for(int32 I=20;I>0;--I)
+   {
+    const float Radius=I*2.5f;
+    FSlateDrawElement::MakeBox(Out,Layer,G.ToPaintGeometry(FVector2D(FilmWidth+Radius*2,FilmHeight+Radius*2),FSlateLayoutTransform(FVector2D(FilmX-Radius,FilmY-Radius))),FCoreStyle::Get().GetBrush("WhiteBrush"),ESlateDrawEffect::None,FLinearColor(.5f,.64f,.85f,.005f*Breath)*Tint);
+   }
+   // Low-opacity fan behind the audience suggests a projector without covering the film.
+   for(int32 I=0;I<40;++I)
+   {
+    const float T=I/39.f;
+    TArray<FVector2D> Beam{{640,720},{FilmX+FilmWidth*T,FilmY+FilmHeight+6}};
+    FSlateDrawElement::MakeLines(Out,Layer,G.ToPaintGeometry(),Beam,ESlateDrawEffect::None,FLinearColor(.45f,.54f,.7f,.007f*Breath)*Tint,true,12);
+   }
+   return Layer;
+  }
+ private:TAttribute<float> Elapsed;
+ };
  // Decoration uses the engine's white brush; all supplied artwork remains unmodified.
  class SFilmPerforations final : public SLeafWidget
  {
@@ -89,7 +116,7 @@ void SRecordingReview::Construct(const FArguments& A)
 }
 void SRecordingReview::LoadArt()
 {
- const TCHAR* Files[]={TEXT("Pause"),TEXT("Play"),TEXT("Speed1"),TEXT("Speed2"),TEXT("Speed4"),TEXT("Theater"),TEXT("GoldShit"),TEXT("SilverBullet"),TEXT("OuchScar"),TEXT("Palme")};
+ const TCHAR* Files[]={TEXT("Pause"),TEXT("Play"),TEXT("Speed1"),TEXT("Speed2"),TEXT("Speed4"),TEXT("Curtains"),TEXT("GoldShit"),TEXT("SilverBullet"),TEXT("OuchScar"),TEXT("Palme"),TEXT("Audience")};
  for(const auto* File:Files)
  {
   auto Item=MakeShared<FThumbnail>();
@@ -103,8 +130,8 @@ void SRecordingReview::LoadArt()
   else UE_LOG(LogTemp,Error,TEXT("Ending artwork missing: %s"),*Path);
   Art.Add(Item);
  }
- CurtainBrush=Art[5]->Brush;CurtainBrush.SetUVRegion(FBox2f(FVector2f(0,0),FVector2f(1,.73f)));
- AudienceBrush=Art[5]->Brush;AudienceBrush.SetUVRegion(FBox2f(FVector2f(0,.73f),FVector2f(1,1)));
+ CurtainBrush=Art[5]->Brush;
+ AudienceBrush=Art[10]->Brush;
  // UV framing removes unused transparent margins without altering the supplied PNGs.
  const FBox2f Frames[]={{{.40f,.13f},{.61f,.89f}},{{.40f,.13f},{.60f,.89f}},{{.42f,.06f},{.63f,.89f}},{{.29f,.04f},{.73f,.95f}}};
  for(int32 I=0;I<4;++I)
@@ -189,7 +216,7 @@ void SRecordingReview::Tick(const FGeometry& G,double Now,float DT)
    LoadThumbnail(Revealed++);PopTimes.Add(OverviewSeconds);LastPop=OverviewSeconds;
    NextPop=OverviewSeconds+FMath::Max(.055f,.2f/(1+Revealed*.07f));Build();
   }
-  if(Revealed==L->Clips.Num()&&OverviewSeconds>LastPop+1.5f)SetPhase(ERecordingReviewPhase::Intertitle);
+  if(Revealed==L->Clips.Num()&&OverviewSeconds>LastPop+3.f)SetPhase(ERecordingReviewPhase::Intertitle);
  }
  else if(Phase==ERecordingReviewPhase::Intertitle&&PhaseSeconds>=3)
  {
@@ -224,7 +251,7 @@ FReply SRecordingReview::OnMouseButtonDown(const FGeometry& G,const FPointerEven
  const FVector2D P=G.AbsoluteToLocal(E.GetScreenSpacePosition()),Size=G.GetLocalSize();
  const float Scale=FMath::Min(Size.X/1280.f,Size.Y/720.f);if(Scale<=0)return FReply::Unhandled();
  const FVector2D Local=(P-(Size-FVector2D(1280,720)*Scale)*.5f)/Scale;
- if(Phase==ERecordingReviewPhase::Review&&E.GetEffectingButton()==EKeys::LeftMouseButton&&Local.X>=230&&Local.X<=1050&&Local.Y>=86&&Local.Y<=547)
+ if(Phase==ERecordingReviewPhase::Review&&E.GetEffectingButton()==EKeys::LeftMouseButton&&Local.X>=FilmX&&Local.X<=FilmX+FilmWidth&&Local.Y>=FilmY&&Local.Y<=FilmY+FilmHeight)
  {bHoldFast=true;return FReply::Handled().CaptureMouse(SharedThis(this));}
  return FReply::Unhandled();
 }
@@ -287,66 +314,77 @@ FString SRecordingReview::ScoreCaption(bool bNegative)const
 }
 TSharedRef<SWidget> SRecordingReview::MakeTheater()
 {
- auto* L=Library.Get();auto C=SNew(SCanvas);Put(C,Fill(FLinearColor::Black),0,0,1280,720);
- Put(C,Fill(Paper),222,78,836,477);
- Put(C,SNew(SImage).Image(&VideoBrush),230,86,820,461);
- // Split only the brush UVs: the lower part can squash while the curtain stays still.
- Put(C,SNew(SImage).Image(&CurtainBrush).Visibility(EVisibility::HitTestInvisible),0,0,1280,525.6f);
+ auto C=SNew(SCanvas);Put(C,Fill(FLinearColor::Black),0,0,1280,720);
+ Put(C,SNew(SCinemaAtmosphere).Elapsed_Lambda([this]{return PhaseSeconds;}),0,0,1280,720);
+ Put(C,Fill(Paper*.7f),FilmX-5,FilmY-5,FilmWidth+10,FilmHeight+10);
+ Put(C,SNew(SImage).Image(&VideoBrush),FilmX,FilmY,FilmWidth,FilmHeight);
+ // Both supplied layers use their complete 1920x1080 canvas, with no UV crop.
+ Put(C,SNew(SImage).Image(&CurtainBrush).Visibility(EVisibility::HitTestInvisible),0,0,1280,720);
  Put(C,SNew(SImage).Image(&AudienceBrush).Visibility(EVisibility::HitTestInvisible)
   .RenderTransformPivot(FVector2D(.5f,1)).RenderTransform_Lambda([this]
   {
    const float T=FMath::Clamp(PulseSeconds/.38f,0.f,1.f);
    const float Squash=1-.07f*FMath::Sin(T*PI)*FMath::Cos(T*PI*.5f);
    return FSlateRenderTransform(FScale2D(1+(1-Squash)*.2f,Squash));
-  }),0,525.6f,1280,194.4f);
+  }),0,0,1280,720);
  Put(C,Center(SNew(SLocalizedTextBlock).Font(GameLanguage::Font(34)).ColorAndOpacity(Paper).Justification(ETextJustify::Center)
   .RenderTransformPivot(FVector2D(.5f,.5f)).RenderTransform_Lambda([this]{return FSlateRenderTransform(FScale2D(1+.055f*FMath::Max(0.f,1-PulseSeconds/.3f)));})
-  .Text_Lambda([this]{return FText::FromString(FString::Printf(TEXT("当前得分  %d"),GetPresentedScore()));})),230,14,820,58);
+  .Text_Lambda([this]{return FText::FromString(FString::Printf(TEXT("当前得分  %d"),GetPresentedScore()));})),240,17,800,64);
  Put(C,SNew(SAudioSlider).IsFocusable(false).Value_Lambda([this]{return Duration>0?PlaybackSeconds/Duration:0.f;})
-  .OnValueChanged_Lambda([this](float V){Seek(V);}),236,558,510,22);
+  .OnValueChanged_Lambda([this](float V){Seek(V);}),FilmX,FilmY+FilmHeight+12,FilmWidth,16);
  Put(C,Center(SNew(SLocalizedTextBlock).Font(GameLanguage::Font(16)).ColorAndOpacity(Paper)
-  .Text_Lambda([this]{auto* Lib=Library.Get();return FText::FromString(FString::Printf(TEXT("录像 %02d / %02d    %02d:%02d / %02d:%02d"),SelectedClip+1,Lib?Lib->Clips.Num():0,int32(PlaybackSeconds)/60,int32(PlaybackSeconds)%60,int32(Duration)/60,int32(Duration)%60));})),236,581,510,26);
- // The pause/play artwork switches live without rebuilding the widget or losing slider capture.
+  .Text_Lambda([this]{auto* Lib=Library.Get();return FText::FromString(FString::Printf(TEXT("录像 %02d / %02d    %02d:%02d / %02d:%02d"),SelectedClip+1,Lib?Lib->Clips.Num():0,int32(PlaybackSeconds)/60,int32(PlaybackSeconds)%60,int32(Duration)/60,int32(Duration)%60));})),FilmX,430,300,38);
  Put(C,SNew(SAudioButton).IsFocusable(false).HAlign(HAlign_Fill).VAlign(VAlign_Fill).ContentPadding(2).NormalPaddingOverride(FMargin(0)).PressedPaddingOverride(FMargin(0,1,0,0)).ToolTipText_Lambda([]{return GameLanguage::Text(TEXT("播放 / 暂停"));})
-  .OnClicked_Lambda([this]{TogglePause();return FReply::Handled();})[SNew(SImage).Image_Lambda([this]{return &Art[bPlaying?0:1]->Brush;})],788,558,54,54);
+  .OnClicked_Lambda([this]{TogglePause();return FReply::Handled();})[SNew(SImage).Image_Lambda([this]{return &Art[bPlaying?0:1]->Brush;})],690,427,50,50);
  for(int32 I=0;I<3;++I)
  {
   const int32 Rate=I==0?1:I==1?2:4;
-  Put(C,ArtButton(I+2,FString::Printf(TEXT("%d×"),Rate),[this,Rate]{SetPlaybackRate(Rate);},TAttribute<bool>::CreateLambda([this,Rate]{return GetPlaybackRate()==Rate;})),858+I*62,558,54,54);
+  Put(C,ArtButton(I+2,FString::Printf(TEXT("%d×"),Rate),[this,Rate]{SetPlaybackRate(Rate);},TAttribute<bool>::CreateLambda([this,Rate]{return GetPlaybackRate()==Rate;})),748+I*58,427,50,50);
  }
- for(bool Negative:{false,true})Put(C,Center(SNew(SLocalizedTextBlock).Font(GameLanguage::Font(24)).Justification(ETextJustify::Center)
-  .ColorAndOpacity(Negative?FLinearColor(1,.23f,.18f):Gold)
-  .Text_Lambda([this,Negative]{return FText::FromString(ScoreCaption(Negative));})),Negative?666:264,614,400,42);
- if(!PlaybackError.IsEmpty())Put(C,Center(Label(PlaybackError,22,Gold,740)),270,255,740,100);
+ for(bool Negative:{false,true})
+ {
+  const float X=Negative?648.f:304.f;
+  const FLinearColor Accent=Negative?FLinearColor(1,.23f,.18f):Gold;
+  Put(C,Fill(FLinearColor(.007f,.007f,.01f,.9f)),X,492,328,100);
+  Put(C,Fill(Accent*.65f),X,492,328,2);
+  Put(C,Center(SNew(SLocalizedTextBlock).Font_Lambda([this,Negative]{return GameLanguage::FittedFont(GameLanguage::Display(ScoreCaption(Negative)),28,306);}).Justification(ETextJustify::Center)
+   .ColorAndOpacity(Accent).AutoWrapText(false)
+   .Text_Lambda([this,Negative]{return FText::FromString(ScoreCaption(Negative));})),X+10,501,308,80);
+ }
+ if(!PlaybackError.IsEmpty())Put(C,Center(Label(PlaybackError,20,Gold,FilmWidth-30)),FilmX+15,180,FilmWidth-30,130);
  auto Buttons=SNew(SHorizontalBox);
  Buttons->AddSlot().FillWidth(1).Padding(4,0)[TextButton(TEXT("上一段"),[this]{PlayClip(FMath::Max(0,SelectedClip-1));})];
  Buttons->AddSlot().FillWidth(1).Padding(4,0)[TextButton(TEXT("下一段"),[this]{PlayClip(SelectedClip+1);})];
  Buttons->AddSlot().FillWidth(1).Padding(4,0)[TextButton(TEXT("跳过回看"),[this]{BeginScoreReveal();})];
- Put(C,Buttons,778,661,458,42);
- Put(C,Center(Label(TEXT("空格 暂停 · 1/2/4 倍速 · ←/→ 切换 · 按住影片 2×"),14)),68,680,700,28);
+ Put(C,Buttons,354,644,572,46);
+ Put(C,Center(Label(TEXT("空格 暂停 · 1/2/4 倍速 · ←/→ 切换 · 按住影片 2×"),14)),240,695,800,23);
  return C;
 }
 TSharedRef<SWidget> SRecordingReview::MakeSummary()
 {
+ auto EndingText=[](const FString& Text,int32 Size=22,FLinearColor Color=Paper,float Wrap=0)
+ {return Label(Text,Size,Color,Wrap,GameLanguage::EFontRole::Heading);};
+ auto EndingButton=[](const FString& Text,TFunction<void()> Action)
+ {return TextButton(Text,MoveTemp(Action),GameLanguage::EFontRole::Heading);};
  auto* L=Library.Get();auto C=SNew(SCanvas);Put(C,Fill(Red),0,0,1280,720);
- Put(C,Fill(Gold),48,42,5,54);auto Logo=Label(TEXT("Gunnes"),38);Logo->SetJustification(ETextJustify::Left);Put(C,Logo,72,40,192,60);
- Put(C,Label(TEXT("电影节 · 本届评选"),12),48,108,360,32);
+ Put(C,Fill(Gold),48,42,5,54);auto Logo=EndingText(TEXT("Gunnes"),38);Logo->SetJustification(ETextJustify::Left);Put(C,Logo,72,40,280,60);
+ Put(C,EndingText(TEXT("电影节 · 本届评选"),12),48,108,360,32);
  if(Phase==ERecordingReviewPhase::ScoreReveal)
  {
   int32 Raw=0;for(const auto& Clip:L->Clips)Raw+=Clip.Score;
-  Put(C,Center(Label(L->bEndedByDeath?TEXT("导演缺席，电影节表示遗憾。最终得分减半。"):TEXT("影片已送达，评审结果即将揭晓。"),28,Paper,1000)),140,190,1000,100);
+  Put(C,Center(EndingText(L->bEndedByDeath?TEXT("导演缺席，电影节表示遗憾。最终得分减半。"):TEXT("影片已送达，评审结果即将揭晓。"),28,Paper,1000)),140,190,1000,100);
   Put(C,Center(SNew(SLocalizedTextBlock).Font(GameLanguage::Font(66)).ColorAndOpacity(Paper).Justification(ETextJustify::Center)
    .Text_Lambda([this,Raw]{auto* Lib=Library.Get();if(!Lib)return FText::GetEmpty();const float T=FMath::Clamp((PhaseSeconds-.6f)/1.4f,0.f,1.f);return FText::FromString(FString::Printf(TEXT("%.1f"),FMath::Lerp(float(Raw),Lib->RoundScore,T)));})),200,325,880,110);
-  if(L->bEndedByDeath)Put(C,Center(Label(FString::Printf(TEXT("%d × 0.5"),Raw),26,Gold)),200,458,880,55);
+  if(L->bEndedByDeath)Put(C,Center(EndingText(FString::Printf(TEXT("%d × 0.5"),Raw),26,Gold)),200,458,880,55);
   return C;
  }
  const int32 Tier=GetAwardTier();
  const TCHAR* Names[]={TEXT("金粪奖"),TEXT("银子弹奖"),TEXT("痛斯卡奖"),TEXT("屠戮金棕榈奖")};
  const TCHAR* Comments[]={TEXT("厉害！史上最烂的电影！"),TEXT("比那些冲奖片强多了。"),TEXT("真是一部直击脑门的电影！"),TEXT("黑帮巨作！")};
- Put(C,Label(TEXT("最终得分"),20),72,192,430,38);
- Put(C,Center(Label(FString::Printf(TEXT("%.1f"),L->RoundScore),68)),72,234,430,100);
- Put(C,Center(Label(Names[Tier],28,Gold,414)),72,344,430,110);
- Put(C,Center(Label(Comments[Tier],24,Paper,426)),74,476,426,112);
+ Put(C,EndingText(TEXT("最终得分"),20),72,192,430,38);
+ Put(C,Center(EndingText(FString::Printf(TEXT("%.1f"),L->RoundScore),68)),72,234,430,100);
+ Put(C,Center(EndingText(Names[Tier],28,Gold,414)),72,344,430,110);
+ Put(C,Center(EndingText(Comments[Tier],24,Paper,426)),74,476,426,112);
  Put(C,SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("NoBrush")).Padding(0)
   .ColorAndOpacity_Lambda([this]{return FLinearColor(1,1,1,FMath::Clamp(PhaseSeconds/.45f,0.f,1.f));})
   .RenderTransformPivot(FVector2D(.5f,.8f)).RenderTransform_Lambda([this]{const float T=FMath::Clamp(PhaseSeconds/.65f,0.f,1.f)-1;return FSlateRenderTransform(FScale2D(1+2.70158f*T*T*T+1.70158f*T*T));})
@@ -359,14 +397,14 @@ TSharedRef<SWidget> SRecordingReview::MakeSummary()
  {
   const float Y=519-I*(382.f/3);
   Put(C,Fill(I<=Tier?Gold:Paper*.25f),1186,Y,22,22);
-  auto Marker=Label(FString::Printf(TEXT("%s · %d"),Names[I],I*100),14,I==Tier?Gold:Paper);Marker->SetWrapTextAt(228);Marker->SetAutoWrapText(false);
+  auto Marker=EndingText(FString::Printf(TEXT("%s · %d"),Names[I],I*100),14,I==Tier?Gold:Paper);Marker->SetWrapTextAt(228);Marker->SetAutoWrapText(false);
   Put(C,Center(Marker),934,Y-15,232,54);
-  if(I==Tier)Put(C,Center(Label(TEXT("◆"),20,Gold)),1212,Y-7,36,36);
+  if(I==Tier)Put(C,Center(EndingText(TEXT("◆"),20,Gold)),1212,Y-7,36,36);
  }
  auto Buttons=SNew(SHorizontalBox);
- Buttons->AddSlot().FillWidth(1).Padding(6,0)[TextButton(TEXT("重新开始"),[this]{Navigate(false);})];
- Buttons->AddSlot().FillWidth(1).Padding(6,0)[TextButton(TEXT("返回主菜单"),[this]{Navigate(true);})];
- Buttons->AddSlot().FillWidth(1).Padding(6,0)[TextButton(TEXT("退出游戏"),[this]{if(auto* Lib=Library.Get())if(auto* PC=Cast<APlayerController>(Lib->GetOwner()))UKismetSystemLibrary::QuitGame(PC,PC,EQuitPreference::Quit,false);})];
+ Buttons->AddSlot().FillWidth(1).Padding(6,0)[EndingButton(TEXT("重新开始"),[this]{Navigate(false);})];
+ Buttons->AddSlot().FillWidth(1).Padding(6,0)[EndingButton(TEXT("返回主菜单"),[this]{Navigate(true);})];
+ Buttons->AddSlot().FillWidth(1).Padding(6,0)[EndingButton(TEXT("退出游戏"),[this]{if(auto* Lib=Library.Get())if(auto* PC=Cast<APlayerController>(Lib->GetOwner()))UKismetSystemLibrary::QuitGame(PC,PC,EQuitPreference::Quit,false);})];
  Put(C,Buttons,270,630,740,56);
  return C;
 }
