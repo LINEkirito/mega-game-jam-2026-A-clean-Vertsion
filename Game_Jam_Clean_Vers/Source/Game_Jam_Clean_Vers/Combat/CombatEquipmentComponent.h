@@ -52,6 +52,7 @@ private:
     void TickLookDownHolster();
     UPROPERTY() TObjectPtr<ATacticalWeapon> TransitionWeapon;
     FName PendingEquip;
+    double WheelSelectionDeadline=0;
     bool bPendingDrop=false;
     void FinishTransition();
     APlayerController* Player() const;

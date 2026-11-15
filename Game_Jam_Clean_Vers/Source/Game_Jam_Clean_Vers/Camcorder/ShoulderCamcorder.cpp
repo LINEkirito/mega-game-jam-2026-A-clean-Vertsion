@@ -18,6 +18,7 @@
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/Pawn.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "Game_Jam_Clean_VersCharacter.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Animation/AnimSequence.h"
@@ -328,6 +329,10 @@ void AShoulderCamcorder::UpdateScreen()
 void AShoulderCamcorder::ToggleSelfie()
 {
     if(!bHeld || bInBackpack || bLowering || !Holder) return;
+    // Check the pending request too: character movement may not have processed Ctrl yet.
+    // Exiting selfie remains possible; entering it never automatically stands the player up.
+    const auto* Character=Cast<ACharacter>(Holder->GetPawn());
+    if(!bSelfie && Character && (Character->bIsCrouched || Character->GetCharacterMovement()->bWantsToCrouch)) return;
     if(!bViewfinderRaised)
     {
         SetViewfinderRaised(true);

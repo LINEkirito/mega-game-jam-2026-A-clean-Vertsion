@@ -74,6 +74,7 @@ namespace
   bool OldEnglish,OldMessages,OldMovable=false;
   int32 Step=0,Page=-1,CapturedPage=0,Frame=0,IntroFrame=0,Shots=0,Magazine=0;
   double Began=0,Next=0,CountdownStarted=0,NextFrame=0;
+  float RestartMusicTime=0;
   float FrozenTime=0,MaxFrozenTimeDrift=0,LastPageElapsed=0;
   FVector FrozenPosition=FVector::ZeroVector;
   FRotator BeforeLook=FRotator::ZeroRotator;
@@ -174,7 +175,7 @@ namespace
    }
    case 3:
     if(!Button(TEXT("准备好了")))return false;
-    Test->TestTrue(TEXT("Opening tutorial already uses main BGM"),UBackgroundMusic::For(PC)->GetStage()==EBackgroundMusicStage::Gameplay);
+    Test->TestTrue(TEXT("Opening tutorial retains menu BGM"),UBackgroundMusic::For(PC)->GetStage()==EBackgroundMusicStage::Menu);
     Test->TestEqual(TEXT("All five supplied images were presented"),Page,6);FreezeCheck();
     Test->TestTrue(TEXT("Intro does not consume world time"),MaxFrozenTimeDrift<.01f);
     Shot(TEXT("Tutorial-en"));GameLanguage::SetEnglish(false);return Wait(.12);
@@ -188,6 +189,7 @@ namespace
     Button(TEXT("准备好了"))->SimulateClick();CountdownStarted=Now;Frame=0;NextFrame=0;return Wait(.08);
    case 6:
    {
+    Test->TestTrue(TEXT("Countdown uses main BGM"),UBackgroundMusic::For(PC)->GetStage()==EBackgroundMusicStage::Gameplay);
     if(Now>=NextFrame){Shot(World->IsPaused()?FString::Printf(TEXT("Countdown%02d"),Frame++):TEXT("Action-en"));NextFrame=Now+.09;}
     const auto Countdown=OpeningFindType(Window.ToSharedRef(),TEXT("SOpeningCountdown"));
     if(!World->IsPaused())
@@ -226,13 +228,19 @@ namespace
     Test->TestFalse(TEXT("Opening overlay removes itself after ACTION"),OpeningFindType(Window.ToSharedRef(),TEXT("SOpeningCountdown")).IsValid());
     Test->TestFalse(TEXT("Gameplay input fully restored"),PC->IsMoveInputIgnored()||PC->IsLookInputIgnored()||PC->bShowMouseCursor);
     if(!Equipment->RecordingLibrary)return false;
+    RestartMusicTime=UBackgroundMusic::For(PC)->GetGameplayPlaybackSeconds();
     Equipment->RecordingLibrary->EndRound(false);return Wait(.4);
    case 9:
     if(!Button(TEXT("重新开始")))return false;
+    // Settlement fades the world for one second before switching music.
+    Test->TestTrue(TEXT("Main music continues until settlement is shown"),UBackgroundMusic::For(PC)->GetGameplayPlaybackSeconds()>=RestartMusicTime);
+    RestartMusicTime=UBackgroundMusic::For(PC)->GetGameplayPlaybackSeconds();
     OldPawn=PC->GetPawn();Button(TEXT("重新开始"))->SimulateClick();return Wait(.2);
    case 10:
     if(PC->GetPawn()==OldPawn.Get()||!Button(TEXT("准备好了")))return false;
-    Test->TestTrue(TEXT("Restart tutorial already uses main BGM"),UBackgroundMusic::For(PC)->GetStage()==EBackgroundMusicStage::Gameplay);
+    Test->TestTrue(TEXT("Restart tutorial resumes main BGM"),UBackgroundMusic::For(PC)->GetStage()==EBackgroundMusicStage::Gameplay);
+    Test->TestTrue(TEXT("Restart carries the previous main music position"),FMath::Abs(FCString::Atof(*UGameplayStatics::ParseOption(World->GetAuthGameMode()->OptionsString,TEXT("MainMusicTime")))-RestartMusicTime)<.1f);
+    Test->TestTrue(TEXT("Restart resumes beyond the previous cursor"),UBackgroundMusic::For(PC)->GetGameplayPlaybackSeconds()>=RestartMusicTime-.1f);
     Test->TestTrue(TEXT("Ending restart retains the existing StartRun route"),UGameplayStatics::HasOption(World->GetAuthGameMode()->OptionsString,TEXT("StartRun")));
     Test->TestFalse(TEXT("Restart skips Intro"),OpeningFindType(Window.ToSharedRef(),TEXT("SIntroPresentation")).IsValid());
     Test->TestTrue(TEXT("Restart waits at tutorial"),World->IsPaused());Shot(TEXT("Restart-tutorial"));

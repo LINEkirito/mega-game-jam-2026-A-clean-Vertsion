@@ -288,7 +288,9 @@ void SRecordingReview::PlayClip(int32 Index)
   TArray64<uint8> Black;Black.SetNumZeroed(Width*Height*4);for(int32 I=3;I<Black.Num();I+=4)Black[I]=255;
   VideoTexture.Reset(UTexture2D::CreateTransient(Width,Height,PF_B8G8R8A8,NAME_None,Black));VideoTexture->SRGB=true;VideoTexture->UpdateResource();VideoBrush.SetResourceObject(VideoTexture.Get());VideoBrush.ImageSize=FVector2D(Width,Height);VideoBrush.DrawAs=ESlateBrushDrawType::Image;
  }
- PreviousScore=GetPresentedScore();PulseSeconds=10;UpdateFrame();SetPhase(ERecordingReviewPhase::Review);
+ PreviousScore=GetPresentedScore();PulseSeconds=10;ClipTransitionSeconds=0;UpdateFrame();
+ // Keep the theater mounted when changing clips; only the film fades in.
+ if(Phase!=ERecordingReviewPhase::Review)SetPhase(ERecordingReviewPhase::Review);
 }
 void SRecordingReview::BeginScoreReveal()
 {
@@ -345,7 +347,7 @@ float SRecordingReview::PopScale(int32 Index)const
 void SRecordingReview::Tick(const FGeometry& G,double Now,float DT)
 {
  SCompoundWidget::Tick(G,Now,DT);auto* L=Library.Get();if(!L)return;
- PhaseSeconds+=DT;PulseSeconds+=DT;
+ PhaseSeconds+=DT;PulseSeconds+=DT;ClipTransitionSeconds+=DT;
  if(Phase==ERecordingReviewPhase::Overview)
  {
   OverviewSeconds+=DT;
@@ -464,7 +466,8 @@ TSharedRef<SWidget> SRecordingReview::MakeTheater()
  auto C=SNew(SCanvas);Put(C,Fill(FLinearColor::Black),0,0,1280,720);
  Put(C,SNew(SCinemaAtmosphere).Elapsed_Lambda([this]{return PhaseSeconds;}),0,0,1280,720);
  Put(C,Fill(Paper*.7f),FilmX-5,FilmY-5,FilmWidth+10,FilmHeight+10);
- Put(C,SNew(SImage).Image(&VideoBrush),FilmX,FilmY,FilmWidth,FilmHeight);
+ Put(C,SNew(SImage).Image(&VideoBrush)
+  .ColorAndOpacity_Lambda([this]{return FLinearColor(1,1,1,FMath::Clamp(ClipTransitionSeconds/.15f,0.f,1.f));}),FilmX,FilmY,FilmWidth,FilmHeight);
  // Both supplied layers use their complete 1920x1080 canvas, with no UV crop.
  Put(C,SNew(SImage).Image(&CurtainBrush).Visibility(EVisibility::HitTestInvisible),0,0,1280,720);
  Put(C,SNew(SImage).Image(&AudienceBrush).Visibility(EVisibility::HitTestInvisible)
@@ -498,12 +501,14 @@ TSharedRef<SWidget> SRecordingReview::MakeTheater()
    .ColorAndOpacity(Accent).AutoWrapText(false)
    .Text_Lambda([this,Negative]{return FText::FromString(ScoreCaption(Negative));})),X+10,501,308,80);
  }
- if(!PlaybackError.IsEmpty())Put(C,Center(Label(PlaybackError,20,Gold,FilmWidth-30)),FilmX+15,180,FilmWidth-30,130);
- auto Buttons=SNew(SHorizontalBox);
- Buttons->AddSlot().FillWidth(1).Padding(4,0)[TextButton(TEXT("上一段"),[this]{PlayClip(FMath::Max(0,SelectedClip-1));})];
- Buttons->AddSlot().FillWidth(1).Padding(4,0)[TextButton(TEXT("下一段"),[this]{PlayClip(SelectedClip+1);})];
- Buttons->AddSlot().FillWidth(1).Padding(4,0)[TextButton(TEXT("跳过回看"),[this]{BeginScoreReveal();})];
- Put(C,Buttons,354,644,572,46);
+ Put(C,Center(SNew(SLocalizedTextBlock).Font(GameLanguage::Font(20)).ColorAndOpacity(Gold)
+  .Justification(ETextJustify::Center).WrapTextAt(FilmWidth-30)
+  .Text_Lambda([this]{return FText::FromString(PlaybackError);})),FilmX+15,180,FilmWidth-30,130);
+ auto Buttons=SNew(SVerticalBox);
+ Buttons->AddSlot().FillHeight(1).Padding(0,4)[TextButton(TEXT("上一段"),[this]{PlayClip(FMath::Max(0,SelectedClip-1));})];
+ Buttons->AddSlot().FillHeight(1).Padding(0,4)[TextButton(TEXT("下一段"),[this]{PlayClip(SelectedClip+1);})];
+ Buttons->AddSlot().FillHeight(1).Padding(0,4)[TextButton(TEXT("跳过回看"),[this]{BeginScoreReveal();})];
+ Put(C,Buttons,FilmX+FilmWidth+22,258,180,150);
  Put(C,Center(Label(TEXT("空格 暂停 · 1/2/4 倍速 · ←/→ 切换 · 按住影片 2×"),14)),240,695,800,23);
  return C;
 }
@@ -582,7 +587,9 @@ void SRecordingReview::Navigate(bool bTitle)
  if(auto* PC=Cast<APlayerController>(L->GetOwner()))
  {
   PC->SetPause(false);PC->ResetIgnoreMoveInput();PC->ResetIgnoreLookInput();
-  UGameplayStatics::OpenLevel(L,FName(*UGameplayStatics::GetCurrentLevelName(L,true)),true,TEXT("StartRun"));
+  const auto* Music=UBackgroundMusic::For(PC);
+  const FString Options=FString::Printf(TEXT("StartRun?MainMusicTime=%.6f"),Music?Music->GetGameplayPlaybackSeconds():0.f);
+  UGameplayStatics::OpenLevel(L,FName(*UGameplayStatics::GetCurrentLevelName(L,true)),true,Options);
  }
 }
 void SRecordingReview::Build()

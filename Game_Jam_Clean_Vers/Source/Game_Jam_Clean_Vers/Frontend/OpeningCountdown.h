@@ -14,4 +14,5 @@ public:
  virtual int32 OnPaint(const FPaintArgs&,const FGeometry&,const FSlateRect&,FSlateWindowElementList&,int32,const FWidgetStyle&,bool) const override;
 private:
  float Elapsed=0;
+ int32 LastSoundStep=INDEX_NONE;
 };

@@ -179,14 +179,11 @@ void UCamcorderEquipmentComponent::ActivateQuickSlot(int32 Index)
 {
     if(!Inventory || !Inventory->Slots.IsValidIndex(Index)) return;
     const FName Id=Inventory->Slots[Index];
+    // An unavailable slot must not alter selection or holster the current item.
+    if(Id.IsNone() || Inventory->Count(Id)<=0)return;
+    if(Id==UBackpackInventory::CameraId){if(!IsValid(Camcorder))return;}
+    else if(!Combat || !Combat->Weapons.Contains(Id) || !IsValid(Combat->Weapons[Id]))return;
     Inventory->ActiveSlot=Index; SelectedItem=Id;
-    if(Inventory->Count(Id)==0)
-    {
-        if(Combat) Combat->EquipWeapon(NAME_None);
-        if(Camcorder && Camcorder->bHeld) StoreCamera();
-        if(Camcorder) Camcorder->SetNotice(TEXT("该道具未持有，拾回后恢复原槽位"));
-        return;
-    }
     UseSelectedItem();
 }
 void UCamcorderEquipmentComponent::UseSelectedItem()

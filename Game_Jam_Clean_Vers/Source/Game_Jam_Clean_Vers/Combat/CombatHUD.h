@@ -28,10 +28,14 @@ public:
     virtual void Tick(const FGeometry& Geometry, const double CurrentTime, const float DeltaTime) override
     {
         SLeafWidget::Tick(Geometry, CurrentTime, DeltaTime);
+        const bool English=GameLanguage::IsEnglish();
+        const uint32 Revision=GameLanguage::DisplayRevision();
+        if(English!=bDisplayEnglish || Revision!=DisplayRevision){bDisplayEnglish=English;DisplayRevision=Revision;Invalidate(EInvalidateWidgetReason::Paint);}
         const double Now = FPlatformTime::Seconds();
         auto* Equipment=Combat.Get();
         auto* Controller=Equipment?Cast<APlayerController>(Equipment->GetOwner()):nullptr;
-        AmmoFeedback.Update(Equipment?Equipment->ActiveWeapon.Get():nullptr,Now);
+        WeaponDisplay.Update(Controller?Cast<AGame_Jam_Clean_VersCharacter>(Controller->GetPawn()):nullptr,Equipment);
+        AmmoFeedback.Update(WeaponDisplay.LastWeapon.Get(),Now);
         HealthFeedback.Update(Controller?Cast<AGame_Jam_Clean_VersCharacter>(Controller->GetPawn()):nullptr,Now);
     }
     virtual FVector2D ComputeDesiredSize(float)const override{return FVector2D(1920,1080);}
@@ -50,7 +54,7 @@ public:
                 FSlateDrawElement::MakeBox(Out,L,G.ToPaintGeometry(FVector2D(260*S,260*S),FSlateLayoutTransform(P)),&SplatterBrush,ESlateDrawEffect::None,FLinearColor(1,1,1,BloodAlpha));
         }
 
-        PlayerHUDPanels::Paint(G,Out,L+2,*C,*E,LanguageCache,HealthFeedback.Offset(FPlatformTime::Seconds()),AmmoFeedback.Offset(FPlatformTime::Seconds()),PanelImages);
+        PlayerHUDPanels::Paint(G,Out,L+2,*C,*E,LanguageCache,HealthFeedback.Offset(FPlatformTime::Seconds()),AmmoFeedback.Offset(FPlatformTime::Seconds()),PanelImages,WeaponDisplay);
         if(C->Health<=0)return L+4;
         if(auto* Police=C->GetWorld()->GetSubsystem<UPoliceReinforcements>();Police&&Police->GetWantedLevel()>0)
         {
@@ -94,9 +98,12 @@ public:
     }
 private:TWeakObjectPtr<UCombatEquipmentComponent> Combat;
  PlayerHUDPanels::FImages PanelImages;
+ PlayerHUDPanels::FWeaponDisplay WeaponDisplay;
  PlayerHUDPanels::FHealthFeedback HealthFeedback;
  PlayerHUDPanels::FAmmoFeedback AmmoFeedback;
  FLocalizedDisplayCache LanguageCache;
+ bool bDisplayEnglish=false;
+ uint32 DisplayRevision=MAX_uint32;
  TStrongObjectPtr<UTexture2D> BloodTexture,SplatterTexture;
  FSlateBrush BloodBrush,SplatterBrush;
 };

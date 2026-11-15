@@ -6,6 +6,33 @@
 
 namespace PlayerHUDPanels
 {
+// HUD-only memory: temporary holstering must not introduce an empty-hand tab.
+struct FWeaponDisplay
+{
+    TWeakObjectPtr<AGame_Jam_Clean_VersCharacter> ObservedPlayer;
+    TWeakObjectPtr<ATacticalWeapon> LastWeapon;
+    void Update(AGame_Jam_Clean_VersCharacter* Player,const UCombatEquipmentComponent* Combat)
+    {
+        if(ObservedPlayer.Get()!=Player){ObservedPlayer=Player;LastWeapon.Reset();}
+        if(!Player || !Combat){LastWeapon.Reset();return;}
+        const auto* Equipment=Combat->Equipment.Get();
+        const auto* Inventory=Equipment?Equipment->Inventory.Get():nullptr;
+        auto Owned=[&](ATacticalWeapon* Gun)
+        {
+            if(!IsValid(Gun) || !Inventory || Inventory->Count(Gun->InventoryId)<=0)return false;
+            const auto* Entry=Combat->Weapons.Find(Gun->InventoryId);
+            return Entry && Entry->Get()==Gun;
+        };
+        if(!Owned(LastWeapon.Get()))LastWeapon.Reset();
+        if(auto* Gun=Combat->ActiveWeapon.Get();Owned(Gun))LastWeapon=Gun;
+        // Follow selection immediately, including the wheel's delayed draw and low-look holster.
+        if(Inventory && Inventory->Slots.IsValidIndex(Inventory->ActiveSlot))
+        {
+            const auto* Entry=Combat->Weapons.Find(Inventory->Slots[Inventory->ActiveSlot]);
+            if(Entry && Owned(Entry->Get()))LastWeapon=Entry->Get();
+        }
+    }
+};
 struct FImages
 {
     TStrongObjectPtr<UTexture2D> Textures[5];
@@ -70,7 +97,7 @@ inline FString WeaponLabel(ETacticalWeaponKind Kind)
 }
 inline void Paint(const FGeometry& G,FSlateWindowElementList& Out,int32 Layer,
     const AGame_Jam_Clean_VersCharacter& Player,const UCombatEquipmentComponent& Combat,
-    const FLocalizedDisplayCache& Cache,const FVector2D& HealthOffset,const FVector2D& AmmoOffset,const FImages& Images)
+    const FLocalizedDisplayCache& Cache,const FVector2D& HealthOffset,const FVector2D& AmmoOffset,const FImages& Images,const FWeaponDisplay& WeaponDisplay)
 {
     const auto* Equipment=Combat.Equipment.Get();
     if(!Equipment || Equipment->bBackpackOpen)return;
@@ -90,7 +117,8 @@ inline void Paint(const FGeometry& G,FSlateWindowElementList& Out,int32 Layer,
         auto Font=GameLanguage::Font(FMath::Max(8,FMath::RoundToInt(FontSize*Scale)),Role);
         const auto Measure=FSlateApplication::Get().GetRenderer()->GetFontMeasureService();
         const float Width=Measure->Measure(Display,Font).X;
-        if(Width>W*Scale)Font.Size=FMath::Max(7.f,Font.Size*W*Scale/Width);
+        if(Width>W*Scale)Font.Size=FMath::Max(1,FMath::FloorToInt(Font.Size*W*Scale/Width));
+        while(Font.Size>1 && Measure->Measure(Display,Font).X>W*Scale)--Font.Size;
         if(CenterHeight>0)Y+=(CenterHeight-Measure->Measure(Display,Font).Y/Scale)*.5f;
         FSlateDrawElement::MakeText(Out,Layer+1,G.ToPaintGeometry(Size,FSlateLayoutTransform(FVector2D(X,Y)*Scale)),Display,Font,ESlateDrawEffect::None,Color);
     };
@@ -114,32 +142,48 @@ inline void Paint(const FGeometry& G,FSlateWindowElementList& Out,int32 Layer,
     Rect(HealthX,HealthY,188,16,HUDInk);
     Rect(HealthX+2,HealthY+2,184,12,FLinearColor::White);
     Rect(HealthX+2,HealthY+2,184*FMath::Clamp(Player.Health/100.f,0.f,1.f),12,HUDGold);
-    const auto* Gun=Combat.ActiveWeapon.Get();
     const auto* Camera=Equipment->Camcorder.Get();
-    const bool CameraHeld=!Gun && Camera && Camera->bHeld && !Camera->bInBackpack;
+    const auto* DisplayInventory=Equipment->Inventory.Get();
+    const bool CameraSelected=DisplayInventory && DisplayInventory->Slots.IsValidIndex(DisplayInventory->ActiveSlot)
+        && DisplayInventory->Slots[DisplayInventory->ActiveSlot]==UBackpackInventory::CameraId
+        && DisplayInventory->Count(UBackpackInventory::CameraId)>0;
+    const bool CameraHeld=Camera && CameraSelected;
+    const auto* Gun=CameraHeld?nullptr:WeaponDisplay.LastWeapon.Get();
+    if(!Gun && !CameraHeld)return;
     const float Right=Size.X/Scale-Margin,PanelX=Right-PanelWidth;
     Rect(PanelX+3,PanelY+3,PanelWidth,PanelHeight,FLinearColor(0,0,0,.35f));
     Rect(PanelX,PanelY,PanelWidth,PanelHeight,HUDRed);Rect(PanelX,PanelY,3,PanelHeight,HUDGold);
     if(Gun)Image(Gun->Kind==ETacticalWeaponKind::Rifle?2:Gun->Kind==ETacticalWeaponKind::Shotgun?3:1,PanelX+15,PanelY+20,112,42);
     else if(CameraHeld)Image(4,PanelX+15,PanelY+20,112,42);
     const FString Amount=Gun?FString::FromInt(Gun->Magazine):CameraHeld?FString::Printf(TEXT("%.0f"),FMath::Clamp(Camera->BatteryPercent,0.f,100.f)):TEXT("—");
-    const FString Capacity=Gun?FString::Printf(TEXT("/ %d"),Gun->Spec().Capacity):CameraHeld?TEXT("/ 100"):TEXT("");
+    const int64 TotalAmmo=Gun?int64(FMath::Max(0,Gun->Magazine))+(Gun->bChambered?1:0)
+        +(DisplayInventory?int64(FMath::Max(0,DisplayInventory->Count(Gun->Spec().Ammo))):0):0;
+    const FString Capacity=Gun?FString::Printf(TEXT("/ %lld"),static_cast<long long>(TotalAmmo)):CameraHeld?TEXT("/ 100"):TEXT("");
     Label(PanelX+140+AmmoOffset.X,PanelY+AmmoOffset.Y,67,Amount,32,HUDPaper,GameLanguage::EFontRole::Heading,PanelHeight);
     Label(PanelX+212,PanelY,60,Capacity,22,HUDPaper,GameLanguage::EFontRole::Body,PanelHeight);
-    TArray<FString> Names;
-    Names.Add(Gun?WeaponLabel(Gun->Kind):CameraHeld?TEXT("摄像机"):TEXT("空手"));
-    if(const auto* Inventory=Equipment->Inventory.Get())for(const FName Id:Inventory->Slots)
+    // Stable positions match the quick slots; selection only changes the tint.
+    const FString Names[]={TEXT("摄像机"),WeaponLabel(ETacticalWeaponKind::Pistol),WeaponLabel(ETacticalWeaponKind::Rifle),WeaponLabel(ETacticalWeaponKind::Shotgun)};
+    const int32 SelectedTab=CameraHeld?0:Gun->Kind==ETacticalWeaponKind::Rifle?2:Gun->Kind==ETacticalWeaponKind::Shotgun?3:1;
+    bool Owned[4]={false,false,false,false};
+    if(const auto* Inventory=Equipment->Inventory.Get())
     {
-        if(Inventory->Count(Id)<=0)continue;
-        if(Id==UBackpackInventory::CameraId){if(!CameraHeld)Names.Add(TEXT("摄像机"));}
-        else if(const auto* Entry=Combat.Weapons.Find(Id);Entry && IsValid(Entry->Get()) && Entry->Get()!=Gun)
-            Names.Add(WeaponLabel((*Entry)->Kind));
+        Owned[0]=Inventory->Count(UBackpackInventory::CameraId)>0;
+        for(const auto& Entry:Combat.Weapons)
+        {
+            const auto* Weapon=Entry.Value.Get();
+            if(!IsValid(Weapon) || Inventory->Count(Entry.Key)<=0)continue;
+            const int32 Tab=Weapon->Kind==ETacticalWeaponKind::Rifle?2:Weapon->Kind==ETacticalWeaponKind::Shotgun?3:1;
+            Owned[Tab]=true;
+        }
     }
-    const float TabWidth=PanelWidth/FMath::Max(Names.Num(),1);
-    for(int32 I=0;I<Names.Num();++I)
+    const float TabWidth=PanelWidth/4.f;
+    for(int32 I=0;I<4;++I)
     {
-        Rect(PanelX+I*TabWidth,Bottom-TabHeight,TabWidth-1,TabHeight,HUDInk);
-        Label(PanelX+I*TabWidth+5,Bottom-TabHeight,TabWidth-10,Names[I],11,I==0?HUDGold:HUDPaper,GameLanguage::EFontRole::Heading,TabHeight);
+        const bool Selected=Owned[I] && I==SelectedTab;
+        FLinearColor TextColor=Selected?FLinearColor::Black:HUDPaper;
+        if(!Owned[I])TextColor.A=.35f;
+        Rect(PanelX+I*TabWidth,Bottom-TabHeight,TabWidth-1,TabHeight,Selected?HUDRed:HUDInk);
+        Label(PanelX+I*TabWidth+5,Bottom-TabHeight,TabWidth-10,Names[I],11,TextColor,GameLanguage::EFontRole::Heading,TabHeight);
     }
 }
 }

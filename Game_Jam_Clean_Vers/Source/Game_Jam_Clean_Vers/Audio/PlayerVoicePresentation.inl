@@ -46,7 +46,7 @@ bool UBackgroundMusic::SayPlayer(int32 Line)
  if(auto* Viewport=GetWorld()->GetGameViewport()){
   PlayerSubtitle=SNew(SBox).HAlign(HAlign_Center).VAlign(VAlign_Bottom).Padding(FMargin(40,0,40,100)).Visibility(EVisibility::HitTestInvisible)
    [SNew(SBorder).BorderBackgroundColor(FLinearColor(0,0,0,.65f)).Padding(FMargin(16,8))
-    [SNew(SLocalizedTextBlock).Font(GameLanguage::Font(22)).ColorAndOpacity(FLinearColor::White).Text(FText::FromString(Texts[Line-1]))]];
+    [SNew(SLocalizedTextBlock).Font(GameLanguage::Font(26,GameLanguage::EFontRole::Body)).ColorAndOpacity(FLinearColor::White).Text(FText::FromString(Texts[Line-1]))]];
   Viewport->AddViewportWidgetContent(PlayerSubtitle.ToSharedRef(),100);
  }
  return true;

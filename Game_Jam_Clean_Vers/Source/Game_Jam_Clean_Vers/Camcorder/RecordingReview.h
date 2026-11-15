@@ -53,6 +53,7 @@ private:
  FCamcorderPlayback Playback;
  ERecordingReviewPhase Phase=ERecordingReviewPhase::Overview;
  int32 SelectedClip=INDEX_NONE,LastFrame=INDEX_NONE,PlaybackRate=1,Revealed=0,LoadedThumbnails=0;
+ float ClipTransitionSeconds=0;
  float PlaybackSeconds=0,OverviewSeconds=0,Duration=0,PhaseSeconds=0,NextPop=0,LastPop=0,PulseSeconds=10;
  int32 PreviousScore=0,PendingOverviewScrollFrames=0;
  bool bPlaying=false,bHoldFast=false;

@@ -10,13 +10,13 @@
 namespace
 {
  struct FEntry { FString Zh,En; };
- const TArray<FEntry>& Entries()
+ TArray<FEntry> Entries()
  {
-  static const TArray<FEntry> Data={
+  return {
    #define PAIR(ZH, EN) {TEXT(ZH),TEXT(EN)},
    #include "GameLanguageCatalog.inl"
    #undef PAIR
-  };return Data;
+  };
  }
  struct FTemplate
  {
@@ -55,13 +55,14 @@ namespace
  };
  struct FCatalog
  {
+  TArray<FEntry> Source;
   TMap<FString,FString> Exact;
   TArray<FRule> Rules;
   TArray<FEntry> Fragments;
-  explicit FCatalog(bool English)
+  explicit FCatalog(bool English):Source(Entries())
   {
    TMap<FString,FString> Pieces;
-   for(const auto& E:Entries())
+   for(const auto& E:Source)
    {
     const FString& From=English?E.Zh:E.En;const FString& To=English?E.En:E.Zh;
     if(!Exact.Contains(From))Exact.Add(From,To);
@@ -78,7 +79,14 @@ namespace
    Fragments.Sort([](const FEntry& A,const FEntry& B){return A.Zh.Len()>B.Zh.Len();});
   }
  };
- const FCatalog& Catalog(bool English) {static const FCatalog En(true),Zh(false);return English?En:Zh;}
+ struct FCatalogCache { TUniquePtr<FCatalog> En,Zh; uint32 Revision=0; };
+ FCatalogCache& CatalogCache(){static FCatalogCache Cache;return Cache;}
+ const FCatalog& Catalog(bool English)
+ {
+  auto& Cached=English?CatalogCache().En:CatalogCache().Zh;
+  if(!Cached)Cached=MakeUnique<FCatalog>(English);
+  return *Cached;
+ }
  FString Convert(const FString& Source,bool English,int32 Depth)
  {
   if(Source.IsEmpty()||Depth>8)return Source;
@@ -88,12 +96,12 @@ namespace
    for(FString& Line:Lines)Line=Convert(Line,English,Depth);
    return FString::Join(Lines,TEXT("\n"));
   }
-  if(!English)for(const auto& E:Entries())
+  const auto& C=Catalog(English);
+  if(!English)for(const auto& E:C.Source)
   {
    // Old event names contained both languages in a single display string.
    if(Source==E.Zh&&E.Zh.EndsWith(TEXT(" / ")+E.En))return E.Zh.LeftChop(E.En.Len()+3).TrimEnd();
   }
-  const auto& C=Catalog(English);
   if(const auto* Found=C.Exact.Find(Source))return *Found;
   for(const auto& Rule:C.Rules)
   {
@@ -117,12 +125,20 @@ namespace
  }
 }
 bool GameLanguage::IsEnglish(){bool English=true;if(GConfig)GConfig->GetBool(TEXT("GameLanguage"),TEXT("English"),English,GameLocalSettings::Filename());return English;}
-void GameLanguage::SetEnglish(bool English){if(GConfig){GConfig->SetBool(TEXT("GameLanguage"),TEXT("English"),English,GameLocalSettings::Filename());GConfig->Flush(false,GameLocalSettings::Filename());}}
+uint32 GameLanguage::DisplayRevision(){return CatalogCache().Revision;}
+void GameLanguage::SetEnglish(bool English)
+{
+ // Live Coding preserves initialized statics: rebuild from the current compiled
+ // catalog when selecting a language, so new UI entries cannot remain untranslated.
+ CatalogCache().En.Reset();CatalogCache().Zh.Reset();
+ ++CatalogCache().Revision;
+ if(GConfig){GConfig->SetBool(TEXT("GameLanguage"),TEXT("English"),English,GameLocalSettings::Filename());GConfig->Flush(false,GameLocalSettings::Filename());}
+}
 FString GameLanguage::Translate(const FString& Source,bool English){return Convert(Source,English,0);}
 namespace
 {
  // Immutable display resources, shared across widgets. They contain no gameplay or world state.
- TSharedRef<const FCompositeFont> GameTypeface()
+ TSharedRef<const FCompositeFont> LocalizedTypeface()
  {
   static const TSharedRef<const FCompositeFont> Family=[]()->TSharedRef<const FCompositeFont>
   {
@@ -131,13 +147,14 @@ namespace
    Result->DefaultTypeface.Fonts.Emplace(TEXT("Body"),Folder/TEXT("YanoneKaffeesatz-Regular.ttf"),EFontHinting::Default,EFontLoadingPolicy::LazyLoad);
    Result->DefaultTypeface.Fonts.Emplace(TEXT("Emphasis"),Folder/TEXT("YanoneKaffeesatz-Medium.ttf"),EFontHinting::Default,EFontLoadingPolicy::LazyLoad);
    Result->DefaultTypeface.Fonts.Emplace(TEXT("Heading"),Folder/TEXT("Slackey-Regular.ttf"),EFontHinting::Default,EFontLoadingPolicy::LazyLoad);
-   const FString Chinese=FPaths::EngineContentDir()/TEXT("Slate/Fonts/DroidSansFallback.ttf");
+   const FString Chinese=Folder/TEXT("Menu/ZCOOLQingKeHuangYou-Regular.ttf");
+   const FString Fallback=FPaths::EngineContentDir()/TEXT("Slate/Fonts/DroidSansFallback.ttf");
    auto& CJK=Result->SubTypefaces.AddDefaulted_GetRef();
    CJK.CharacterRanges={FInt32Range(0x2e80,0xa000),FInt32Range(0xf900,0xfb00),FInt32Range(0xfe30,0xfff0),FInt32Range(0x20000,0x32400)};
    for(const FName Name:{FName(TEXT("Body")),FName(TEXT("Emphasis")),FName(TEXT("Heading"))})
    {
     CJK.Typeface.Fonts.Emplace(Name,Chinese,EFontHinting::Default,EFontLoadingPolicy::LazyLoad);
-    Result->FallbackTypeface.Typeface.Fonts.Emplace(Name,Chinese,EFontHinting::Default,EFontLoadingPolicy::LazyLoad);
+    Result->FallbackTypeface.Typeface.Fonts.Emplace(Name,Fallback,EFontHinting::Default,EFontLoadingPolicy::LazyLoad);
    }
    return Result;
   }();
@@ -148,12 +165,12 @@ FSlateFontInfo GameLanguage::Font(int32 Size,EFontRole Role)
 {
  if(Role==EFontRole::Automatic)Role=Size>=23?EFontRole::Heading:EFontRole::Body;
  const FName Face=Role==EFontRole::Heading?TEXT("Heading"):Role==EFontRole::Emphasis?TEXT("Emphasis"):TEXT("Body");
- return FSlateFontInfo(GameTypeface(),Size,Face);
+ return FSlateFontInfo(LocalizedTypeface(),Size,Face);
 }
 FSlateFontInfo GameLanguage::ResolveFont(const FSlateFontInfo& Requested)
 {
  // Preserve explicit roles, including small type on the final award panel.
- if(Requested.CompositeFont==GameTypeface())return Requested;
+ if(Requested.CompositeFont==LocalizedTypeface())return Requested;
  auto Result=Font(FMath::RoundToInt(Requested.Size));
  Result.OutlineSettings=Requested.OutlineSettings;Result.LetterSpacing=Requested.LetterSpacing;
  return Result;

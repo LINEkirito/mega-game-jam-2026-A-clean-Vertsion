@@ -7,6 +7,7 @@ namespace GameLanguage
 {
  GAME_JAM_CLEAN_VERS_API bool IsEnglish();
  GAME_JAM_CLEAN_VERS_API void SetEnglish(bool English);
+ GAME_JAM_CLEAN_VERS_API uint32 DisplayRevision();
  GAME_JAM_CLEAN_VERS_API FString Translate(const FString& Source, bool English);
  inline FString Display(const FString& Source) { return Translate(Source, IsEnglish()); }
  inline FText Text(const FString& Source) { return FText::FromString(Display(Source)); }
@@ -22,13 +23,15 @@ struct FLocalizedDisplayCache
  FString Get(const FString& Source) const
  {
   const bool English=GameLanguage::IsEnglish();
-  if(English!=bEnglish || Values.Num()>256){Values.Empty();bEnglish=English;}
+  const uint32 Revision=GameLanguage::DisplayRevision();
+  if(English!=bEnglish || Revision!=LastRevision || Values.Num()>256){Values.Empty();bEnglish=English;LastRevision=Revision;}
   if(const auto* Value=Values.Find(Source))return *Value;
   return Values.Add(Source,GameLanguage::Translate(Source,English));
  }
 private:
  mutable TMap<FString,FString> Values;
  mutable bool bEnglish=false;
+ mutable uint32 LastRevision=MAX_uint32;
 };
 
 // Retains the original attribute, including dynamic values. Language changes do not destroy UI state.
@@ -42,8 +45,9 @@ public:
   LocalArgs.Text_Lambda([this,Source]
   {
    const FString Value=Source.Get(FText::GetEmpty()).ToString(); const bool English=GameLanguage::IsEnglish();
-   if(!bCached || Value!=LastSource || English!=bLastEnglish)
-   { LastSource=Value;bLastEnglish=English;bCached=true;LastText=FText::FromString(GameLanguage::Translate(Value,English)); }
+   const uint32 Revision=GameLanguage::DisplayRevision();
+   if(!bCached || Value!=LastSource || English!=bLastEnglish || Revision!=LastRevision)
+   { LastSource=Value;bLastEnglish=English;LastRevision=Revision;bCached=true;LastText=FText::FromString(GameLanguage::Translate(Value,English)); }
    return LastText;
   });
   const TAttribute<FSlateFontInfo> RequestedFont=Args._Font;
@@ -55,4 +59,5 @@ private:
  FString LastSource;
  FText LastText;
  bool bCached=false,bLastEnglish=false;
+ uint32 LastRevision=MAX_uint32;
 };

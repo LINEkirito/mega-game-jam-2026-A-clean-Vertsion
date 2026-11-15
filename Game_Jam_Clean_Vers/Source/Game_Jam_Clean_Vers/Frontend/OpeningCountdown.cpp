@@ -1,4 +1,5 @@
 #include "OpeningCountdown.h"
+#include "Audio/GameAudio.h"
 #include "Localization/GameLanguage.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Fonts/FontMeasure.h"
@@ -9,10 +10,25 @@ void SOpeningCountdown::Construct(const FArguments&)
  SetVisibility(EVisibility::HitTestInvisible);
  SetCanTick(false);
  ForceVolatile(true);
+ SetElapsed(0.f);
 }
 void SOpeningCountdown::SetElapsed(float Seconds)
 {
  Elapsed=Seconds;
+ // Follow the displayed step, including while paused. Never replay missed beeps
+ // in a burst after a stalled frame, or retrigger sounds during paint passes.
+ const int32 SoundStep=FMath::Clamp(FMath::FloorToInt(Seconds),0,3);
+ if(SoundStep>LastSoundStep)
+ {
+  LastSoundStep=SoundStep;
+  auto& Slate=FSlateApplication::Get();
+  if(SoundStep<3)Slate.PlaySound(GameAudio::UISound(TEXT("UI_CountdownBeep")));
+  else
+  {
+   Slate.PlaySound(GameAudio::UISound(TEXT("UI_ActionClapboard")));
+   Slate.PlaySound(GameAudio::UISound(TEXT("UI_ActionWhistle")));
+  }
+ }
  Invalidate(EInvalidateWidgetReason::Paint);
 }
 int32 SOpeningCountdown::OnPaint(const FPaintArgs&,const FGeometry& G,const FSlateRect&,FSlateWindowElementList& Out,int32 Layer,const FWidgetStyle& Style,bool) const

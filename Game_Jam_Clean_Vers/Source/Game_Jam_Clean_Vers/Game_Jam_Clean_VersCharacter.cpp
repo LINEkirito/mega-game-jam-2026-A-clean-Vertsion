@@ -151,6 +151,12 @@ void AGame_Jam_Clean_VersCharacter::Tick(float DT)
     if(!GetCharacterMovement()->IsFalling())GroundSpeed=ADS?270.f:bSprinting?650.f:360.f;
     GetCharacterMovement()->MaxWalkSpeed=GroundSpeed;
 }
+bool AGame_Jam_Clean_VersCharacter::CanCrouch() const
+{
+    const auto* PC=Cast<APlayerController>(GetController());
+    const auto* Equipment=PC?PC->FindComponentByClass<UCamcorderEquipmentComponent>():nullptr;
+    return Super::CanCrouch() && !(Equipment && Equipment->Camcorder && Equipment->Camcorder->bSelfie);
+}
 bool AGame_Jam_Clean_VersCharacter::CanReturnToSpawn() const
 {
     auto* PC=Cast<APlayerController>(GetController());

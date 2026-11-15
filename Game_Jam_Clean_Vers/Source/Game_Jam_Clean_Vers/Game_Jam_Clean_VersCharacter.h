@@ -55,6 +55,7 @@ public:
 	AGame_Jam_Clean_VersCharacter();
     virtual void BeginPlay() override;
     virtual void Tick(float DeltaSeconds) override;
+    virtual bool CanCrouch() const override;
     virtual void OnStartCrouch(float HalfHeightAdjust,float ScaledHalfHeightAdjust) override;
     virtual void OnEndCrouch(float HalfHeightAdjust,float ScaledHalfHeightAdjust) override;
     virtual float TakeDamage(float Damage,const FDamageEvent& Event,AController* Instigator,AActor* Causer) override;

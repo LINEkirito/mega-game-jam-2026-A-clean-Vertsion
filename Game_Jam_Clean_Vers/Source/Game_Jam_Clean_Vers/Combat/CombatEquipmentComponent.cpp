@@ -23,6 +23,12 @@
 #include "Sound/SoundBase.h"
 #include "CombatHUD.h"
 
+namespace
+{
+ int32 WeaponQuickSlot(ETacticalWeaponKind Kind)
+ {return Kind==ETacticalWeaponKind::Pistol?1:Kind==ETacticalWeaponKind::Rifle?2:3;}
+}
+
 UCombatEquipmentComponent::UCombatEquipmentComponent(){PrimaryComponentTick.bCanEverTick=true;PrimaryComponentTick.TickGroup=TG_PostUpdateWork;RecoilScale=GetDefault<UGlobalData>()->RecoilScale;SpreadScale=GetDefault<UGlobalData>()->SpreadScale;
 FireSound=LoadObject<USoundBase>(nullptr,TEXT("/Game/Weapons/GrenadeLauncher/Audio/FirstPersonTemplateWeaponFire02"));
 ReloadSound=LoadObject<USoundBase>(nullptr,TEXT("/Game/Combat/Audio/Reload"));EmptySound=LoadObject<USoundBase>(nullptr,TEXT("/Game/Combat/Audio/Empty"));HitSound=LoadObject<USoundBase>(nullptr,TEXT("/Game/Combat/Effects/Blood/S_BloodHit"));}
@@ -65,9 +71,9 @@ bool UCombatEquipmentComponent::TryInteract()
      {It->TryStart(PC);return true;} // One F press cannot also pick up an item.
     if(auto* A=NearbyPickup())
     {
-        if(auto* W=Cast<ATacticalWeapon>(A);W && Equipment->Inventory->SlotIndex(W->InventoryId)==INDEX_NONE && !Equipment->Inventory->Slots[int32(W->Kind)+1].IsNone())
+        if(auto* W=Cast<ATacticalWeapon>(A);W && Equipment->Inventory->SlotIndex(W->InventoryId)==INDEX_NONE && !Equipment->Inventory->Slots[WeaponQuickSlot(W->Kind)].IsNone())
         {Equipment->Camcorder->SetNotice(TEXT("此类枪械的快捷槽已绑定，请拾回原来的武器"));return true;}
-        if(auto* W=Cast<ATacticalWeapon>(A)){if(W->InventoryId.IsNone())W->InventoryId=W->GetFName();Weapons.Add(W->InventoryId,W);Equipment->Inventory->Add(W->InventoryId,W->Spec().Name,TEXT("拾回后恢复原固定快捷槽。左键射击，右键切换瞄准，R 换弹；Q 丢下，保留弹匣。"),1,true);Equipment->Inventory->BindStartingWeapon(int32(W->Kind)+1,W->InventoryId);W->Stow();EquipWeapon(W->InventoryId);Equipment->Camcorder->SetNotice(TEXT("武器已拿到手上，正在准备上膛"));}
+        if(auto* W=Cast<ATacticalWeapon>(A)){if(W->InventoryId.IsNone())W->InventoryId=W->GetFName();Weapons.Add(W->InventoryId,W);Equipment->Inventory->Add(W->InventoryId,W->Spec().Name,TEXT("拾回后恢复原固定快捷槽。左键射击，右键切换瞄准，R 换弹；Q 丢下，保留弹匣。"),1,true);Equipment->Inventory->BindStartingWeapon(WeaponQuickSlot(W->Kind),W->InventoryId);W->Stow();EquipWeapon(W->InventoryId);Equipment->Camcorder->SetNotice(TEXT("武器已拿到手上，正在准备上膛"));}
         else if(auto* Ammo=Cast<ACombatAmmoPickup>(A)){Equipment->Inventory->Add(Ammo->AmmoId(),Ammo->AmmoName(),TEXT("对应枪械的备用弹药；装备枪械后按 R 换弹。"),Ammo->Amount);if(auto* C=Cast<AGame_Jam_Clean_VersCharacter>(Player()->GetPawn()))if(C->ItemInteraction)C->ItemInteraction->Play(Ammo->Mesh);CharacterAudio::Attached(LoadObject<USoundBase>(nullptr,TEXT("/Game/Combat/Audio/Handling/ItemPickup")),Player()->GetPawn()->GetRootComponent(),ECharacterSound::Handling,.5f);Ammo->Destroy();Equipment->Camcorder->SetNotice(TEXT("弹药已收入背包"));}
         Equipment->RefreshBackpack();return true;
     }return false;
@@ -75,6 +81,7 @@ bool UCombatEquipmentComponent::TryInteract()
 bool UCombatEquipmentComponent::EquipWeapon(FName Id)
 {
     if(!Equipment || !Equipment->Inventory)return false;
+    WheelSelectionDeadline=0;
     // An explicit selection supersedes an automatically stowed weapon.
     LookDownWeaponId=NAME_None;
     if(Id.IsNone() || Id==UBackpackInventory::CameraId)
@@ -98,7 +105,7 @@ bool UCombatEquipmentComponent::EquipWeapon(FName Id)
     ActiveWeapon=*Found;ActiveWeapon->Equip(C);EquipRemaining=ActiveWeapon->bPackPresentation?1.4f:.5f;
     Equipment->Inventory->ActiveSlot=Equipment->Inventory->SlotIndex(Id);Equipment->SelectedItem=Id;Equipment->RefreshBackpack();return true;
 }
-void UCombatEquipmentComponent::Unequip(){LookDownWeaponId=NAME_None;PendingEquip=NAME_None;if(TransitionWeapon){TransitionWeapon->Stow();FinishTransition();}bReloading=false;bADS=false;ReloadRemaining=0;for(auto& Pair:Weapons)if(IsValid(Pair.Value)&&Pair.Value->bEquipped)Pair.Value->Stow();ActiveWeapon=nullptr;}
+void UCombatEquipmentComponent::Unequip(){WheelSelectionDeadline=0;LookDownWeaponId=NAME_None;PendingEquip=NAME_None;if(TransitionWeapon){TransitionWeapon->Stow();FinishTransition();}bReloading=false;bADS=false;ReloadRemaining=0;for(auto& Pair:Weapons)if(IsValid(Pair.Value)&&Pair.Value->bEquipped)Pair.Value->Stow();ActiveWeapon=nullptr;}
 bool UCombatEquipmentComponent::DropInventoryWeapon(FName Id)
 {
  auto* Found=Weapons.Find(Id);
@@ -125,18 +132,40 @@ void UCombatEquipmentComponent::DropWeapon(){
 }
 void UCombatEquipmentComponent::FinishTransition(){
  auto* Old=TransitionWeapon.Get();if(!Old||Old->bEquipped)return;
- TransitionWeapon=nullptr;const FName Next=PendingEquip;PendingEquip=NAME_None;
+ TransitionWeapon=nullptr;const FName Next=WheelSelectionDeadline>0?NAME_None:PendingEquip;if(WheelSelectionDeadline<=0)PendingEquip=NAME_None;
  if(bPendingDrop){bPendingDrop=false;FVector Eye;FRotator R;Player()->GetPawn()->GetActorEyesViewPoint(Eye,R);Weapons.Remove(Old->InventoryId);Equipment->Inventory->Remove(Old->InventoryId);Old->Drop(Eye+R.Vector()*60-FVector(0,0,20),R);CharacterAudio::At(this,LoadObject<USoundBase>(nullptr,TEXT("/Game/Combat/Audio/Handling/ItemDrop")),Old->GetActorLocation(),ECharacterSound::Handling,.45f);Equipment->RefreshBackpack();}
  if(!Next.IsNone())EquipWeapon(Next);
 }
 
 void UCombatEquipmentComponent::Cycle(int32 Direction)
 {
-    if(!Equipment || !Equipment->Inventory || Direction==0)return;
+    if(!Equipment || !Equipment->Inventory || Direction==0 || bPendingDrop)return;
     auto* Inventory=Equipment->Inventory.Get();
     constexpr int32 Count=UBackpackInventory::QuickSlotCount;
     const int32 Current=FMath::Clamp(Inventory->ActiveSlot,0,Count-1);
-    Equipment->ActivateQuickSlot((Current+Direction%Count+Count)%Count);
+    const int32 Step=Direction>0?1:-1;
+    for(int32 Offset=1;Offset<Count;++Offset)
+    {
+        const int32 Next=(Current+Step*Offset+Count)%Count;
+        if(!Inventory->Slots.IsValidIndex(Next))continue;
+        const FName Id=Inventory->Slots[Next];
+        if(Id.IsNone() || Inventory->Count(Id)<=0)continue;
+        if(Id==UBackpackInventory::CameraId){if(!IsValid(Equipment->Camcorder))continue;}
+        else {const auto* Entry=Weapons.Find(Id);if(!Entry || !IsValid(Entry->Get()))continue;}
+        // Selection is immediate; drawing waits until wheel input has settled.
+        LookDownWeaponId=NAME_None;
+        if(ActiveWeapon)
+        {
+            TransitionWeapon=ActiveWeapon;ActiveWeapon=nullptr;
+            bADS=false;bReloading=false;ReloadRemaining=0;
+            TransitionWeapon->Holster();
+        }
+        if(Equipment->Camcorder && Equipment->Camcorder->bHeld)Equipment->StoreCamera();
+        PendingEquip=Id;
+        WheelSelectionDeadline=GetWorld()->GetTimeSeconds()+.2;
+        Inventory->ActiveSlot=Next;Equipment->SelectedItem=Id;
+        Equipment->RefreshBackpack();return;
+    }
 }
 bool UCombatEquipmentComponent::Reload()
 {
@@ -178,11 +207,7 @@ bool UCombatEquipmentComponent::Fire()
 void UCombatEquipmentComponent::HandleInput()
 {
     auto* PC=Player();if(!PC)return;
-    if(HasLookDownSelection()&&!ActiveWeapon)
-    {
-        if(PC->WasInputKeyJustPressed(EKeys::B))EquipWeapon(NAME_None);
-        return;
-    }
+    if(HasLookDownSelection()&&!ActiveWeapon)return;
     if(!ActiveWeapon)return;
     if(IsBelowHoldPitch(ActiveWeapon)){TickLookDownHolster();return;}
     const bool CanAim=EquipRemaining<=0&&!ActiveWeapon->IsReloading()&&(ActiveWeapon->Handling==EWeaponHandling::Idle||ActiveWeapon->Handling==EWeaponHandling::FireCycle);
@@ -191,14 +216,13 @@ void UCombatEquipmentComponent::HandleInput()
     if(PC->WasInputKeyJustPressed(EKeys::V))ActiveWeapon->ToggleSightOrMode();
     if(PC->WasInputKeyJustPressed(EKeys::T))ActiveWeapon->ToggleLight();
     if(PC->WasInputKeyJustPressed(EKeys::R))Reload();
-    if(PC->WasInputKeyJustPressed(EKeys::B)){TransitionWeapon=ActiveWeapon;PendingEquip=NAME_None;bPendingDrop=false;bADS=false;bReloading=false;ActiveWeapon=nullptr;TransitionWeapon->Holster();return;}
     if((ActiveWeapon->Spec().bAutomatic&&ActiveWeapon->bChambered?PC->IsInputKeyDown(EKeys::LeftMouseButton):PC->WasInputKeyJustPressed(EKeys::LeftMouseButton)))Fire();
 }
 void UCombatEquipmentComponent::TickComponent(float DT,ELevelTick Type,FActorComponentTickFunction* Fn)
 {
     Super::TickComponent(DT,Type,Fn);auto* PC=Player();auto* C=PC?Cast<AGame_Jam_Clean_VersCharacter>(PC->GetPawn()):nullptr;if(!C||!Equipment)return;
     if(TransitionWeapon)FinishTransition();
-    if(!TransitionWeapon&&!PendingEquip.IsNone()&&!Equipment->Camcorder->IsPresenting()){const FName Next=PendingEquip;PendingEquip=NAME_None;EquipWeapon(Next);}
+    if(!TransitionWeapon&&!PendingEquip.IsNone()&&GetWorld()->GetTimeSeconds()>=WheelSelectionDeadline&&!Equipment->Camcorder->IsPresenting()){const FName Next=PendingEquip;PendingEquip=NAME_None;EquipWeapon(Next);}
     Cooldown=FMath::Max(0.f,Cooldown-DT);EquipRemaining=FMath::Max(0.f,EquipRemaining-DT);HitMarker=FMath::Max(0.f,HitMarker-DT);Burst=FMath::Max(0.f,Burst-DT*3);VisualKick=FMath::FInterpTo(VisualKick,0,DT,15);
     if(C->Health<=0){DropOnDeath();Equipment->Camcorder->SetViewfinderRaised(false);Equipment->Camcorder->StopRecording();return;}
     TickLookDownHolster();
@@ -220,7 +244,7 @@ void UCombatEquipmentComponent::DropOnDeath()
  auto* PC=Player();if(!PC||!PC->GetPawn()||!Equipment||!Equipment->Inventory)return;
  auto* Gun=ActiveWeapon?ActiveWeapon.Get():TransitionWeapon.Get();
  // Never finish a queued switch or holster once the owner's hands have let go.
- ActiveWeapon=nullptr;TransitionWeapon=nullptr;PendingEquip=NAME_None;LookDownWeaponId=NAME_None;
+ ActiveWeapon=nullptr;TransitionWeapon=nullptr;PendingEquip=NAME_None;LookDownWeaponId=NAME_None;WheelSelectionDeadline=0;
  bPendingDrop=false;bADS=false;bReloading=false;ReloadRemaining=0;EquipRemaining=0;
  if(!Gun)return;
  FVector Eye;FRotator View;PC->GetPlayerViewPoint(Eye,View);

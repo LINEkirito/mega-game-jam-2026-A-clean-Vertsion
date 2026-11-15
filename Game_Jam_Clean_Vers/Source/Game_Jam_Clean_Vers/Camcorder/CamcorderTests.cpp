@@ -172,7 +172,7 @@ bool FEquipmentIntegration::RunTest(const FString&)
  Step([Key]{Key(EKeys::LeftMouseButton,IE_Pressed);});AddCommand(new FEquipmentAutoFireWait(E->Combat));
  Step([this,Weak,Key]{Key(EKeys::LeftMouseButton,IE_Released);if(auto* E=Weak.Get()){if(!E->Combat->ActiveWeapon){AddError(TEXT("Missing equipped rifle"));return;}TestTrue(TEXT("Rifle full auto fires multiple rounds"),E->Combat->ActiveWeapon->Magazine<28);const int32 Mag=E->Combat->ActiveWeapon->Magazine;auto* Gun=E->Combat->ActiveWeapon.Get();E->Combat->DropWeapon();TestEqual(TEXT("Dropped gun retains magazine"),Gun->Magazine,Mag);TestTrue(TEXT("Drop waits for hand release"),E->Combat->Weapons.Contains(Gun->InventoryId));E->EquipCamera();TestFalse(TEXT("Camera equip disarms"),bool(E->Combat->ActiveWeapon));}});
  AddCommand(new FEquipmentCameraWait(E,this));
- Step([this,Weak]{if(auto* E=Weak.Get())TestFalse(TEXT("Released gun is no longer owned"),E->Combat->Weapons.Contains(E->Inventory->Slots[3]));});
+ Step([this,Weak]{if(auto* E=Weak.Get())TestFalse(TEXT("Released gun is no longer owned"),E->Combat->Weapons.Contains(E->Inventory->Slots[2]));});
  Wait(.85f);
  Step([this,Weak]{if(auto* E=Weak.Get()){
  auto* PC=Cast<APlayerController>(E->GetOwner());auto* C=Cast<AGame_Jam_Clean_VersCharacter>(PC->GetPawn());FDamageEvent D;
@@ -265,7 +265,36 @@ bool FSelfieScoringCheck::Update()
  if(!E||!E->Camcorder){Test->AddError(TEXT("Selfie fixture unavailable"));return true;}
  auto* C=E->Camcorder.Get();APawn* Player=PC->GetPawn();
  Player->SetActorLocation(FVector(35000,35000,5000));PC->SetControlRotation(FRotator::ZeroRotator);
- C->Tick(2.f);C->SetViewfinderRaised(true);C->ToggleSelfie();
+ C->Tick(2.f);
+ auto* Character=Cast<AGame_Jam_Clean_VersCharacter>(Player);
+ if(!Test->TestNotNull(TEXT("Selfie crouch fixture character"),Character))return true;
+ auto* Movement=Character->GetCharacterMovement();
+ Movement->SetMovementMode(MOVE_Walking);
+ Character->UnCrouch();Movement->UnCrouch(false);
+ C->SetViewfinderRaised(false);
+ Character->Crouch();
+ Test->TestTrue(TEXT("Crouch request queued before movement tick"),Movement->bWantsToCrouch);
+ C->ToggleSelfie();
+ Test->TestFalse(TEXT("Pending crouch blocks same-frame selfie"),C->bSelfie);
+ Test->TestFalse(TEXT("Blocked selfie does not raise viewfinder"),C->bViewfinderRaised);
+ Movement->Crouch(false);
+ Test->TestTrue(TEXT("Fixture actually crouched"),Character->bIsCrouched);
+ C->ToggleSelfie();
+ Test->TestFalse(TEXT("Crouched player cannot enter selfie"),C->bSelfie);
+ Character->UnCrouch();
+ C->ToggleSelfie();
+ Test->TestFalse(TEXT("Still crouched while stand request pending blocks selfie"),C->bSelfie);
+ Movement->UnCrouch(false);
+ Test->TestFalse(TEXT("Player has stood up"),Character->bIsCrouched);
+ C->ToggleSelfie();
+ Test->TestTrue(TEXT("Standing restores selfie"),C->bSelfie);
+ Character->Crouch();
+ Test->TestFalse(TEXT("Selfie blocks crouch request in reverse same-frame order"),Movement->bWantsToCrouch);
+ Test->TestFalse(TEXT("Selfie keeps player standing"),Character->bIsCrouched);
+ C->ToggleSelfie();Character->Crouch();
+ Test->TestTrue(TEXT("Leaving selfie restores crouch"),Movement->bWantsToCrouch);
+ Character->UnCrouch();Movement->UnCrouch(false);
+ C->SetViewfinderRaised(true);C->ToggleSelfie();
  Test->TestTrue(TEXT("Held selfie toggles on"),C->bSelfie);
  Test->TestTrue(TEXT("Selfie reverses the recording lens"),FVector::DotProduct(C->Capture->GetForwardVector(),PC->GetControlRotation().Vector())<-.9f);
  Test->TestTrue(TEXT("Recorded lens matches viewfinder"),C->Capture->GetComponentTransform().Equals(C->ViewfinderCamera->GetComponentTransform(),.01f));

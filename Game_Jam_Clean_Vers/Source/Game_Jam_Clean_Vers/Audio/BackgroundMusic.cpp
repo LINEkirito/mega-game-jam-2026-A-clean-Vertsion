@@ -3,6 +3,8 @@
 #include "Frontend/GameFrontend.h"
 #include "Components/AudioComponent.h"
 #include "GameFramework/PlayerController.h"
+#include "GameFramework/GameModeBase.h"
+#include "Sound/SoundWave.h"
 #include "Kismet/GameplayStatics.h"
 #include "Sound/SoundClass.h"
 #include "Sound/SoundMix.h"
@@ -24,13 +26,24 @@ UBackgroundMusic* UBackgroundMusic::For(APlayerController* Player)
  Result->MusicClass=LoadObject<USoundClass>(nullptr,TEXT("/Game/Audio/GameSFX/SC_Music.SC_Music"));
  Result->DialogueClass=LoadObject<USoundClass>(nullptr,TEXT("/Game/Audio/GameSFX/SC_Dialogue.SC_Dialogue"));
  Result->RegisterComponent();
+ // Carry only the presentation cursor through the existing restart URL.
+ if(auto* Mode=Player->GetWorld()->GetAuthGameMode())
+  if(UGameplayStatics::HasOption(Mode->OptionsString,TEXT("StartRun")))
+   Result->GameplayPlaybackSeconds=FMath::Max(0.f,FCString::Atof(*UGameplayStatics::ParseOption(Mode->OptionsString,TEXT("MainMusicTime"))));
  // Load the independent class roots before applying the saved sliders.
  GameFrontend::ApplyAudio(Player);
  return Result;
 }
+float UBackgroundMusic::GetGameplayPlaybackSeconds() const
+{
+ const float Seconds=GameplayPlaybackSeconds+(Stage==EBackgroundMusicStage::Gameplay&&Music?float(FPlatformTime::Seconds()-GameplayStartedAt):0.f);
+ const auto* Wave=Cast<USoundWave>(GameAudio::Sound(TEXT("BGM_Main")));
+ return Wave&&Wave->Duration>0?FMath::Fmod(Seconds,Wave->Duration):0.f;
+}
 void UBackgroundMusic::SetStage(EBackgroundMusicStage Next)
 {
  if(Stage==Next)return;
+ if(Stage==EBackgroundMusicStage::Gameplay)GameplayPlaybackSeconds=GetGameplayPlaybackSeconds();
  if(Music){Music->FadeOut(.4f,0.f);Fading.Add(Music);Music=nullptr;}
  Stage=Next;
  const TCHAR* Name=Next==EBackgroundMusicStage::Menu?TEXT("BGM_Menu"):
@@ -38,9 +51,11 @@ void UBackgroundMusic::SetStage(EBackgroundMusicStage Next)
   Next==EBackgroundMusicStage::Ending?TEXT("BGM_End"):nullptr;
  if(!Name)return;
  auto* Sound=GameAudio::Sound(Name);if(!Sound)return;
- const float Level=Next==EBackgroundMusicStage::Menu?.4f:Next==EBackgroundMusicStage::Gameplay?.45f:.35f;
+ // Higher music ceiling; the player's independent 0-100% slider still scales it.
+ const float Level=Next==EBackgroundMusicStage::Menu?.8f:Next==EBackgroundMusicStage::Gameplay?.9f:.7f;
  Music=UGameplayStatics::CreateSound2D(this,Sound,Level,1.f,0.f,nullptr,false,false);
- if(Music){Music->SoundClassOverride=MusicClass;Music->bIsUISound=true;Music->FadeIn(.5f,Level);}
+ if(Music){Music->SoundClassOverride=MusicClass;Music->bIsUISound=true;if(Next==EBackgroundMusicStage::Gameplay)GameplayStartedAt=FPlatformTime::Seconds();
+  Music->FadeIn(.5f,Level,Next==EBackgroundMusicStage::Gameplay?GameplayPlaybackSeconds:0.f);}
 }
 void UBackgroundMusic::UpdateDuck(bool Active)
 {

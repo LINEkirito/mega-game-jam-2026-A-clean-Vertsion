@@ -8,6 +8,8 @@
 #include "EngineUtils.h"
 #include "PatrolEnemy.h"
 #include "GameFramework/PlayerController.h"
+#include "InputKeyEventArgs.h"
+#include "InputCoreTypes.h"
 #include "CombatEquipmentComponent.h"
 #include "TacticalWeapon.h"
 #include "Camcorder/CamcorderEquipmentComponent.h"
@@ -64,10 +66,16 @@ public:
    Test->TestTrue(TEXT("Draw completes"),Gun->Handling==EWeaponHandling::Idle);
    PC->SetControlRotation(FRotator(-85,0,0));return Wait(3);
   case 5:
-   C->EquipWeapon(NAME_None);PC->SetControlRotation(FRotator::ZeroRotator);return Wait(.3f);
+   PC->InputKey(FInputKeyEventArgs::CreateSimulated(EKeys::B,IE_Pressed,1.f));return Wait(.2f);
+  case 6:
+   Test->TestTrue(TEXT("B cannot cancel automatic low-look selection"),C->HasLookDownSelection());
+   PC->InputKey(FInputKeyEventArgs::CreateSimulated(EKeys::B,IE_Released,0.f));
+   PC->SetControlRotation(FRotator::ZeroRotator);return Wait(3.f);
+  case 7:
+   PC->InputKey(FInputKeyEventArgs::CreateSimulated(EKeys::B,IE_Pressed,1.f));return Wait(.2f);
   default:
-   Test->TestNull(TEXT("Manual holster cancels automatic restore"),C->ActiveWeapon.Get());
-   Test->TestFalse(TEXT("No stale automatic selection"),C->HasLookDownSelection());
+   Test->TestTrue(TEXT("Raising head restores gun and B cannot holster it"),C->ActiveWeapon==Gun.Get());
+   PC->InputKey(FInputKeyEventArgs::CreateSimulated(EKeys::B,IE_Released,0.f));
    if(++Slot<=3){Stage=0;return false;}
    return true;
   }

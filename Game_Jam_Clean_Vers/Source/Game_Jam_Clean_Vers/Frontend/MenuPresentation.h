@@ -37,15 +37,8 @@ namespace MenuPresentation
  inline FSlateFontInfo Font(int32 Size)
  {
   if(GameLanguage::IsEnglish())return GameLanguage::Font(Size,Size>=28?GameLanguage::EFontRole::Heading:GameLanguage::EFontRole::Emphasis);
-  if(Size<20)return GameLanguage::Font(Size,GameLanguage::EFontRole::Body);
-  static const TSharedRef<const FCompositeFont> Family=[]()->TSharedRef<const FCompositeFont>
-  {
-   auto F=MakeShared<FCompositeFont>();
-   F->DefaultTypeface.Fonts.Emplace(TEXT("Menu"),FPaths::ProjectContentDir()/TEXT("UI/Fonts/Menu/ZCOOLQingKeHuangYou-Regular.ttf"),EFontHinting::Default,EFontLoadingPolicy::LazyLoad);
-   F->FallbackTypeface.Typeface.Fonts.Emplace(TEXT("Menu"),FPaths::EngineContentDir()/TEXT("Slate/Fonts/DroidSansFallback.ttf"),EFontHinting::Default,EFontLoadingPolicy::LazyLoad);
-   return F;
-  }();
-  return FSlateFontInfo(Family,Size,TEXT("Menu"));
+  // Chinese uses the same character-range font as HUD, subtitles and world labels.
+  return GameLanguage::Font(Size);
  }
 }
 class SMenuTextBlock final:public SLocalizedTextBlock

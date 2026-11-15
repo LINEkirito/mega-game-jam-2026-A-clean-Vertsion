@@ -79,7 +79,13 @@ bool FEndingPresentation::RunTest(const FString&)
  UI->Seek(.22f);UI->TogglePause();Shot(TEXT("Theater_en"));
  TestEqual(TEXT("Current clip adds and subtracts existing moments"),UI->GetPresentedScore(),9);
  GameLanguage::SetEnglish(false);Shot(TEXT("Theater_zh"));
- UI->PlayClip(2);UI->Seek(.22f);TestEqual(TEXT("Earlier clips contribute once to running display"),UI->GetPresentedScore(),57);
+ const auto TheaterRoot=UI->GetChildren()->GetChildAt(0);
+ const float TheaterElapsed=UI->GetPhaseElapsed();
+ UI->PlayClip(2);
+ TestTrue(TEXT("Clip changes keep the theater mounted"),TheaterRoot==UI->GetChildren()->GetChildAt(0));
+ TestEqual(TEXT("Clip changes never restart the full-screen fade"),UI->GetPhaseElapsed(),TheaterElapsed);
+ Shot(TEXT("ClipSwitchImmediate_zh"));Advance(UI,.2f);Shot(TEXT("ClipSwitchSettled_zh"));
+ UI->Seek(.22f);TestEqual(TEXT("Earlier clips contribute once to running display"),UI->GetPresentedScore(),57);
  const float PersistedScore=L->RoundScore;
  UI->BeginScoreReveal();Advance(UI,1.3f);Shot(TEXT("DeathReduction_zh"));
  Advance(UI,2);TestEqual(TEXT("Reduction automatically reaches final panel"),UI->GetPhase(),ERecordingReviewPhase::Summary);

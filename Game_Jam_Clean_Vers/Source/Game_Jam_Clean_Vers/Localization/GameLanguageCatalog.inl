@@ -550,7 +550,7 @@ PAIR("糟了，情况不妙。", "Oh, that's not good.")
 PAIR("好，开始录了。", "Okay, we're rolling.")
 PAIR("这也太疯狂了。", "This is insane.")
 // Compact player equipment HUD.
-PAIR("ME", "ME")
+PAIR("我", "ME")
 PAIR("步枪", "RIFLE")
 PAIR("手枪", "PISTOL")
 PAIR("霰弹枪", "SHOTGUN")

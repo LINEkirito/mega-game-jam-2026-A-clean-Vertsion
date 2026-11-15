@@ -224,7 +224,14 @@ namespace
   }
   void ShowOpeningTutorial()
   {
-   if(auto* Music=UBackgroundMusic::For(Player.Get()))Music->SetStage(EBackgroundMusicStage::Gameplay);
+   // Initial onboarding retains menu music until READY starts the countdown.
+   if(auto* Music=UBackgroundMusic::For(Player.Get()))
+    if(Music->GetStage()==EBackgroundMusicStage::None)
+    {
+     const auto* Mode=Player->GetWorld()->GetAuthGameMode();
+     const bool bRestart=Mode&&UGameplayStatics::HasOption(Mode->OptionsString,TEXT("StartRun"));
+     Music->SetStage(bRestart?EBackgroundMusicStage::Gameplay:EBackgroundMusicStage::Menu);
+    }
    if(!bOpen){bFrontend=true;Open(false);}
    bStyledMenu=true;bMain=false;bIntro=false;bOnboarding=true;
    PerformancePanel=GameFrontend::Tutorial([this]{BeginCountdown();},true);ShowPerformance();
@@ -233,6 +240,7 @@ namespace
   {
    auto* PC=Player.Get();auto* W=PC?PC->GetWorld():nullptr;auto* V=W?W->GetGameViewport():nullptr;
    if(!V||bCountingDown)return;
+   if(auto* Music=UBackgroundMusic::For(PC))Music->SetStage(EBackgroundMusicStage::Gameplay);
    bCountingDown=true;CountdownElapsed=0;CountdownStartedAt=FPlatformTime::Seconds();PendingMouseLook=StickLook=FVector2D::ZeroVector;
    bSavedPausedCamera=W->bIsCameraMoveableWhenPaused;W->bIsCameraMoveableWhenPaused=true;bCountdownCamera=true;
    if(Root)V->RemoveViewportWidgetContent(Root.ToSharedRef());

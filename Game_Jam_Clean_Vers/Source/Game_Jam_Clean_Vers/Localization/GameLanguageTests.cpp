@@ -32,6 +32,19 @@ bool FGameLanguageCheck::RunTest(const FString&)
  TestEqual(TEXT("Bound values remain live"),Dynamic->GetText().ToString(),FString(TEXT("You died")));
  GameLanguage::SetEnglish(false);
  TestEqual(TEXT("Switching back preserves source"),Dynamic->GetText().ToString(),FString(TEXT("你已死亡")));
+ // Reuse the same cache as the live HUD across language changes; never rebuild it.
+ FLocalizedDisplayCache HUDCache;
+ const TCHAR* HUDZh[]={TEXT("摄像机"),TEXT("手枪"),TEXT("步枪"),TEXT("霰弹枪"),TEXT("我")};
+ const TCHAR* HUDEn[]={TEXT("CAMERA"),TEXT("PISTOL"),TEXT("RIFLE"),TEXT("SHOTGUN"),TEXT("ME")};
+ for(const bool English:{true,false,true,false})
+ {
+  GameLanguage::SetEnglish(English);
+  for(int32 I=0;I<5;++I)
+  {
+   TestEqual(TEXT("HUD Chinese source follows global language"),HUDCache.Get(HUDZh[I]),FString(English?HUDEn[I]:HUDZh[I]));
+   TestEqual(TEXT("HUD English source follows global language"),HUDCache.Get(HUDEn[I]),FString(English?HUDEn[I]:HUDZh[I]));
+  }
+ }
  GameLanguage::SetEnglish(Previous);
  return true;
 }
@@ -52,7 +65,9 @@ bool FGameTypographyCheck::RunTest(const FString&)
  TestTrue(TEXT("Body resolves to the supplied Yanone font"),Family.DefaultTypeface.Fonts[0].Font.GetFontFilename().EndsWith(TEXT("YanoneKaffeesatz-Regular.ttf")));
  TestTrue(TEXT("Headings resolve to the supplied Slackey font"),Family.DefaultTypeface.Fonts[2].Font.GetFontFilename().EndsWith(TEXT("Slackey-Regular.ttf")));
  TestTrue(TEXT("Chinese retains an explicit character-range fallback"),Family.SubTypefaces[0].CharacterRanges.ContainsByPredicate([](const FInt32Range& Range){return Range.Contains(0x4e2d);}));
- TestTrue(TEXT("Chinese uses the existing engine font"),Family.SubTypefaces[0].Typeface.Fonts[0].Font.GetFontFilename().EndsWith(TEXT("DroidSansFallback.ttf")));
+ for(const auto& Face:Family.SubTypefaces[0].Typeface.Fonts)
+  TestTrue(TEXT("Every Chinese role uses the menu's ZCOOL font"),Face.Font.GetFontFilename().EndsWith(TEXT("ZCOOLQingKeHuangYou-Regular.ttf")));
+ TestTrue(TEXT("Rare missing glyphs retain the engine fallback"),Family.FallbackTypeface.Typeface.Fonts[0].Font.GetFontFilename().EndsWith(TEXT("DroidSansFallback.ttf")));
  int32 DynamicSize=28;
  auto Fitted=SNew(SLocalizedTextBlock).Font_Lambda([&DynamicSize]{return GameLanguage::Font(DynamicSize,GameLanguage::EFontRole::Heading);});
  Fitted->SlatePrepass(1);

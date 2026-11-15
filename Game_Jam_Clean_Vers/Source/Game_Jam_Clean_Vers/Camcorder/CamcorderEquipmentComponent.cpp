@@ -128,9 +128,8 @@ void UCamcorderEquipmentComponent::TickComponent(float DT,ELevelTick Type,FActor
     for(int32 Index=0;Index<UBackpackInventory::QuickSlotCount;++Index) if(PC->WasInputKeyJustPressed(Digits[Index]) || PC->WasInputKeyJustPressed(NumPad[Index])) ActivateQuickSlot(Index);
     if(PC->WasInputKeyJustPressed(EKeys::Q)) { DropActiveQuickSlot(); return; }
     if(PC->WasInputKeyJustPressed(EKeys::F)) { if(!Combat->TryInteract()) CollectBattery(); return; }
-    if(!Camcorder->bViewfinderRaised){if(PC->WasInputKeyJustPressed(EKeys::MouseScrollUp))Combat->Cycle(1);if(PC->WasInputKeyJustPressed(EKeys::MouseScrollDown))Combat->Cycle(-1);}
+    if(!Camcorder->bViewfinderRaised){if(PC->WasInputKeyJustPressed(EKeys::MouseScrollUp))Combat->Cycle(-1);if(PC->WasInputKeyJustPressed(EKeys::MouseScrollDown))Combat->Cycle(1);}
     if(Combat->ActiveWeapon||Combat->HasLookDownSelection()){Combat->HandleInput();return;}
-    if(PC->WasInputKeyJustPressed(EKeys::B)) StoreCamera();
     if(!PC->IsInputKeyDown(EKeys::RightMouseButton))
     {
         bRequireAimRelease=false;

@@ -18,6 +18,7 @@ public:
  UBackgroundMusic();
  static UBackgroundMusic* For(APlayerController* Player);
  void SetStage(EBackgroundMusicStage Next);
+ float GetGameplayPlaybackSeconds() const;
  EBackgroundMusicStage GetStage() const { return Stage; }
  UAudioComponent* GetMusic() const { return Music; }
  bool IsDialogueDucking() const { return bDucking; }
@@ -34,6 +35,8 @@ private:
  UPROPERTY(Transient) TObjectPtr<USoundClass> MusicClass;
  UPROPERTY(Transient) TObjectPtr<USoundClass> DialogueClass;
  EBackgroundMusicStage Stage=EBackgroundMusicStage::None;
+ float GameplayPlaybackSeconds=0;
+ double GameplayStartedAt=0;
  bool bDucking=false;
  float SpeechHold=0,ScanRemaining=0;
  void UpdateDuck(bool Active);
