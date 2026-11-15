@@ -15,8 +15,10 @@ for zh, en in pairs:
         errors.append(f"Placeholder mismatch: {zh} -> {en}")
     if not zh or not en:
         errors.append(f"Empty translation: {zh} -> {en}")
+    if re.search(r'[\u3400-\u9fff\uf900-\ufaff]', en):
+        errors.append(f"Chinese text in English catalog: {en}")
 for path in root.rglob("*"):
-    if path.suffix not in (".h", ".cpp") or any(x in str(path) for x in ("Tests", "Tools", "Authoring", "Localization")):
+    if path.suffix not in (".h", ".cpp") or any(x in str(path) for x in ("Tests", "Tools", "Authoring")):
         continue
     source = path.read_text(encoding="utf-8-sig")
     # Chinese literals and English-authored NPC lines must both be cataloged.

@@ -61,4 +61,38 @@ bool FGameTypographyCheck::RunTest(const FString&)
  TestEqual(TEXT("Dynamic text fitting survives the localized wrapper"),Fitted->GetFont().Size,20.f);
  return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEnglishCoverageCheck,"Game.Localization.EnglishCoverage",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
+bool FEnglishCoverageCheck::RunTest(const FString&)
+{
+ auto HasChinese=[](const FString& Text){for(TCHAR C:Text)if((C>=0x3400&&C<=0x9fff)||(C>=0xf900&&C<=0xfaff))return true;return false;};
+ auto Sample=[](const FString& Format)
+ {
+  FString Out;
+  for(int32 I=0;I<Format.Len();++I)
+  {
+   if(Format[I]!=TEXT('%')){Out+=Format[I];continue;}
+   if(I+1<Format.Len()&&Format[I+1]==TEXT('%')){Out+=TEXT('%');++I;continue;}
+   int32 End=I+1;while(End<Format.Len()&&FCString::Strchr(TEXT("0123456789.+-"),Format[End]))++End;
+   if(End<Format.Len()&&FCString::Strchr(TEXT("sdfg"),Format[End]))
+   {Out+=Format[End]==TEXT('s')?TEXT("黑帮成员 #3"):Format[End]==TEXT('d')?TEXT("3"):TEXT("3.5");I=End;}
+   else Out+=Format[I];
+  }
+  return Out;
+ };
+ struct FPair{FString Zh,En;};const TArray<FPair> Catalog={
+  #define PAIR(ZH,EN) {TEXT(ZH),TEXT(EN)},
+  #include "GameLanguageCatalog.inl"
+  #undef PAIR
+ };
+ for(const auto& Pair:Catalog)
+ {
+  TestFalse(*(TEXT("English catalog: ")+Pair.En),HasChinese(Pair.En));
+  const FString Display=GameLanguage::Translate(Sample(Pair.Zh),true);
+  TestFalse(*(TEXT("Formatted English display: ")+Display),HasChinese(Display));
+ }
+ TestEqual(TEXT("English language entry"),GameLanguage::Translate(TEXT("语言 / Language"),true),FString(TEXT("Language")));
+ TestEqual(TEXT("English Chinese-language choice"),GameLanguage::Translate(TEXT("✓  中文"),true),FString(TEXT("✓  Chinese")));
+ return true;
+}
 #endif

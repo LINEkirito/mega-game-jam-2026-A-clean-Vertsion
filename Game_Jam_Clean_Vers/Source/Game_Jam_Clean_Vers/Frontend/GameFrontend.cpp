@@ -1,4 +1,5 @@
 #include "GameFrontend.h"
+#include "TitleMenu.h"
 #include "Audio/AudioWidgets.h"
 #include "Frontend/LocalUserSettings.h"
 #include "Localization/GameLanguage.h"
@@ -122,16 +123,7 @@ TSharedRef<SWidget> GameFrontend::Settings(APlayerController* PC,TFunction<void(
 {return SNew(SFrontendSettings,PC,MoveTemp(Close),MoveTemp(Language));}
 TSharedRef<SWidget> GameFrontend::Main(TFunction<void()> Start,TFunction<void()> Settings,TFunction<void()> Tutorial,TFunction<void()> History,TFunction<void()> Quit)
 {
- auto MainTitle=SNew(SLocalizedTextBlock).Font(GameLanguage::FittedFont(TEXT("DIRECTOR'S SHOT"),42,500)).Text(FText::FromString(TEXT("DIRECTOR'S SHOT")));
- return SNew(SBox).WidthOverride(520)[SNew(SVerticalBox)
-  +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,12)[MainTitle]
-  +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,38)[Label(TEXT("观察 · 拍摄 · 带回你的故事"),20)]
-  +SVerticalBox::Slot().AutoHeight().Padding(0,6)[Button(TEXT("开始游戏"),MoveTemp(Start))]
-  +SVerticalBox::Slot().AutoHeight().Padding(0,6)[Button(TEXT("设置"),MoveTemp(Settings))]
-  +SVerticalBox::Slot().AutoHeight().Padding(0,6)[Button(TEXT("使用教程"),MoveTemp(Tutorial))]
-  +SVerticalBox::Slot().AutoHeight().Padding(0,6)[Button(TEXT("游玩记录"),MoveTemp(History))]
-  +SVerticalBox::Slot().AutoHeight().Padding(0,6)[Button(TEXT("退出游戏"),MoveTemp(Quit))]
-  +SVerticalBox::Slot().AutoHeight().Padding(0,28,0,0)[Label(TEXT("在设置中选择语言"),16)]];
+ return TitleMenu::Make(MoveTemp(Start),MoveTemp(Settings),MoveTemp(Tutorial),MoveTemp(History),MoveTemp(Quit));
 }
 TSharedRef<SWidget> GameFrontend::Pause(TFunction<void()> Resume,TFunction<void()> Settings,TFunction<void()> Unstuck,TFunction<void()> Title,bool bUnstuckFailed)
 {

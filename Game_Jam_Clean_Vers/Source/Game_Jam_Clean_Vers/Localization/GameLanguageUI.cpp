@@ -5,6 +5,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "GameLanguage.h"
 #include "Frontend/GameFrontend.h"
+#include "Frontend/TitleMenu.h"
 #include "Frontend/LocalUserSettings.h"
 #include "Frontend/RunScoreHistoryPanel.h"
 #if WITH_EDITOR
@@ -171,8 +172,9 @@ namespace
   struct FLabel {TWeakObjectPtr<UWidgetComponent> Widget;bool bHidden=false;};
   TMap<TWeakObjectPtr<UTextRenderComponent>,FLabel> Labels;
   TWeakObjectPtr<APlayerController> Player;
-  TSharedPtr<SWidget> Root,PerformancePanel;
-  TSharedPtr<SBorder> PanelHost;
+  TSharedPtr<SWidget> Root,PerformancePanel,MainPanel;
+  TSharedPtr<SBorder> PanelHost,Backdrop;
+  TSharedPtr<SScaleBox> PanelScale;
   bool bPerformance=false;
   bool bBoot=true,bFrontend=false,bMain=false,bPausedByMenu=false;
   bool bPauseMenu=false,bPauseRoot=false;
@@ -192,8 +194,8 @@ namespace
    bPausedByMenu=bFrontend&&!PC->IsPaused()&&PC->SetPause(true);
    bOpen=true;PC->SetIgnoreMoveInput(true);PC->SetIgnoreLookInput(true);PC->bShowMouseCursor=true;
    if(PC->PlayerInput)PC->PlayerInput->FlushPressedKeys();
-   Root=SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(FLinearColor(.008f,.013f,.022f,1.f)).Padding(20).HAlign(HAlign_Center).VAlign(VAlign_Center)
-    [SNew(SScaleBox).Stretch(EStretch::ScaleToFit).StretchDirection(EStretchDirection::DownOnly)
+   Root=SAssignNew(Backdrop,SBorder).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(FLinearColor(.008f,.013f,.022f,1.f)).Padding(20).HAlign(HAlign_Center).VAlign(VAlign_Center)
+    [SAssignNew(PanelScale,SScaleBox).Stretch(EStretch::ScaleToFit).StretchDirection(EStretchDirection::DownOnly)
      [SAssignNew(PanelHost,SBorder).Padding(26).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(FLinearColor(.025f,.04f,.06f))]];
    V->AddViewportWidgetContent(Root.ToSharedRef(),2000);
    if(Performance)
@@ -230,11 +232,13 @@ namespace
   void ShowMain()
   {
    bMain=true;
-   PerformancePanel=GameFrontend::Main([this]{bFrontend=false;bPerformance=true;Close();FSlateApplication::Get().SetAllUserFocusToGameViewport();},[this]{ShowSettings();},[this]
+   // Reuse this title view when returning from a submenu so its entrance never restarts.
+   if(!MainPanel)MainPanel=GameFrontend::Main([this]{bFrontend=false;bPerformance=true;Close();FSlateApplication::Get().SetAllUserFocusToGameViewport();},[this]{ShowSettings();},[this]
    {
     bMain=false;PerformancePanel=GameFrontend::Tutorial([this]{ShowMain();});ShowPerformance();
    },[this]{bMain=false;PerformancePanel=GameFrontend::RunHistory([this]{ShowMain();});ShowPerformance();},[this]{if(auto* PC=Player.Get())UKismetSystemLibrary::QuitGame(PC,PC,EQuitPreference::Quit,false);});
-   ShowPerformance();
+   else TitleMenu::FinishEntrance(MainPanel.ToSharedRef());
+   PerformancePanel=MainPanel;ShowPerformance();
   }
   TSharedPtr<SWidget> FindFocus(TSharedPtr<SWidget> Widget)
   {
@@ -255,6 +259,11 @@ namespace
   }
   void ShowPerformance()
   {
+   const bool Title=bFrontend&&bMain;
+   Backdrop->SetHAlign(Title?HAlign_Fill:HAlign_Center);Backdrop->SetVAlign(Title?VAlign_Fill:VAlign_Center);
+   Backdrop->SetPadding(Title?0:20);Backdrop->SetBorderBackgroundColor(Title?FLinearColor::Black:FLinearColor(.008f,.013f,.022f,1.f));
+   PanelHost->SetPadding(Title?0:26);PanelHost->SetBorderBackgroundColor(Title?FLinearColor::Transparent:FLinearColor(.025f,.04f,.06f));
+   PanelScale->SetStretchDirection(Title?EStretchDirection::Both:EStretchDirection::DownOnly);
    bPerformance=true;PanelHost->SetContent(PerformancePanel.ToSharedRef());FocusPanel(PerformancePanel);
   }
   void ShowLanguage()
@@ -267,7 +276,7 @@ namespace
    for(bool English:{false,true})
    {
     auto Choice=SNew(SAudioButton).ContentPadding(FMargin(22,14)).OnClicked_Lambda([English]{GameLanguage::SetEnglish(English);return FReply::Handled();})
-     [SNew(STextBlock).Font(GameLanguage::Font(24)).Text_Lambda([English]{return FText::FromString(FString(GameLanguage::IsEnglish()==English?TEXT("✓  "):TEXT("    "))+(English?TEXT("English"):TEXT("中文")));})];
+     [SNew(SLocalizedTextBlock).Font(GameLanguage::Font(24)).Text_Lambda([English]{return FText::FromString(FString(GameLanguage::IsEnglish()==English?TEXT("✓  "):TEXT("    "))+(English?TEXT("English"):TEXT("中文")));})];
     if(English==GameLanguage::IsEnglish())FocusChoice=Choice;
     Choices->AddSlot().AutoHeight().Padding(0,6)[Choice];
    }
@@ -282,7 +291,7 @@ namespace
    if(bFrontend){if(!bMain)ShowMain();return;}
    if(bPauseMenu){if(!bPauseRoot){ShowPause();return;}bPauseMenu=false;bPauseRoot=false;}
    auto* PC=Player.Get();bOpen=false;if(!PC)return;
-   if(auto* V=PC->GetWorld()->GetGameViewport())if(Root)V->RemoveViewportWidgetContent(Root.ToSharedRef());Root.Reset();PanelHost.Reset();PerformancePanel.Reset();
+   if(auto* V=PC->GetWorld()->GetGameViewport())if(Root)V->RemoveViewportWidgetContent(Root.ToSharedRef());Root.Reset();PanelHost.Reset();PerformancePanel.Reset();MainPanel.Reset();Backdrop.Reset();PanelScale.Reset();
    if(bPausedByMenu){PC->SetPause(false);bPausedByMenu=false;}
    PC->SetIgnoreMoveInput(false);PC->SetIgnoreLookInput(false);
    if(PC->PlayerInput)PC->PlayerInput->FlushPressedKeys();
