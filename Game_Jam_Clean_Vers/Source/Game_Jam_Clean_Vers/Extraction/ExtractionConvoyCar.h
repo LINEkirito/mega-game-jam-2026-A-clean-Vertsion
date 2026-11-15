@@ -39,6 +39,7 @@ public:
  static bool IsHiddenFromPlayer(UWorld* World,APlayerController* PC,const FVector& Location,const FRotator& Rotation,const AActor* Ignore=nullptr);
  static bool ClearRoad(UWorld* World,const FVector& Start,const FVector& End,const AActor* Ignore=nullptr,bool IgnorePawns=false);
 private:
+ friend class FNewSFXCheck;
  friend class FConvoyCheck;
  UPROPERTY(Transient) TObjectPtr<UAnimSequence> DriverIdle;
  UPROPERTY(Transient) TObjectPtr<UAnimSequence> PassengerIdle;
@@ -49,6 +50,8 @@ private:
  float Speed=0,WheelAngle=0,PhaseTime=0,BlockedTime=0,HiddenSeconds=0,ExitRetry=0;
  bool bReverse=false,bAborted=false;
  bool bPolice=false;
+ bool bBrakeSoundPlayed=false;
+ UPROPERTY(Transient) TObjectPtr<class UAudioComponent> SirenAudio;
  int32 PassengerCount=4;
  bool Exited[4]={false,false,false,false};
  FVector Seat(int32 Index) const;

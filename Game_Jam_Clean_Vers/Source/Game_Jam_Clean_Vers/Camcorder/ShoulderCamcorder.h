@@ -70,6 +70,8 @@ public:
     UFUNCTION(BlueprintCallable, Category="Camcorder") void ConsumeBattery(float Seconds);
     UFUNCTION(BlueprintPure, Category="Camcorder") bool IsPresenting() const { return bHeld || bLowering; }
 private:
+    friend class FNewSFXCheck;
+    UPROPERTY(Transient) TObjectPtr<class UAudioComponent> ZoomAudio;
     UPROPERTY(Transient) TObjectPtr<APlayerController> Holder;
     UPROPERTY() TObjectPtr<UAnimSequence> HoldStart;
     UPROPERTY() TObjectPtr<UAnimSequence> HoldIdle;

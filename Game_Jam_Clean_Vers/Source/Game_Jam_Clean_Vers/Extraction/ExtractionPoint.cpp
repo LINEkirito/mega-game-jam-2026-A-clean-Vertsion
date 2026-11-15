@@ -1,5 +1,6 @@
 #include "ExtractionPoint.h"
 #include "Audio/GameAudio.h"
+#include "Components/AudioComponent.h"
 #include "Game_Jam_Clean_VersCharacter.h"
 #include "Components/BoxComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -98,6 +99,8 @@ bool AExtractionPoint::TryStart(APlayerController* PC)
  if(!Session||!Session->Claim(this))return false;
  ExtractingPlayer=Player;RemainingSeconds=GetDefault<UGlobalData>()->ExtractionSeconds;State=EExtractionState::Extracting;
  Notice.Empty();NoticeSeconds=0;Session->UpdateResponse(0);NotifyState();
+ HeartbeatAudio=UGameplayStatics::CreateSound2D(this,GameAudio::Sound(TEXT("ExtractionHeartbeat")),.4f);
+ if(HeartbeatAudio){HeartbeatAudio->bIsUISound=false;HeartbeatAudio->Play();}
  GameAudio::Cue(this,TEXT("ExtractionEnter"));return true;
 }
 void AExtractionPoint::NotifyState()
@@ -111,6 +114,8 @@ void AExtractionPoint::NotifyState()
 void AExtractionPoint::Cancel()
 {
  if(State!=EExtractionState::Extracting)return;
+ if(IsValid(HeartbeatAudio))HeartbeatAudio->Stop();
+ HeartbeatAudio=nullptr;
  if(auto* Session=GetWorld()->GetSubsystem<UExtractionSubsystem>())Session->Release(this);
  State=EExtractionState::Idle;RemainingSeconds=0;ExtractingPlayer=nullptr;
  Notice=TEXT("撤离已取消：请留在车辆 15 米内");NoticeSeconds=2.f;NotifyState();
@@ -125,6 +130,8 @@ void AExtractionPoint::Advance(float DeltaSeconds)
  if(auto* Bus=GetWorld()->GetSubsystem<UDataTransmitter>())Bus->NotifyChange(this,TEXT("ExtractionRemaining"),RemainingSeconds);
  if(RemainingSeconds>0.f){GetWorld()->GetSubsystem<UExtractionSubsystem>()->UpdateResponse(DeltaSeconds);return;}
  State=EExtractionState::Completed;
+ if(IsValid(HeartbeatAudio))HeartbeatAudio->Stop();
+ HeartbeatAudio=nullptr;
  GetWorld()->GetSubsystem<UExtractionSubsystem>()->Release(this);NotifyState();RemoveOverlay();
  GameAudio::Cue(this,TEXT("Victory"),.35f);
  Library->EndRound(false);
@@ -182,6 +189,8 @@ void AExtractionPoint::Tick(float DeltaSeconds)
 }
 void AExtractionPoint::EndPlay(const EEndPlayReason::Type Reason)
 {
+ if(IsValid(HeartbeatAudio))HeartbeatAudio->Stop();
+ HeartbeatAudio=nullptr;
  if(auto* Session=GetWorld()->GetSubsystem<UExtractionSubsystem>())Session->Release(this);
  RemoveOverlay();Super::EndPlay(Reason);
 }

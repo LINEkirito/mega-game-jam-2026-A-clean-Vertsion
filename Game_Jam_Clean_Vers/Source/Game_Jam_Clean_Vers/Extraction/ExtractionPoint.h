@@ -78,6 +78,7 @@ private:
  friend class FExtractionFlowCheck;
  friend class FExtractionSpawnCheck;
  float NoticeSeconds=0.f;
+ UPROPERTY(Transient) TObjectPtr<class UAudioComponent> HeartbeatAudio;
  FString Notice;
  TSharedPtr<class SWidget> Overlay;
  void NotifyState();

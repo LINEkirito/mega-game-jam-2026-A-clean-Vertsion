@@ -1,5 +1,6 @@
 #include "ShoulderCamcorder.h"
 #include "Audio/GameAudio.h"
+#include "Components/AudioComponent.h"
 #include "Audio/CharacterAudio.h"
 #include "RecordingLibrary.h"
 #include "Data/GlobalData.h"
@@ -123,6 +124,7 @@ void AShoulderCamcorder::EndPlay(const EEndPlayReason::Type Reason)
     SetViewfinderRaised(false);
     bSelfie=false;
     SetHoldingHandsVisible(false);
+    if(IsValid(ZoomAudio))ZoomAudio->Stop();
     StopRecording(); Super::EndPlay(Reason);
 }
 bool AShoulderCamcorder::CanInteract(APlayerController* Player) const
@@ -348,6 +350,7 @@ void AShoulderCamcorder::SetViewfinderRaised(bool bRaised)
     if(bRaised && (!bHeld || bInBackpack || bLowering || !Holder || !bPowered || EquipProgress<1.f))
     { SetNotice(TEXT("请先装备并开启摄像机，再按右键举机取景")); return; }
     bViewfinderRaised=bRaised;
+    if(!bRaised&&IsValid(ZoomAudio))ZoomAudio->Stop();
     if(bRaised)GameAudio::Handling(this,TEXT("CameraRaise"));
     CameraMesh->SetVisibility(!bRaised); DisplayScreen->SetVisibility(!bRaised);
     if(bRaised) { Holder->SetViewTargetWithBlend(this,.43f); SetNotice(TEXT("移动鼠标调整镜头，滚轮变焦；左键开始/停止录像，Esc 放下取景")); }
@@ -384,7 +387,12 @@ void AShoulderCamcorder::AdjustAim(float PitchDelta,float YawDelta)
 }
 void AShoulderCamcorder::AdjustFocalLength(float DeltaMM)
 {
+    const float PreviousFocalLength=FocalLength;
     FocalLength=FMath::Clamp(FocalLength+DeltaMM,bSelfie?55.f:18.f,100.f);
+    // Only user zoom that actually moves the lens; rapid wheel events share one sound.
+    if(DeltaMM!=0.f&&FocalLength!=PreviousFocalLength&&bViewfinderRaised&&bHeld&&bPowered&&
+       (!IsValid(ZoomAudio)||!ZoomAudio->IsPlaying()))
+        ZoomAudio=UGameplayStatics::SpawnSound2D(this,GameAudio::Sound(TEXT("CameraZoom")),.35f);
     Capture->FOVAngle=FMath::RadiansToDegrees(2.f*FMath::Atan(36.f/(2.f*FocalLength)));
     ViewfinderCamera->SetFieldOfView(Capture->FOVAngle);
 }
@@ -407,6 +415,7 @@ bool AShoulderCamcorder::StartRecording()
     if(GetOwner())if(auto* Library=GetOwner()->FindComponentByClass<URecordingLibrary>())Library->BeginClip(this);
     Capture->CaptureScene(); SampleRecording();
     UpdateScreen();
+    GameAudio::Cue(this,TEXT("CameraRecordStart"),.35f);
     SetNotice(TEXT("录像中；右键退出取景时会自动保存")); return true;
 }
 void AShoulderCamcorder::SampleRecording()
@@ -434,7 +443,7 @@ void AShoulderCamcorder::StopRecording()
     MonitorTexture->ResizeTarget(1,1);
     if(GetOwner())if(auto* Library=GetOwner()->FindComponentByClass<URecordingLibrary>())Library->FinishClip(this,bOK);
     UpdateScreen();
-    if(bOK) { ++SavedClipCount; SetNotice(TEXT("录像已保存：Saved/Recordings/")+FPaths::GetCleanFilename(LastRecordingPath)); }
+    if(bOK) { ++SavedClipCount; GameAudio::Cue(this,TEXT("CameraRecordSaved"),.35f); SetNotice(TEXT("录像已保存：Saved/Recordings/")+FPaths::GetCleanFilename(LastRecordingPath)); }
     else SetNotice(TEXT("录像保存异常：检查磁盘空间或输出日志；文件可能不完整"));
     UE_LOG(LogTemp,Log,TEXT("Camcorder clip %s: %s"),bOK?TEXT("saved"):TEXT("incomplete"),*LastRecordingPath);
 }
