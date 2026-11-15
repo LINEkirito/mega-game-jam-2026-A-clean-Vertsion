@@ -12,6 +12,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "Data/DataTransmitter.h"
+#include "Data/GlobalData.h"
 #include "EngineUtils.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -158,26 +159,24 @@ public:
   }
   if(Stage==2)
   {
-   // Frozen test shooters may stand in the exit lane. Clear the squad before requiring retirement;
-   // the car must wait for solid actors rather than drive through them or disappear in view.
+   // Keep bodies in place. The old empty car may need to physically clear a narrow lane,
+   // but the dispatcher retries without waiting for that car to be destroyed.
    if(!SquadCleared)
    {
+    NextWave=S->WaveNumber+1;
     for(auto N:S->Responders)if(N.IsValid()&&N->Health>0)
     {
      N->BecomeInjured();
      Test->TestTrue(TEXT("Cleared wave member remains alive while downed"),N->Health>0);
-     // Frozen fixtures must not block the departing car's lane.
-     N->SetActorLocation(N->GetActorLocation()+FVector(0,0,-3000),false,nullptr,ETeleportType::TeleportPhysics);
     }
     SquadCleared=true;
    }
-   bool Any=false;for(TActorIterator<AExtractionConvoyCar> It(W);It;++It)Any=true;
-   if(Any&&Elapsed<45)return false;
-   Test->TestFalse(TEXT("Cars drive out of sight and retire without accumulating"),Any);
-   // Re-enter after eight historical waves; there must be no obsolete eight-car ceiling.
-   S->WaveNumber=8;S->SpawnRetry=0;S->UpdateResponse(1);
-   Test->TestEqual(TEXT("Downed survivors permit wave nine without finishing kills"),S->WaveNumber,9);
-   Test->TestEqual(TEXT("Next wave also contains exactly one car"),S->Cars.Num(),1);
+   S->UpdateResponse(.1f);
+   if(S->WaveNumber<NextWave&&Elapsed<8.f)return false;
+   Test->TestEqual(TEXT("All downed promptly dispatches next wave as the lane clears"),S->WaveNumber,NextWave);
+   Test->AddInfo(FString::Printf(TEXT("Next car dispatched after %.2f simulated seconds; %d cars remain tracked"),Elapsed,S->Cars.Num()));
+   int32 DeliveringCars=0;for(auto C:S->Cars)if(C.IsValid()&&C->IsDelivering())++DeliveringCars;
+   Test->TestEqual(TEXT("Only one incoming car while empty cars depart"),DeliveringCars,1);
    Test->TestEqual(TEXT("Next wave has no teleporting enemies"),S->GetLivingResponders(),0);
    for(auto C:S->Cars)if(C.IsValid())C->SetActorTickEnabled(false);
    PC->SetControlRotation(PC->GetControlRotation()+FRotator(0,180,0));P->GetFirstPersonCameraComponent()->SetWorldRotation(PC->GetControlRotation());PC->PlayerCameraManager->UpdateCamera(.016f);
@@ -187,7 +186,7 @@ public:
   {
    bool Delivering=false;for(auto C:S->Cars)if(C.IsValid()&&C->IsDelivering())Delivering=true;
    if(Delivering&&Elapsed<35)return false;
-   Test->TestEqual(TEXT("Turning away prevents rear parking and unloading"),S->GetLivingResponders(),0);
+   Test->TestEqual(TEXT("Second wave unloads all four even when player turns away and first wave lies nearby"),S->GetLivingResponders(),4);
    Point->Cancel();Test->TestEqual(TEXT("Cancellation clears active squad"),S->GetLivingResponders(),0);
    for(auto C:S->Cars)if(C.IsValid()&&C->Phase==EConvoyCarPhase::Departing)
    {
@@ -200,7 +199,7 @@ public:
  }
 private:
  bool Visual=false,RequireTwoSpaces=false,SquadCleared=false;double LastStep=0;
- FAutomationTestBase* Test;int32 Stage=0,Expected=0;float Elapsed=0;
+ FAutomationTestBase* Test;int32 Stage=0,Expected=0,NextWave=0;float Elapsed=0;
  FVector Entry,Stop;FRotator Heading;TWeakObjectPtr<AExtractionPoint> Point;
 };
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FConvoyTest,"Game.Extraction.Convoy",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)

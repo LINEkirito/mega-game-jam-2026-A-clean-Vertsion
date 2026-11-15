@@ -51,10 +51,10 @@ void UExtractionSubsystem::UpdateResponse(float DT)
   It->CombatTarget=nullptr;It->PriorityOffender.Reset();It->SetActivity(ENPCActivity::Idle);
   if(auto* AI=Cast<AAIController>(It->GetController()))AI->StopMovement();
  }
- // Retain downed members for cleanup, but only combat-capable members hold the wave.
- // Cars must also finish leaving before another car arrives.
- if(GetLivingResponders()>0||!Cars.IsEmpty())return;
- SpawnRetry-=DT;if(SpawnRetry>0)return;SpawnRetry=1.f;
+ // Departing empty cars do not hold the next wave; still allow only one delivering car.
+ if(GetLivingResponders()>0||Cars.ContainsByPredicate([](const auto& C){return C.IsValid()&&C->IsDelivering();}))
+ {SpawnRetry=0;return;}
+ SpawnRetry-=DT;if(SpawnRetry>0)return;SpawnRetry=.1f;
  const int32 Desired=1; // One car per wave keeps extraction combat manageable.
  for(int32 I=0;I<Desired;++I)
  {
@@ -63,9 +63,8 @@ void UExtractionSubsystem::UpdateResponse(float DT)
   FActorSpawnParameters Params;Params.SpawnCollisionHandlingOverride=ESpawnActorCollisionHandlingMethod::DontSpawnIfColliding;
   auto* Car=GetWorld()->SpawnActor<AExtractionConvoyCar>(Start+FVector(0,0,76),Rotation,Params);
   if(!Car)break;
-  Car->Initialize(PC,Stop,Start);Cars.Add(Car);
+  Car->Initialize(PC,Stop,Start);Cars.Add(Car);++WaveNumber;
  }
- if(!Cars.IsEmpty())++WaveNumber;
 }
 bool APatrolEnemy::TickExtractionResponse(float DT)
 {

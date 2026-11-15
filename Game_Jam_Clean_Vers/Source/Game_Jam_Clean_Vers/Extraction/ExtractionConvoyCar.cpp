@@ -25,9 +25,15 @@ namespace
 {
  const FVector CarHalf(250,112,65);
  const FVector BodyOffset(0,0,76);
+ bool IsRoadBody(const APatrolEnemy* N)
+ {
+  if(N->Health<=0)return true;
+  const auto* Session=N->GetWorld()->GetSubsystem<UExtractionSubsystem>();
+  return N->NPCRole==ENPCRole::Injured&&Session&&Session->IsResponder(N);
+ }
  void IgnoreBodies(UWorld* W,FCollisionQueryParams& Q)
  {
-  for(TActorIterator<APatrolEnemy> It(W);It;++It)if(It->Health<=0){Q.AddIgnoredActor(*It);if(It->HeldWeapon)Q.AddIgnoredActor(It->HeldWeapon);}
+  for(TActorIterator<APatrolEnemy> It(W);It;++It)if(IsRoadBody(*It)){Q.AddIgnoredActor(*It);if(It->HeldWeapon)Q.AddIgnoredActor(It->HeldWeapon);}
   for(TActorIterator<ACombatAmmoPickup> It(W);It;++It)Q.AddIgnoredActor(*It);
   for(TActorIterator<AWeaponDebris> It(W);It;++It)Q.AddIgnoredActor(*It);
  }
@@ -165,7 +171,7 @@ bool AExtractionConvoyCar::FindArrival(UWorld* W,APlayerController* PC,FVector& 
   FHitResult SightHit;if(W->LineTraceSingleByChannel(SightHit,Eye,Ground+FVector(0,0,110),ECC_Visibility,SightQuery))continue;
   FNavLocation NavPoint;if(!Nav->ProjectPointToNavigation(Ground,NavPoint,FVector(70,70,100)))continue;
   bool TooClose=false;for(TActorIterator<AExtractionConvoyCar> It(W);It;++It)
-   if(FVector::Dist2D(Ground,It->StopLocation-BodyOffset)<560){TooClose=true;break;}
+   if(FVector::Dist2D(Ground,It->IsDelivering()?It->StopLocation-BodyOffset:It->GetActorLocation()-BodyOffset)<560){TooClose=true;break;}
   if(TooClose)continue;
   // Most streets are axis aligned, with diagonals available for open intersections.
   for(int32 Heading=0;Heading<16;++Heading)
@@ -191,7 +197,7 @@ bool AExtractionConvoyCar::FindArrival(UWorld* W,APlayerController* PC,FVector& 
 }
 bool AExtractionConvoyCar::MoveAlongRoad(float DT,const FVector& Target,bool Brake)
 {
- for(TActorIterator<APatrolEnemy> It(GetWorld());It;++It)if(It->Health<=0)CollisionBody->IgnoreActorWhenMoving(*It,true);
+ for(TActorIterator<APatrolEnemy> It(GetWorld());It;++It)if(IsRoadBody(*It))CollisionBody->IgnoreActorWhenMoving(*It,true);
  for(TActorIterator<ACombatAmmoPickup> It(GetWorld());It;++It)CollisionBody->IgnoreActorWhenMoving(*It,true);
  for(TActorIterator<AWeaponDebris> It(GetWorld());It;++It)CollisionBody->IgnoreActorWhenMoving(*It,true);
  const float Distance=FVector::Dist2D(GetActorLocation(),Target);
@@ -254,7 +260,28 @@ void AExtractionConvoyCar::UpdatePassengers(float DT)
   const FVector Local=Rider->GetRelativeLocation()+RootOffset;
   FVector Ground;const FVector Exit=VisualRoot->GetComponentTransform().TransformPosition(Local);
   if(!RoadGround(GetWorld(),Exit,Ground,this))continue;
-  const FVector Spawn=Ground+FVector(0,0,93);
+  FVector Spawn=Ground+FVector(0,0,93);
+  if(!bPolice)
+  {
+   // The previous wave can be downed at the exact animation endpoint. Search nearby
+   // clear ground instead of retrying that same occupied point forever.
+   auto* Nav=FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld());bool Found=false;
+   const FVector Out=GetActorRightVector()*(Left?-1.f:1.f);
+   FCollisionQueryParams Query(SCENE_QUERY_STAT(ExtractionPassengerExit));
+   for(float Across:{0.f,85.f,170.f,255.f})
+   {
+    for(float Along:{0.f,100.f,-100.f,200.f,-200.f})
+    {
+     FNavLocation Floor;const FVector Candidate=Ground+Out*Across+GetActorForwardVector()*Along;
+     if(!Nav||!Nav->ProjectPointToNavigation(Candidate,Floor,FVector(50,50,150)))continue;
+     const FVector Position=Floor.Location+FVector(0,0,93);
+     if(GetWorld()->OverlapBlockingTestByChannel(Position,FQuat::Identity,ECC_Pawn,FCollisionShape::MakeCapsule(45,88),Query))continue;
+     Spawn=Position;Found=true;break;
+    }
+    if(Found)break;
+   }
+   if(!Found)continue;
+  }
   FActorSpawnParameters Params;Params.SpawnCollisionHandlingOverride=ESpawnActorCollisionHandlingMethod::DontSpawnIfColliding;
   auto* N=GetWorld()->SpawnActorDeferred<APatrolEnemy>(APatrolEnemy::StaticClass(),FTransform(GetActorRotation(),Spawn),nullptr,nullptr,Params.SpawnCollisionHandlingOverride);
   if(!N)continue;
@@ -275,8 +302,9 @@ void AExtractionConvoyCar::Tick(float DT)
   if(bPolice)UpdatePoliceStop(DT);
   if(MoveAlongRoad(DT,StopLocation,true))
   {
-   if(!bAborted&&(bPolice||IsInFront(PC,GetActorLocation()))){Phase=EConvoyCarPhase::Unloading;PhaseTime=0;Speed=0;}
-   else {UE_LOG(LogTemp,Display,TEXT("Convoy parking rejected: front=%d aborted=%d location=%s"),IsInFront(PC,GetActorLocation()),bAborted,*GetActorLocation().ToString());StartDeparture();} // A player who turns away never receives a parked car behind them.
+   // Arrival was validated when dispatched. Looking away must not cancel unloading.
+   if(!bAborted){Phase=EConvoyCarPhase::Unloading;PhaseTime=0;Speed=0;}
+   else StartDeparture();
   }
   else if(BlockedTime>(bPolice?12.f:4.f))StartDeparture();
  }
