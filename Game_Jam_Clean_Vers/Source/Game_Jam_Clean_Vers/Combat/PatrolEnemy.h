@@ -66,6 +66,7 @@ public:
  UFUNCTION(BlueprintImplementableEvent,Category="NPC") void OnActivityChanged(ENPCActivity NewActivity);
 private:
  FVector TrafficYieldPoint=FVector::ZeroVector;
+ float NextVoiceTime=0;
  float TrafficYieldUntil=0,TrafficSavedSpeed=0;
  bool bTrafficYielding=false;
  bool TickTrafficYield(float DT);
@@ -105,6 +106,7 @@ private:
  void TickCounterattack(float DT);
  void RespondToAssault(APatrolEnemy* Gang);
  bool IsCombatTargetAlive(AActor* Target) const;
+ void LeaveFinishedEncounter();
  FVector EventDestination=FVector::ZeroVector,EventFocus=FVector::ZeroVector;
  float CameraReactionTime=0,CameraReactionCooldown=0;
  bool IsBeingFilmed() const;

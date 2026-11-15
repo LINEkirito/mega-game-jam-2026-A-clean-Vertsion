@@ -217,8 +217,8 @@ void UWorldEvents::Tick(float DT) {
    if(E.Kind==EStreetEvent::MassiveGangWar&&!N->IsLiving(N->CombatTarget)){
     for(auto Other:E.Participants)if(auto* Target=Other.Get();Target&&N->IsLiving(Target)&&N->IsGang()!=Target->IsGang()){N->SetTarget(Target);break;}
    }
-   Gang+=N->IsGang();Police+=N->NPCRole==ENPCRole::Police;Civilian+=N->IsLawProtected();
-   if(E.Kind==EStreetEvent::GangMassacre&&N->IsGang()&&!N->IsCombatTargetAlive(N->CombatTarget)){for(auto Other:E.Participants)if(auto* Victim=Other.Get();Victim&&Victim->Health>0&&Victim->IsLawProtected()){N->EscalationTarget=Victim;N->SetTarget(Victim);break;}}
+   Gang+=N->IsGang();Police+=N->NPCRole==ENPCRole::Police;Civilian+=N->IsLawProtected()&&N->IsLiving(N);
+   if(E.Kind==EStreetEvent::GangMassacre&&N->IsGang()&&!N->IsCombatTargetAlive(N->CombatTarget)){for(auto Other:E.Participants)if(auto* Victim=Other.Get();Victim&&N->IsLiving(Victim)&&Victim->IsLawProtected()){N->EscalationTarget=Victim;N->SetTarget(Victim);break;}}
    switch(E.Kind){
    case EStreetEvent::GangMeeting:Interrupted|=N->Activity!=ENPCActivity::Meeting;Ready+=N->Activity==ENPCActivity::Meeting&&FVector::Dist2D(N->GetActorLocation(),N->EventDestination)<95;break;
    case EStreetEvent::SecretTransaction:Interrupted|=N->Activity!=ENPCActivity::Trade;Ready+=N->Activity==ENPCActivity::Trade&&N->bSocialArrived;break;

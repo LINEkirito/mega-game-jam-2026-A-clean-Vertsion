@@ -53,7 +53,7 @@ public:
   {
    auto* P=Point.Get();if(!P){Test->AddError(TEXT("Point lost"));return true;}
    Test->TestEqual(TEXT("Default radius is 15 metres"),GetDefault<UGlobalData>()->ExtractionRadius,1500.f);
-   Test->TestEqual(TEXT("Default extraction lasts 60 seconds"),GetDefault<UGlobalData>()->ExtractionSeconds,60.f);
+   Test->TestEqual(TEXT("Default extraction lasts 30 seconds"),GetDefault<UGlobalData>()->ExtractionSeconds,30.f);
    Test->TestTrue(TEXT("Distance uses closest body surface"),FMath::IsNearlyEqual(P->DistanceToVehicle(Player->GetActorLocation()),250.f));
    const FVector Here=Player->GetActorLocation();
    Player->SetActorLocation(Here-FVector(1251,0,0));Test->TestFalse(TEXT("1501cm is out of range"),P->IsPlayerInRange(Player));
@@ -78,14 +78,14 @@ public:
    auto* FirstHeartbeat=P->HeartbeatAudio.Get();
    P->TryStart(PC);Test->TestTrue(TEXT("Repeated activation does not duplicate heartbeat"),P->HeartbeatAudio==FirstHeartbeat);
    Test->TestFalse(TEXT("World permits only one extraction"),W->GetSubsystem<UExtractionSubsystem>()->Claim(P));
-   P->Advance(5);Test->TestEqual(TEXT("Countdown after five seconds"),P->RemainingSeconds,55.f);
+   P->Advance(5);Test->TestEqual(TEXT("Countdown after five seconds"),P->RemainingSeconds,25.f);
    Player->SetActorLocation(Here-FVector(1251,0,0));P->Advance(.01f);
    Test->TestTrue(TEXT("Leaving radius cancels"),P->State==EExtractionState::Idle);
    Test->TestNull(TEXT("Leaving radius releases heartbeat"),P->HeartbeatAudio.Get());
    Test->TestFalse(TEXT("Cancelled heartbeat is stopped"),IsValid(FirstHeartbeat)&&FirstHeartbeat->IsPlaying());
    Test->TestNull(TEXT("Cancellation clears world alarm"),W->GetSubsystem<UExtractionSubsystem>()->GetExtractingPlayer());
    Player->SetActorLocation(Here);Test->TestTrue(TEXT("Re-entry restarts full timer"),P->TryStart(PC));
-   Test->TestEqual(TEXT("Fresh timer"),P->RemainingSeconds,60.f);
+   Test->TestEqual(TEXT("Fresh timer"),P->RemainingSeconds,30.f);
    Player->Health=0;P->Advance(.01f);Test->TestTrue(TEXT("Death cancels and cannot succeed"),P->State==EExtractionState::Idle&&!Library->bRoundEnded);Player->Health=100;
    Test->TestTrue(TEXT("Restart for AI test"),P->TryStart(PC));
    const FTransform Spawn(FRotator(0,180,0),Here+FVector(0,1500,0));
@@ -108,10 +108,10 @@ public:
    Test->TestTrue(TEXT("Restart for countdown"),P->TryStart(PC));
    const bool English=GameLanguage::IsEnglish();
    auto Label=SNew(SLocalizedTextBlock).Text_Lambda([P]{return FText::FromString(P->StatusText());});
-   GameLanguage::SetEnglish(false);Test->TestEqual(TEXT("Chinese countdown"),Label->GetText().ToString(),FString(TEXT("撤离倒计时：60.0 秒")));
-   GameLanguage::SetEnglish(true);Test->TestEqual(TEXT("Live English countdown"),Label->GetText().ToString(),FString(TEXT("Extracting: 60.0 s remaining")));
+   GameLanguage::SetEnglish(false);Test->TestEqual(TEXT("Chinese countdown"),Label->GetText().ToString(),FString(TEXT("撤离倒计时：30.0 秒")));
+   GameLanguage::SetEnglish(true);Test->TestEqual(TEXT("Live English countdown"),Label->GetText().ToString(),FString(TEXT("Extracting: 30.0 s remaining")));
    GameLanguage::SetEnglish(English);
-   P->Advance(59.9f);Test->TestFalse(TEXT("Cannot settle before 60 seconds"),Library->bRoundEnded);
+   P->Advance(29.9f);Test->TestFalse(TEXT("Cannot settle before 30 seconds"),Library->bRoundEnded);
    PC->SetControlRotation(FRotator(0,180,0));
    Player->GetFirstPersonCameraComponent()->SetWorldRotation(FRotator(0,180,0));
    PC->PlayerCameraManager->UpdateCamera(.016f);++Stage;return false;
@@ -119,7 +119,7 @@ public:
   auto* P=Point.Get();
   Test->TestFalse(TEXT("Player can look away during extraction"),P->IsLookedAtBy(PC));
   P->Advance(.11f);
-  Test->TestTrue(TEXT("60 seconds reaches successful existing settlement"),P->State==EExtractionState::Completed&&Library->bRoundEnded&&!Library->bEndedByDeath);
+  Test->TestTrue(TEXT("30 seconds reaches successful existing settlement"),P->State==EExtractionState::Completed&&Library->bRoundEnded&&!Library->bEndedByDeath);
   Test->TestNull(TEXT("Completion releases world alarm"),W->GetSubsystem<UExtractionSubsystem>()->GetActivePoint());
   Test->TestNull(TEXT("Completion releases heartbeat"),P->HeartbeatAudio.Get());
   return true;

@@ -10,6 +10,8 @@ struct FGamePerformanceOptions
 {
  Scalability::FQualityLevels Quality;
  float ResolutionScale=100.f;
+ FIntPoint DisplayResolution=FIntPoint(3840,2160);
+ int32 DisplayMode=0;
  float FrameLimit=0.f;
  bool bVSync=false;
  static FGamePerformanceOptions Read(const UGameUserSettings& Settings);

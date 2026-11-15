@@ -38,6 +38,12 @@ void GameLocalSettings::LoadPerformance() {
  auto* S=UGameUserSettings::GetGameUserSettings();if(!S||!GConfig)return;
  // A fresh OS user starts from engine defaults, never another user's bundled Saved directory.
  S->ValidateSettings();auto& Quality=S->ScalabilityQuality;Quality.SetDefaults();
+ int32 Width=3840,Height=2160;
+ GConfig->GetInt(PerformanceSection,TEXT("DisplayWidth"),Width,Filename());GConfig->GetInt(PerformanceSection,TEXT("DisplayHeight"),Height,Filename());
+ const bool ValidResolution=(Width==1280&&Height==720)||(Width==1920&&Height==1080)||(Width==2560&&Height==1440)||(Width==3840&&Height==2160);
+ S->SetScreenResolution(ValidResolution?FIntPoint(Width,Height):FIntPoint(3840,2160));
+ int32 Mode=0;GConfig->GetInt(PerformanceSection,TEXT("DisplayMode"),Mode,Filename());S->SetFullscreenMode(static_cast<EWindowMode::Type>(FMath::Clamp(Mode,0,2)));
+ if(!GIsEditor){S->ApplyResolutionSettings(false);S->ConfirmVideoMode();}
  for(const auto& Field:Fields){int32 Value=Quality.*(Field.Member);GConfig->GetInt(PerformanceSection,Field.Key,Value,Filename());Quality.*(Field.Member)=FMath::Clamp(Value,0,4);}
  float Scale=100,Limit=0;bool VSync=false;
  GConfig->GetFloat(PerformanceSection,TEXT("ResolutionScale"),Scale,Filename());GConfig->GetFloat(PerformanceSection,TEXT("FrameLimit"),Limit,Filename());GConfig->GetBool(PerformanceSection,TEXT("VSync"),VSync,Filename());
@@ -46,6 +52,8 @@ void GameLocalSettings::LoadPerformance() {
 }
 void GameLocalSettings::SavePerformance() {
  const auto* S=UGameUserSettings::GetGameUserSettings();if(!S||!GConfig)return;
+ const FIntPoint Resolution=S->GetScreenResolution();GConfig->SetInt(PerformanceSection,TEXT("DisplayWidth"),Resolution.X,Filename());GConfig->SetInt(PerformanceSection,TEXT("DisplayHeight"),Resolution.Y,Filename());
+ GConfig->SetInt(PerformanceSection,TEXT("DisplayMode"),int32(S->GetFullscreenMode()),Filename());
  for(const auto& Field:Fields)GConfig->SetInt(PerformanceSection,Field.Key,S->ScalabilityQuality.*(Field.Member),Filename());
  GConfig->SetFloat(PerformanceSection,TEXT("ResolutionScale"),S->ScalabilityQuality.ResolutionQuality,Filename());
  GConfig->SetFloat(PerformanceSection,TEXT("FrameLimit"),S->GetFrameRateLimit(),Filename());GConfig->SetBool(PerformanceSection,TEXT("VSync"),S->IsVSyncEnabled(),Filename());GConfig->Flush(false,Filename());

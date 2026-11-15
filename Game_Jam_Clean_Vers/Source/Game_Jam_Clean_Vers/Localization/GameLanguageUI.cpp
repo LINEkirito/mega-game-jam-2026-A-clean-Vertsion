@@ -76,7 +76,6 @@ namespace
 #if WITH_EDITOR
    if(E.GetKey()==EKeys::F2){if(!E.IsRepeat())ToggleDebug();return true;}
 #endif
-   if(E.GetKey()==EKeys::F10){if(!E.IsRepeat()){if(bOpen){if(bFrontend&&bMain)ShowSettings();else {bPerformance=true;Close();}}else Open(true);}return true;}
    if(E.GetKey()==EKeys::Escape)
    {
     if(bEatEscape)return true;
@@ -85,7 +84,8 @@ namespace
     auto* Equipment=PC?PC->FindComponentByClass<UCamcorderEquipmentComponent>():nullptr;
     // Existing contextual Escape actions retain priority (inventory, tablet, viewfinder).
     if(Equipment&&(Equipment->bBackpackOpen||(Equipment->Tablet&&Equipment->Tablet->bOpen)||(Equipment->Camcorder&&Equipment->Camcorder->bViewfinderRaised)))return false;
-    if(!P||P->Health<=0||P->HasDeathFallStarted()||(Equipment&&Equipment->RecordingLibrary&&Equipment->RecordingLibrary->bRoundEnded))
+    if(Equipment&&Equipment->RecordingLibrary&&Equipment->RecordingLibrary->bRoundEnded){if(!E.IsRepeat())Open(true);bEatEscape=true;return true;}
+    if(!P||P->Health<=0||P->HasDeathFallStarted())
     {bEatEscape=true;return true;} // Never let gameplay Escape fall through to PIE's Stop shortcut.
     if(!E.IsRepeat()){bPauseMenu=true;Open(true);ShowPause();}
     bEatEscape=true;return true;
@@ -102,7 +102,7 @@ namespace
 #if WITH_EDITOR
    if(Key==EKeys::F2)return true;
 #endif
-   return Key==EKeys::F10||(bOpen&&Key!=EKeys::Tab&&Key!=EKeys::Enter&&Key!=EKeys::SpaceBar&&Key!=EKeys::Up&&Key!=EKeys::Down&&Key!=EKeys::Left&&Key!=EKeys::Right);
+   return (bOpen&&Key!=EKeys::Tab&&Key!=EKeys::Enter&&Key!=EKeys::SpaceBar&&Key!=EKeys::Up&&Key!=EKeys::Down&&Key!=EKeys::Left&&Key!=EKeys::Right);
   }
   virtual void Tick(float DT,FSlateApplication&,TSharedRef<ICursor>) override
   {

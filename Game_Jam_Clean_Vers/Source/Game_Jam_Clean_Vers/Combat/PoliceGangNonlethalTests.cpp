@@ -13,8 +13,8 @@
 #include "WorldEvents.h"
 #include "Camcorder/BackpackInventory.h"
 
-DEFINE_LATENT_AUTOMATION_COMMAND_ONE_PARAMETER(FPoliceGangNonlethalCheck,FAutomationTestBase*,Test);
-bool FPoliceGangNonlethalCheck::Update()
+DEFINE_LATENT_AUTOMATION_COMMAND_ONE_PARAMETER(FPoliceGangLethalCheck,FAutomationTestBase*,Test);
+bool FPoliceGangLethalCheck::Update()
 {
  UWorld* W=nullptr;for(const auto& C:GEngine->GetWorldContexts())if(C.WorldType==EWorldType::PIE){W=C.World();break;}
  auto* PC=W?W->GetFirstPlayerController():nullptr;
@@ -47,13 +47,15 @@ bool FPoliceGangNonlethalCheck::Update()
    Victim->Health=Floor;
    const float Cap=GetDefault<UGlobalData>()->PoliceGangMaxHitDamage;
    Test->TestEqual(TEXT("Head hits respect low damage cap"),Hit(Victim,10000,Attacker->GetController(),Attacker,true),Cap);
-   Test->TestTrue(TEXT("Low health receives a small recovery buffer"),Victim->Health>Floor);
-   for(int32 I=0;I<64;++I){
-    Test->TestEqual(TEXT("Repeated pellets keep dealing positive damage"),Hit(Victim,10000,nullptr,Attacker),Cap);
-    Test->TestTrue(TEXT("Crossfire remains above injury threshold"),Victim->Health>=Floor);
+   Test->TestEqual(TEXT("No recovery at low health"),Victim->Health,Floor-Cap);
+   Test->TestEqual(TEXT("Low hit chance is unchanged"),Attacker->ShotHitChance(Victim),GetDefault<UGlobalData>()->PoliceGangHitChance);
+   while(Victim->Health>0){
+    const float Before=Victim->Health;
+    Test->TestEqual(TEXT("Every hit remains capped"),Hit(Victim,10000,nullptr,Attacker),FMath::Min(Cap,Before));
+    Test->TestEqual(TEXT("Crossfire preserves combat role until death"),Victim->NPCRole,OriginalRole);
    }
-   Test->TestEqual(TEXT("Crossfire preserves combat role"),Victim->NPCRole,OriginalRole);
-   Test->TestTrue(TEXT("Crossfire never enters injured or dead activity"),Victim->Activity!=ENPCActivity::Injured&&Victim->Activity!=ENPCActivity::Dead);
+   Test->TestEqual(TEXT("Repeated low damage eventually kills"),Victim->Activity,ENPCActivity::Dead);
+   Victim=Spawn(PoliceVictim?ENPCRole::Police:GangRole);
    Hit(Victim,Victim->Health-Injury,PC,PC->GetPawn());
    Test->TestEqual(TEXT("Player can still cause injury"),Victim->NPCRole,ENPCRole::Injured);
    const float DownedHealth=Victim->Health;
@@ -93,9 +95,9 @@ bool FPoliceGangNonlethalCheck::Update()
  }
  for(auto* N:Actors)N->Destroy();return true;
 }
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPoliceGangNonlethalTest,"Game.NPC.PoliceGangNonlethal",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
-bool FPoliceGangNonlethalTest::RunTest(const FString&)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPoliceGangLethalTest,"Game.NPC.PoliceGangLethal",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
+bool FPoliceGangLethalTest::RunTest(const FString&)
 {
- AddCommand(new FStartPIECommand(false));AddCommand(new FWaitLatentCommand(2));AddCommand(new FPoliceGangNonlethalCheck(this));AddCommand(new FEndPlayMapCommand());return true;
+ AddCommand(new FStartPIECommand(false));AddCommand(new FWaitLatentCommand(2));AddCommand(new FPoliceGangLethalCheck(this));AddCommand(new FEndPlayMapCommand());return true;
 }
 #endif

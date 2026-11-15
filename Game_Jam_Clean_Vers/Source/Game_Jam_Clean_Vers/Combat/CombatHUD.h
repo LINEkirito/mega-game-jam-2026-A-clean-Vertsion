@@ -62,7 +62,7 @@ public:
         // Reserve the empty strip below health; weapon, viewfinder and shortcut UI live elsewhere.
         Box(25*S,65*S,104*S,26*S,FLinearColor(.015f,.022f,.03f,.65f));
         Text(33*S,68*S,FrameRateText,14,FLinearColor(.75f,.85f,.85f));
-        Text(25*S,98*S,TEXT("F10 设置 / 语言"),14,FLinearColor(.75f,.85f,.85f));
+        Text(25*S,98*S,TEXT("Esc 菜单 / 设置"),14,FLinearColor(.75f,.85f,.85f));
         if(auto* Police=C->GetWorld()->GetSubsystem<UPoliceReinforcements>();Police&&Police->GetWantedLevel()>0)
         {
             const float X=W-225*S,Y=198*S;

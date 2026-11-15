@@ -15,7 +15,7 @@ public:
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Police") TArray<float> WantedEscapeSeconds={20,30,45,60,75};
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Extraction",meta=(ClampMin="100",Units="cm/s")) float ConvoySpeed=700.f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Extraction",meta=(ClampMin="1",Units="cm")) float ExtractionRadius=1500.f;
- UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Extraction",meta=(ClampMin="0.1",Units="s")) float ExtractionSeconds=60.f;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Extraction",meta=(ClampMin="0.1",Units="s")) float ExtractionSeconds=30.f;
  // Maximum audible distance in cm, including the inner radius. Per-source state stays on audio components.
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Audio",meta=(ClampMin="100",Units="cm")) float VoiceAudibleDistance=1800.f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Audio",meta=(ClampMin="100",Units="cm")) float FootstepAudibleDistance=1000.f;
