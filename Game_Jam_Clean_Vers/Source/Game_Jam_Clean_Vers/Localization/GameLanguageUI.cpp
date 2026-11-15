@@ -107,12 +107,14 @@ namespace
   virtual void Tick(float DT,FSlateApplication&,TSharedRef<ICursor>) override
   {
    auto* PC=Player.Get();if(!PC||!PC->GetWorld())return;
-   if(bOpen&&!bFrontend)
+   if(bOpen&&!bFrontend&&!bEndingSettings)
    {
     auto* P=Cast<AGame_Jam_Clean_VersCharacter>(PC->GetPawn());
     auto* Equipment=PC->FindComponentByClass<UCamcorderEquipmentComponent>();
     if(!P||P->Health<=0||P->HasDeathFallStarted()||(Equipment&&Equipment->RecordingLibrary&&Equipment->RecordingLibrary->bRoundEnded))ResumeGame();
    }
+   if(bBoot && PC->GetWorld()->GetAuthGameMode() && UGameplayStatics::HasOption(PC->GetWorld()->GetAuthGameMode()->OptionsString,TEXT("StartRun")))
+   {bBoot=false;GameLocalSettings::LoadPerformance();GameFrontend::ApplyAudio(PC);}
    if(bBoot && GIsAutomationTesting && !(PC->GetWorld()->GetAuthGameMode() && UGameplayStatics::HasOption(PC->GetWorld()->GetAuthGameMode()->OptionsString,TEXT("ShowTitle"))))bBoot=false;
    if(bBoot && PC->GetPawn() && PC->GetWorld()->GetGameViewport()){bBoot=false;bFrontend=true;GameLocalSettings::LoadPerformance();Open(false);ShowMain();GameFrontend::ApplyAudio(PC);}
    ScanTime-=DT;
@@ -175,7 +177,7 @@ namespace
   bool bBoot=true,bFrontend=false,bMain=false,bPausedByMenu=false;
   bool bPauseMenu=false,bPauseRoot=false;
   TWeakPtr<SWidget> PreviousFocus;
-  bool bPreviousUIOnly=false;
+  bool bPreviousUIOnly=false,bEndingSettings=false;
   bool bOpen=false,bCursor=false,bEatEscape=false;
   float ScanTime=0;
   void Open(bool Performance)
@@ -183,6 +185,7 @@ namespace
    auto* PC=Player.Get();auto* V=PC?PC->GetWorld()->GetGameViewport():nullptr;if(!V)return;
    auto& App=FSlateApplication::Get();PreviousFocus=App.GetKeyboardFocusedWidget();bCursor=PC->bShowMouseCursor;
    auto* Equipment=PC->FindComponentByClass<UCamcorderEquipmentComponent>();
+   bEndingSettings=PC->IsPaused()&&Equipment&&Equipment->RecordingLibrary&&Equipment->RecordingLibrary->bRoundEnded;
    bPreviousUIOnly=Equipment&&(Equipment->bBackpackOpen||(Equipment->Tablet&&Equipment->Tablet->bOpen)||(Equipment->RecordingLibrary&&Equipment->RecordingLibrary->bRoundEnded));
    App.DismissAllMenus();App.ReleaseAllPointerCapture();
    // Gameplay menus block player controls, but simulation and recording keep running.
@@ -286,7 +289,17 @@ namespace
    // Extraction may finish while this non-pausing menu is open. Keep the
    // settlement's newly established focus/cursor instead of restoring gameplay.
    auto* Equipment=PC->FindComponentByClass<UCamcorderEquipmentComponent>();
-   if(Equipment&&Equipment->RecordingLibrary&&Equipment->RecordingLibrary->bRoundEnded)return;
+   if(Equipment&&Equipment->RecordingLibrary&&Equipment->RecordingLibrary->bRoundEnded)
+   {
+    // Settings opened from an existing ending must restore its UI focus as well.
+    // When extraction completed behind settings, preserve the newly mounted ending instead.
+    if(bPreviousUIOnly)if(auto Focus=PreviousFocus.Pin())
+    {
+     PC->bShowMouseCursor=true;FInputModeUIOnly Mode;Mode.SetWidgetToFocus(Focus);PC->SetInputMode(Mode);
+     FSlateApplication::Get().SetKeyboardFocus(Focus,EFocusCause::SetDirectly);
+    }
+    return;
+   }
    PC->bShowMouseCursor=bCursor;
    if(bPreviousUIOnly){FInputModeUIOnly Mode;Mode.SetWidgetToFocus(PreviousFocus.Pin());Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);PC->SetInputMode(Mode);}
    else PC->SetInputMode(FInputModeGameOnly());

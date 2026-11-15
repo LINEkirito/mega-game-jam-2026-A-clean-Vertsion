@@ -5,7 +5,7 @@
 #include "Styling/SlateBrush.h"
 #include "CamcorderPlayback.h"
 class URecordingLibrary;
-enum class ERecordingReviewPhase : uint8 { Overview, Review, Summary };
+enum class ERecordingReviewPhase : uint8 { Overview, Intertitle, Review, ScoreReveal, Summary };
 class SRecordingReview : public SCompoundWidget {
 public:
  SLATE_BEGIN_ARGS(SRecordingReview){} SLATE_ARGUMENT(TWeakObjectPtr<URecordingLibrary>,Library) SLATE_END_ARGS()
@@ -29,19 +29,37 @@ public:
  int32 GetDecodedFrame()const{return LastFrame;}
  int32 GetThumbnailCount()const{return LoadedThumbnails;}
  URecordingLibrary* GetLibrary()const{return Library.Get();}
+ // Presentation only: these never write back into recordings or the persisted round score.
+ int32 GetPresentedScore()const;
+ int32 GetAwardTier()const;
+ void BeginScoreReveal();
 private:
  struct FThumbnail {TStrongObjectPtr<UTexture2D> Texture;FSlateBrush Brush;bool bLoaded=false;};
  TWeakObjectPtr<URecordingLibrary> Library;
  TArray<TSharedPtr<FThumbnail>> Thumbnails;
+ TArray<TSharedPtr<FThumbnail>> Art;
+ FSlateBrush CurtainBrush,AudienceBrush;
+ TArray<float> PopTimes;
  TStrongObjectPtr<UTexture2D> VideoTexture;
  FSlateBrush VideoBrush;
  FCamcorderPlayback Playback;
  ERecordingReviewPhase Phase=ERecordingReviewPhase::Overview;
  int32 SelectedClip=INDEX_NONE,LastFrame=INDEX_NONE,PlaybackRate=1,Revealed=0,LoadedThumbnails=0;
- float PlaybackSeconds=0,OverviewSeconds=0,Duration=0;
+ float PlaybackSeconds=0,OverviewSeconds=0,Duration=0,PhaseSeconds=0,NextPop=0,LastPop=0,PulseSeconds=10;
+ int32 PreviousScore=0;
  bool bPlaying=false,bHoldFast=false;
  FString PlaybackError;
  void Build();
  void LoadThumbnail(int32 Index);
  void UpdateFrame();
+ void SetPhase(ERecordingReviewPhase NewPhase);
+ void LoadArt();
+ TSharedRef<SWidget> MakeOverview();
+ TSharedRef<SWidget> MakeTheater();
+ TSharedRef<SWidget> MakeSummary();
+ TSharedRef<SWidget> MakeIntertitle();
+ TSharedRef<SWidget> ArtButton(int32 ArtIndex,const FString& Tooltip,TFunction<void()> Action,TAttribute<bool> Selected=false);
+ FString ScoreCaption(bool bNegative)const;
+ float PopScale(int32 Index)const;
+ void Navigate(bool bTitle);
 };

@@ -104,22 +104,22 @@ public:
   }
   if(Stage==4){
    if(Now-StageTime<.4)return false;
-   auto Button=FindButton(L->SettlementUI.ToSharedRef(),GameLanguage::Display(TEXT("返回标题界面")));
+   auto Button=FindButton(L->SettlementUI.ToSharedRef(),GameLanguage::Display(TEXT("返回主菜单")));
    if(!Button)return Fail(TEXT("Localized Return to Title button missing"));
-   Test->TestEqual(TEXT("Return to Title exact English translation"),GameLanguage::Translate(TEXT("返回标题界面"),true),FString(TEXT("Return to Title")));
+   Test->TestEqual(TEXT("Return to Title exact English translation"),GameLanguage::Translate(TEXT("返回主菜单"),true),FString(TEXT("BACK TO MENU")));
    Test->TestEqual(TEXT("Death message exact English translation"),GameLanguage::Translate(TEXT("您已死亡"),true),FString(TEXT("You died")));
    Shot(TEXT("Summary"));
    GameLanguage::SetEnglish(!GameLanguage::IsEnglish());Stage=5;StageTime=Now;return false;
   }
   if(Stage==5){
    if(Now-StageTime<.5)return false;
-   auto Button=FindButton(L->SettlementUI.ToSharedRef(),GameLanguage::Display(TEXT("返回标题界面")));
+   auto Button=FindButton(L->SettlementUI.ToSharedRef(),GameLanguage::Display(TEXT("返回主菜单")));
    if(!Button)return Fail(TEXT("Open summary does not update its button language"));
    Shot(TEXT("SummaryOtherLanguage"));Stage=6;StageTime=Now;return false;
   }
   if(Stage==6){
    if(Now-StageTime<.3)return false;
-   auto Button=FindButton(L->SettlementUI.ToSharedRef(),GameLanguage::Display(TEXT("返回标题界面")));
+   auto Button=FindButton(L->SettlementUI.ToSharedRef(),GameLanguage::Display(TEXT("返回主菜单")));
    if(!Button)return Fail(TEXT("Return button disappeared"));
    Button->SimulateClick();Stage=7;StageTime=Now;return false;
   }

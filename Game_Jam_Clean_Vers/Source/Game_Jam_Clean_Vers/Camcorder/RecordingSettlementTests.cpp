@@ -35,7 +35,7 @@ public:
   auto* Player=PC?Cast<AGame_Jam_Clean_VersCharacter>(PC->GetPawn()):nullptr;
   if(!Player||!E||!E->RecordingLibrary||!E->Camcorder){Test->AddError(TEXT("Settlement fixture missing player/equipment"));return true;}
   auto* Camera=E->Camcorder.Get();auto* Library=E->RecordingLibrary.Get();
-  if(FPlatformTime::Seconds()-Started>30){Test->AddError(FString::Printf(TEXT("Settlement flow timed out: stage=%d, raised=%d, recording=%d, seconds=%.2f"),Stage,Camera->bViewfinderRaised,Camera->bRecording,Camera->RecordingSeconds));return true;}
+  if(FPlatformTime::Seconds()-Started>90){Test->AddError(FString::Printf(TEXT("Settlement flow timed out: stage=%d, raised=%d, recording=%d, seconds=%.2f"),Stage,Camera->bViewfinderRaised,Camera->bRecording,Camera->RecordingSeconds));return true;}
   if(Stage==0){
    for(TActorIterator<APatrolEnemy> It(W);It;++It)It->SetActorTickEnabled(false);
    W->GetSubsystem<UWorldEvents>()->bAutomatic=false;
@@ -52,10 +52,10 @@ public:
    Stage=3;return false;
   }
   if(!Library->bRoundEnded)return false;
-  if(Death&&!Library->bSettlementShown){
+  if(!Library->bSettlementShown){
    Test->TestFalse(TEXT("World continues during death fall and message"),W->IsPaused());
    Test->TestFalse(TEXT("Review cannot cover death fall"),Library->SettlementUI.IsValid());
-   if(!Player->IsDeathFallComplete())Test->TestFalse(TEXT("Death message waits for completed fall"),Library->DeathUI.IsValid());
+   if(Death&&!Player->IsDeathFallComplete())Test->TestFalse(TEXT("Death message waits for completed fall"),Library->DeathUI.IsValid());
    return false;
   }
   if(Death)Test->TestTrue(TEXT("Fall completed before settlement"),Player->IsDeathFallComplete());
@@ -86,7 +86,7 @@ public:
   }
   auto Review=StaticCastSharedPtr<SRecordingReview>(Library->SettlementUI);
   if(!Review){Test->AddError(TEXT("Settlement review widget missing"));return true;}
-  if(Review->GetPhase()==ERecordingReviewPhase::Overview)return false;
+  if(Review->GetPhase()==ERecordingReviewPhase::Overview||Review->GetPhase()==ERecordingReviewPhase::Intertitle)return false;
   Test->TestEqual(TEXT("Overview decoded actual first-frame thumbnail"),Review->GetThumbnailCount(),1);
   Test->TestEqual(TEXT("Overview automatically starts first clip"),Review->GetClipIndex(),0);
   Test->TestTrue(TEXT("Playback decoded a real AVI frame"),Review->GetDecodedFrame()>=0);

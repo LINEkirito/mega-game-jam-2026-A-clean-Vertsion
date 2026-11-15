@@ -32,19 +32,16 @@ URecordingLibrary::URecordingLibrary(){PrimaryComponentTick.bCanEverTick=true;}
 void URecordingLibrary::TickComponent(float DT,ELevelTick Type,FActorComponentTickFunction* Fn){
  Super::TickComponent(DT,Type,Fn);
  if(bRoundEnded){
-  if(bEndedByDeath&&!bSettlementShown){
+  if(!bSettlementShown){
    auto* PC=Cast<APlayerController>(GetOwner());auto* C=PC?Cast<AGame_Jam_Clean_VersCharacter>(PC->GetPawn()):nullptr;
-   if(C&&!C->IsDeathFallComplete())return;
+   if(bEndedByDeath&&C&&!C->IsDeathFallComplete())return;
    if(!DeathUI&&GetWorld()->GetGameViewport()){
     DeathUI=SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
-     .BorderBackgroundColor_Lambda([this]{return FLinearColor(0,0,0,FMath::Clamp(DeathMessageTime/.5f,0.f,1.f)*.85f);})
-     .HAlign(HAlign_Center).VAlign(VAlign_Center)
-     [SNew(SLocalizedTextBlock).Text(FText::FromString(TEXT("您已死亡"))).Font(FCoreStyle::GetDefaultFontStyle("Bold",48))
-      .ColorAndOpacity_Lambda([this]{return FLinearColor(.9f,.18f,.13f,FMath::Clamp(DeathMessageTime/.35f,0.f,1.f));})];
+     .BorderBackgroundColor_Lambda([this]{return FLinearColor(0,0,0,FMath::Clamp(DeathMessageTime,0.f,1.f));});
     GetWorld()->GetGameViewport()->AddViewportWidgetContent(DeathUI.ToSharedRef(),999);
    }
    DeathMessageTime+=DT;
-   if(DeathMessageTime>=1.4f)ShowSettlement();
+   if(DeathMessageTime>=1.f)ShowSettlement();
   }
   return;
  }
@@ -86,7 +83,7 @@ void URecordingLibrary::EndRound(bool bDeath){
   PC->bShowMouseCursor=false;PC->SetInputMode(FInputModeGameOnly());
   return;
  }
- ShowSettlement();
+ // Both outcomes use the same display-only fade. Score persistence above is unchanged.
 }
 void URecordingLibrary::ShowSettlement(){
  if(bSettlementShown)return;
