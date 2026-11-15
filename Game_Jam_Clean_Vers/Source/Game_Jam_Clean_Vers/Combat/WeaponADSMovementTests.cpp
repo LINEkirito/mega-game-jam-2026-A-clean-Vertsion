@@ -10,6 +10,7 @@
 #include "Game_Jam_Clean_VersCharacter.h"
 #include "CombatEquipmentComponent.h"
 #include "TacticalWeapon.h"
+#include "WeaponTestInventory.h"
 #include "Camcorder/CamcorderEquipmentComponent.h"
 
 class FWeaponADSMovementCheck final : public IAutomationLatentCommand
@@ -31,6 +32,7 @@ public:
         if(!Player||!Combat){Test->AddError(TEXT("No PIE player/combat"));return true;}
         if(Started==0)
         {
+            GiveTestWeapons(Combat->Equipment);
             Combat->Equipment->StoreCamera();Combat->Unequip();Player->SetCanBeDamaged(false);
             ATacticalWeapon* Gun=nullptr;
             for(const auto& Entry:Combat->Weapons)if(int32(Entry.Value->Kind)==Kind)Gun=Entry.Value;

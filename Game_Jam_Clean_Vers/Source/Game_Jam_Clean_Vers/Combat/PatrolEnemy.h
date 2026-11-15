@@ -22,6 +22,8 @@ public:
  virtual void BeginPlay() override;
  virtual void EndPlay(const EEndPlayReason::Type Reason) override;
  virtual void Tick(float DT) override;
+ bool RequestTrafficYield(const FVector& Point);
+ bool IsYieldingToTraffic() const;
  float ShotHitChance(const AActor* Target) const;
  float CrossfireCooldown=0.f;
  virtual float TakeDamage(float Damage,const FDamageEvent& Event,AController* Instigator,AActor* Causer) override;
@@ -63,11 +65,18 @@ public:
  UFUNCTION() void WitnessViolence(AActor* Victim,APawn* Attacker,bool ProtectedVictim);
  UFUNCTION(BlueprintImplementableEvent,Category="NPC") void OnActivityChanged(ENPCActivity NewActivity);
 private:
+ FVector TrafficYieldPoint=FVector::ZeroVector;
+ float TrafficYieldUntil=0,TrafficSavedSpeed=0;
+ bool bTrafficYielding=false;
+ bool TickTrafficYield(float DT);
  friend class UPoliceReinforcements;
  friend class UExtractionSubsystem;
  friend class FExtractionFlowCheck;
+ friend class FExtractionSpacingCheck;
  bool TickExtractionResponse(float DT);
+ void TickExtractionMovement(bool Seen);
  bool bRespondingToExtraction=false;
+ bool bExtractionRetreating=false;
  friend class FNPCLocomotionCheck;
  friend class FNPCWeaponCarryCheck;
  UPROPERTY() TObjectPtr<class UAnimSequence> DrawWeaponAnimation;

@@ -36,6 +36,7 @@ struct FProxy : FAnimInstanceProxy
     bool Pistol=false;
     bool SupportWristTargets=false;
     float CrouchAlpha=0,CrouchPhase=0,CrouchMoveAlpha=0,CrouchDirectionAlpha=0;
+    float CrouchHeading=0;
     TWeakObjectPtr<UAnimSequence> CrouchIdle,CrouchMoveA,CrouchMoveB;
     FVector BodyRight,BodyForward;
     bool SelfieLook=false;
@@ -63,7 +64,7 @@ struct FProxy : FAnimInstanceProxy
         auto* Combat=PC->FindComponentByClass<UCombatEquipmentComponent>();
         auto* Gun=Combat?Combat->GetPresentationWeapon():nullptr;
         Pistol=Gun&&Gun->Kind==ETacticalWeaponKind::Pistol;
-        CrouchAlpha=FMath::FInterpTo(CrouchAlpha,Character->bIsCrouched?1.f:0.f,DT,12.f);
+        CrouchAlpha=Character->GetCrouchPresentationAlpha();
         // Crouch locomotion lifts and advances the eye-relative equipment frame.
         // Support both wrists with the torso/clavicles for cameras as well as
         // guns, rather than letting the two-bone arm solver stop short of them.
@@ -80,14 +81,21 @@ struct FProxy : FAnimInstanceProxy
             };
             const FVector Velocity=Character->GetActorTransform().InverseTransformVectorNoScale(Character->GetVelocity());
             const float Speed=Velocity.Size2D();
-            CrouchMoveAlpha=FMath::Clamp(Speed/60.f,0.f,1.f);
-            CrouchPhase+=DT*FMath::Max(.1f,Speed/180.f);
-            const float Direction=FMath::Fmod(FMath::RadiansToDegrees(FMath::Atan2(Velocity.Y,Velocity.X))+360.f,360.f)/45.f;
+            const float Blend=1.f-FMath::Exp(-10.f*FMath::Max(0.f,DT));
+            CrouchMoveAlpha=FMath::Lerp(CrouchMoveAlpha,FMath::Clamp(Speed/60.f,0.f,1.f),Blend);
+            // Preserve heading while stopping; atan2(0,0) otherwise snaps to forward.
+            if(Speed>3.f)
+                CrouchHeading=FMath::UnwindDegrees(CrouchHeading+FMath::FindDeltaAngleDegrees(
+                    CrouchHeading,FMath::RadiansToDegrees(FMath::Atan2(Velocity.Y,Velocity.X)))*Blend);
+            const float Direction=FMath::Fmod(CrouchHeading+360.f,360.f)/45.f;
             const int32 Sector=FMath::FloorToInt(Direction)%8;CrouchDirectionAlpha=FMath::Frac(Direction);
             static const TCHAR* Directions[]={TEXT("Forward"),TEXT("Forward_Right"),TEXT("Right"),TEXT("Backward_Right"),TEXT("Backward"),TEXT("Backward_Left"),TEXT("Left"),TEXT("Forward_Left")};
             CrouchIdle=GetCrouch(TEXT("Idle"));
             CrouchMoveA=GetCrouch(FString(TEXT("Walk_"))+Directions[Sector]);
             CrouchMoveB=GetCrouch(FString(TEXT("Walk_"))+Directions[(Sector+1)%8]);
+            // Share normalized gait phase across clips of different durations.
+            if(auto* Reference=GetCrouch(TEXT("Walk_Forward")))
+                CrouchPhase=FMath::Fmod(CrouchPhase+DT*FMath::Max(.1f,Speed/180.f)/FMath::Max(.01f,Reference->GetPlayLength()),1.f);
         }
         USkinnedMeshComponent* Source=nullptr;
         if(Gun&&Gun->bEquipped)
@@ -157,7 +165,7 @@ struct FProxy : FAnimInstanceProxy
             auto Sample=[&](UAnimSequence* Clip,FPoseContext& Pose)
             {
                 Pose.ResetToRefPose();FAnimationPoseData Data(Pose);
-                Clip->GetAnimationPose(Data,FAnimExtractContext(FMath::Fmod(CrouchPhase,Clip->GetPlayLength()),true));
+                Clip->GetAnimationPose(Data,FAnimExtractContext(CrouchPhase*Clip->GetPlayLength(),true));
                 auto& Root=Pose.Pose[FCompactPoseBoneIndex(0)];
                 Root.SetTranslation(FVector(0,0,Root.GetTranslation().Z));
             };

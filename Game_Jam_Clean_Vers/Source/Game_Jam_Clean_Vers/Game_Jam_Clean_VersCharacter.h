@@ -61,6 +61,7 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Health") float Health=100.f;
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Movement") bool bSprinting=false;
     bool bSprintRequested=false;
+    float GetCrouchPresentationAlpha() const { return CrouchViewAlpha; }
     float DamageFlash=0.f;
     void BeginDeathFall();
     bool IsDeathFallComplete() const { return bDeathFallComplete; }

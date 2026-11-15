@@ -41,6 +41,20 @@ AExtractionPoint::AExtractionPoint()
  VehicleBody=CreateDefaultSubobject<UBoxComponent>(TEXT("VehicleBody"));VehicleBody->SetupAttachment(SceneRoot);
  VehicleBody->SetBoxExtent(FVector(230,95,75));VehicleBody->SetRelativeLocation(FVector(0,0,75));
  VehicleBody->SetCollisionProfileName(TEXT("BlockAll"));VehicleBody->SetGenerateOverlapEvents(false);
+ VehicleBody->SetCollisionResponseToChannel(ECC_Visibility,ECR_Ignore);
+}
+void AExtractionPoint::BeginPlay()
+{
+ Super::BeginPlay();
+ // Apply after Blueprint defaults, which previously serialized a Visibility-blocking box.
+ VehicleBody->SetCollisionResponseToChannel(ECC_Visibility,ECR_Ignore);
+ for(UPrimitiveComponent* Mesh:{static_cast<UPrimitiveComponent*>(VehicleMesh.Get()),static_cast<UPrimitiveComponent*>(VehicleSkeletalMesh.Get())})
+ {
+  Mesh->SetCollisionResponseToAllChannels(ECR_Ignore);
+  Mesh->SetCollisionResponseToChannel(ECC_Visibility,ECR_Block);
+  Mesh->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+ }
+ VehicleSkeletalMesh->SetEnablePerPolyCollision(true);
 }
 FString AExtractionPoint::GetDisplayName() const
 {

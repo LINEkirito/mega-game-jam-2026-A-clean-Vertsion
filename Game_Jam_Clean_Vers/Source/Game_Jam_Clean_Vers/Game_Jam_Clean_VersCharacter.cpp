@@ -73,21 +73,18 @@ AGame_Jam_Clean_VersCharacter::AGame_Jam_Clean_VersCharacter()
 }
 FVector AGame_Jam_Clean_VersCharacter::BodyCameraOffset() const
 {
-    const float LookingDown=FMath::Clamp((-FMath::UnwindDegrees(GetControlRotation().Pitch)-25.f)/40.f,0.f,1.f);
     const auto* Equipment=GetController()?GetController()->FindComponentByClass<UCamcorderEquipmentComponent>():nullptr;
     const bool CameraPresented=Equipment&&Equipment->Camcorder&&Equipment->Camcorder->IsPresenting();
     const float DeepLook=CameraPresented?0.f:FMath::Clamp((-FMath::UnwindDegrees(GetControlRotation().Pitch)-55.f)/25.f,0.f,1.f);
     // Lean over the body when looking at the feet. This keeps shoulders and upper
     // arms outside the near view without cutting geometry or changing selfies.
     const float Lean=38.f*DeepLook*DeepLook*(3.f-2.f*DeepLook);
-    // The kneeling idle and crouch locomotion have different torso positions.
-    // Match the body's idle/walk blend: the moving shoulders rise and lean in
-    // front of the old kneeling eye, clipping every camera-relative equipment rig.
-    // Use a stable eye frame, not the animated head's per-step oscillation.
-    const float CrouchMove=FMath::Clamp(GetVelocity().Size2D()/60.f,0.f,1.f)*CrouchViewAlpha;
-    const float IdleForward=22+Lean-20*CrouchViewAlpha*(1-LookingDown);
-    return FVector(FMath::Lerp(IdleForward,FMath::Max(IdleForward,52.f),CrouchMove),
-        0,72-12*CrouchViewAlpha+20*CrouchMove+CrouchCameraOffset);
+    // Keep the locomotion-safe eye frame for the entire crouch, including idle.
+    // Velocity must never move the eye: start/stop/reverse used to shift it up
+    // 20 cm and forward 50 cm, taking the camera-relative gun along with it.
+    const float StandingForward=22.f+Lean;
+    return FVector(FMath::Lerp(StandingForward,FMath::Max(StandingForward,52.f),CrouchViewAlpha),
+        0,FMath::Lerp(72.f,80.f,CrouchViewAlpha)+CrouchCameraOffset);
 }
 void AGame_Jam_Clean_VersCharacter::BeginPlay(){Super::BeginPlay();
 RoundSpawnLocation=GetActorLocation();bSpawnRecorded=true;
@@ -124,8 +121,9 @@ void AGame_Jam_Clean_VersCharacter::Tick(float DT)
 {
     Super::Tick(DT);
     if(bDeathFalling){TickDeathFall(DT);return;}
-    CrouchViewAlpha=FMath::FInterpTo(CrouchViewAlpha,bIsCrouched?1.f:0.f,DT,12.f);
-    CrouchCameraOffset=FMath::FInterpTo(CrouchCameraOffset,0.f,DT,10.f);
+    const float StanceBlend=1.f-FMath::Exp(-10.f*FMath::Max(0.f,DT));
+    CrouchViewAlpha=FMath::Lerp(CrouchViewAlpha,bIsCrouched?1.f:0.f,StanceBlend);
+    CrouchCameraOffset=FMath::Lerp(CrouchCameraOffset,0.f,StanceBlend);
     FirstPersonCameraComponent->SetRelativeLocation(BodyCameraOffset());
     const float Travel=FVector::Dist2D(LastFootstepLocation,GetActorLocation());LastFootstepLocation=GetActorLocation();
     if(Health>0 && GetCharacterMovement()->IsMovingOnGround() && GetVelocity().Size2D()>20 && Travel<150)

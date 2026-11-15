@@ -6,6 +6,8 @@
 #include "Rendering/DrawElements.h"
 #include "Styling/CoreStyle.h"
 #include "CombatEquipmentComponent.h"
+#include "PoliceReinforcements.h"
+#include "Engine/World.h"
 #include "TacticalWeapon.h"
 #include "Game_Jam_Clean_VersCharacter.h"
 #include "Camcorder/CamcorderEquipmentComponent.h"
@@ -61,6 +63,21 @@ public:
         Box(25*S,65*S,104*S,26*S,FLinearColor(.015f,.022f,.03f,.65f));
         Text(33*S,68*S,FrameRateText,14,FLinearColor(.75f,.85f,.85f));
         Text(25*S,98*S,TEXT("F10 设置 / 语言"),14,FLinearColor(.75f,.85f,.85f));
+        if(auto* Police=C->GetWorld()->GetSubsystem<UPoliceReinforcements>();Police&&Police->GetWantedLevel()>0)
+        {
+            const float X=W-225*S,Y=198*S;
+            Box(X-12*S,Y-8*S,220*S,74*S,FLinearColor(.015f,.022f,.03f,.82f));
+            const bool Lit=!Police->IsSearching()||FMath::Fmod(C->GetWorld()->GetTimeSeconds(),1.f)<.65f;
+            // Geometry avoids font-dependent star glyphs in either language.
+            for(int32 I=0;I<5;++I)
+            {
+                const bool Active=I<Police->GetWantedLevel();TArray<FVector2D> Points;
+                for(int32 V=0;V<=10;++V)
+                {const float A=V*PI/5.f-PI*.5f,R=(V%2?6.f:14.f)*S;Points.Add(FVector2D(X+(18+I*39)*S+FMath::Cos(A)*R,Y+17*S+FMath::Sin(A)*R));}
+                FSlateDrawElement::MakeLines(Out,L+1,G.ToPaintGeometry(),Points,ESlateDrawEffect::None,Active&&Lit?FLinearColor(1,.8f,.2f):FLinearColor(.25f,.28f,.32f),true,Active?3.f:1.f);
+            }
+            Text(X,Y+39*S,Police->IsSearching()?TEXT("搜索中"):TEXT("追捕中"),16);
+        }
         if(E->Equipment->bBackpackOpen)return L+2;
         const FString Prompt=E->InteractionText();if(!Prompt.IsEmpty()){Box(W*.5f-235*S,H*.65f-8*S,470*S,45*S,FLinearColor(.015f,.025f,.03f,.94f));FSlateDrawElement::MakeText(Out,L+1,G.ToPaintGeometry(SZ,FSlateLayoutTransform(FVector2D(W*.5f-220*S,H*.65f))),Prompt,GameLanguage::FittedFont(Prompt,FMath::RoundToInt(20*S),440*S),ESlateDrawEffect::None,FLinearColor(.5f,1,1));}
         if(auto* Gun=E->ActiveWeapon.Get())

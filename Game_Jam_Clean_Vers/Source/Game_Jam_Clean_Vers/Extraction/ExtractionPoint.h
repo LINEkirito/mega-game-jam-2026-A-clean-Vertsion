@@ -21,6 +21,8 @@ public:
  bool IsResponder(const APatrolEnemy* Enemy) const;
  bool AllowsPlayerTarget(const APatrolEnemy* Enemy, const AActor* Target) const;
  void RegisterPassenger(APatrolEnemy* Enemy);
+ bool FindResponseFiringAngle(APatrolEnemy* Enemy,FVector& Destination) const;
+ bool IsResponsePathSafe(const TArray<FVector>& Points,float MinimumDistance) const;
  void UpdateResponse(float DeltaSeconds);
  UFUNCTION(BlueprintPure) int32 GetWaveNumber() const { return WaveNumber; }
  UFUNCTION(BlueprintPure) int32 GetLivingResponders() const;
@@ -28,6 +30,10 @@ private:
  friend class FExtractionFlowCheck;
  friend class FExtractionSpawnCheck;
  friend class FConvoyCheck;
+ friend class FExtractionAngleCheck;
+ friend class FExtractionSpacingCheck;
+ FVector ResponseOrigin=FVector::ZeroVector,ResponseForward=FVector::ForwardVector;
+ float ResponseSide=1.f;
  void StopResponse();
  UPROPERTY(Transient) TArray<TWeakObjectPtr<APatrolEnemy>> Responders;
  UPROPERTY(Transient) TArray<TWeakObjectPtr<class AExtractionConvoyCar>> Cars;
@@ -47,12 +53,13 @@ class GAME_JAM_CLEAN_VERS_API AExtractionPoint : public AActor
  GENERATED_BODY()
 public:
  AExtractionPoint();
+ virtual void BeginPlay() override;
  virtual void Tick(float DeltaSeconds) override;
  virtual void EndPlay(const EEndPlayReason::Type Reason) override;
  UPROPERTY(VisibleAnywhere,BlueprintReadOnly) TObjectPtr<class USceneComponent> SceneRoot;
  UPROPERTY(VisibleAnywhere,BlueprintReadOnly) TObjectPtr<class UStaticMeshComponent> VehicleMesh;
  UPROPERTY(VisibleAnywhere,BlueprintReadOnly) TObjectPtr<class USkeletalMeshComponent> VehicleSkeletalMesh;
- // A parked vehicle uses one simple blocking body; no driving or simulation dependencies.
+ // Simple body blocks movement only; visual mesh geometry handles bullet traces.
  UPROPERTY(VisibleAnywhere,BlueprintReadOnly) TObjectPtr<class UBoxComponent> VehicleBody;
  UPROPERTY(EditAnywhere,BlueprintReadOnly,Category="Extraction") EExtractionVehicle VehicleType=EExtractionVehicle::Sedan;
  UPROPERTY(VisibleInstanceOnly,BlueprintReadOnly,Category="Extraction") EExtractionState State=EExtractionState::Idle;

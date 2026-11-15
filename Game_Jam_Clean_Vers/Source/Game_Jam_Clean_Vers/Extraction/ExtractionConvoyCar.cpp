@@ -19,6 +19,7 @@
 #include "Materials/MaterialInterface.h"
 #include "EngineUtils.h"
 #include "NavigationSystem.h"
+#include "NavigationPath.h"
 
 namespace
 {
@@ -33,6 +34,7 @@ namespace
  bool RoadGround(UWorld* W,const FVector& P,FVector& Ground,const AActor* Ignore=nullptr)
  {
   FHitResult H;FCollisionQueryParams Q(SCENE_QUERY_STAT(ConvoyGround),true,Ignore);IgnoreBodies(W,Q);
+  for(TActorIterator<APawn> It(W);It;++It)Q.AddIgnoredActor(*It);
   if(!W->LineTraceSingleByChannel(H,P+FVector(0,0,200),P-FVector(0,0,400),ECC_WorldStatic,Q)||H.ImpactNormal.Z<.95f)return false;
   Ground=H.ImpactPoint+FVector(0,0,2);return true;
  }
@@ -41,7 +43,9 @@ UStaticMeshComponent* AExtractionConvoyCar::AddPart(const TCHAR* Name,const TCHA
 {
  auto* C=CreateDefaultSubobject<UStaticMeshComponent>(Name);C->SetupAttachment(VisualRoot);
  C->SetStaticMesh(LoadObject<UStaticMesh>(nullptr,*(FString(TEXT("/Game/Luxury_Sedan_1_Pack/Meshes/Parts/SM_Luxury_Sedan_1_"))+Part)));
- C->SetRelativeLocationAndRotation(Location,Rotation);C->SetCollisionEnabled(ECollisionEnabled::NoCollision);C->SetCanEverAffectNavigation(false);
+ C->SetRelativeLocationAndRotation(Location,Rotation);
+ C->SetCollisionEnabled(ECollisionEnabled::QueryOnly);C->SetCollisionResponseToAllChannels(ECR_Ignore);
+ C->SetCollisionResponseToChannel(ECC_Visibility,ECR_Block);C->SetCanEverAffectNavigation(false);
  if(C->GetStaticMesh())for(int32 I=0;I<C->GetNumMaterials();++I)
   if(auto* M=C->GetMaterial(I);M&&M->GetName().Contains(TEXT("Color")))C->SetMaterial(I,LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Extraction/Convoy/M_ConvoyBlack")));
  return C;
@@ -51,6 +55,7 @@ AExtractionConvoyCar::AExtractionConvoyCar()
  PrimaryActorTick.bCanEverTick=true;
  CollisionBody=CreateDefaultSubobject<UBoxComponent>(TEXT("CarBody"));SetRootComponent(CollisionBody);
  CollisionBody->SetBoxExtent(CarHalf);CollisionBody->SetCollisionProfileName(TEXT("BlockAllDynamic"));CollisionBody->SetGenerateOverlapEvents(false);CollisionBody->SetCanEverAffectNavigation(false);
+ CollisionBody->SetCollisionResponseToChannel(ECC_Visibility,ECR_Ignore);
  VisualRoot=CreateDefaultSubobject<USceneComponent>(TEXT("CarVisual"));VisualRoot->SetupAttachment(CollisionBody);VisualRoot->SetRelativeLocation(-BodyOffset);
  AddPart(TEXT("Body"),TEXT("Body"),FVector::ZeroVector);
  Doors.Add(AddPart(TEXT("DoorFL"),TEXT("Door_FL"),FVector(90.9671,-91.7858,76.5832)));
@@ -126,11 +131,11 @@ bool AExtractionConvoyCar::IsHiddenFromPlayer(UWorld* W,APlayerController* PC,co
  }
  return true;
 }
-bool AExtractionConvoyCar::ClearRoad(UWorld* W,const FVector& Start,const FVector& End,const AActor* Ignore)
+bool AExtractionConvoyCar::ClearRoad(UWorld* W,const FVector& Start,const FVector& End,const AActor* Ignore,bool IgnorePawns)
 {
  if(!W)return false;
  const FQuat R=(End-Start).Rotation().Quaternion();
- FCollisionQueryParams Q(SCENE_QUERY_STAT(ConvoyRoad),false,Ignore);IgnoreBodies(W,Q);FHitResult H;
+ FCollisionQueryParams Q(SCENE_QUERY_STAT(ConvoyRoad),false,Ignore);IgnoreBodies(W,Q);if(IgnorePawns)for(TActorIterator<APawn> It(W);It;++It)Q.AddIgnoredActor(*It);FHitResult H;
  if(W->SweepSingleByChannel(H,Start+BodyOffset,End+BodyOffset,R,ECC_WorldStatic,FCollisionShape::MakeBox(CarHalf+FVector(8,8,0)),Q))return false;
  const float Length=FVector::Dist2D(Start,End);
  FVector Previous=Start;
@@ -190,10 +195,19 @@ bool AExtractionConvoyCar::MoveAlongRoad(float DT,const FVector& Target,bool Bra
  for(TActorIterator<ACombatAmmoPickup> It(GetWorld());It;++It)CollisionBody->IgnoreActorWhenMoving(*It,true);
  for(TActorIterator<AWeaponDebris> It(GetWorld());It;++It)CollisionBody->IgnoreActorWhenMoving(*It,true);
  const float Distance=FVector::Dist2D(GetActorLocation(),Target);
- const float MaxSpeed=GetDefault<UGlobalData>()->ConvoySpeed;
- const float Desired=Brake?FMath::Min(MaxSpeed,FMath::Sqrt(2.f*650.f*FMath::Max(0.f,Distance-5.f))):MaxSpeed;
- Speed=FMath::FInterpConstantTo(Speed,Desired,DT,Brake?900.f:450.f);
+ const float MaxSpeed=bPolice?GetDefault<UGlobalData>()->PoliceCarSpeed:GetDefault<UGlobalData>()->ConvoySpeed;
+ const float Desired=Brake?FMath::Min(MaxSpeed,FMath::Sqrt(2.f*(bPolice?1600.f:650.f)*FMath::Max(0.f,Distance-5.f))):MaxSpeed;
+ Speed=FMath::FInterpConstantTo(Speed,Desired,DT,bPolice?2200.f:(Brake?900.f:450.f));
  const FVector Direction=(Target-GetActorLocation()).GetSafeNormal2D();
+ if(bPolice)
+ {
+  YieldTraffic(Direction);
+  // Brake before any pawn; yielding is real movement, never collision disabling or damage.
+  FCollisionQueryParams Q(SCENE_QUERY_STAT(PoliceTraffic),false,this);IgnoreBodies(GetWorld(),Q);
+  FHitResult Obstacle;const float LookAhead=FMath::Max(100.f,Speed*.45f);
+  if(GetWorld()->SweepSingleByChannel(Obstacle,GetActorLocation(),GetActorLocation()+Direction*FMath::Min(Distance,LookAhead),GetActorQuat(),ECC_Pawn,FCollisionShape::MakeBox(CarHalf+FVector(30,25,0)),Q))
+  {Speed=0;BlockedTime+=DT;return false;}
+ }
  const float Step=FMath::Min(Distance,Speed*DT);
  FVector Next=GetActorLocation()+Direction*Step,Ground;
  if(!RoadGround(GetWorld(),Next-BodyOffset,Ground,this)){Speed=0;BlockedTime+=DT;return false;}
@@ -258,12 +272,13 @@ void AExtractionConvoyCar::Tick(float DT)
  auto* PC=PlayerController.Get();
  if(Phase==EConvoyCarPhase::Approaching)
  {
+  if(bPolice)UpdatePoliceStop(DT);
   if(MoveAlongRoad(DT,StopLocation,true))
   {
-   if(!bAborted&&IsInFront(PC,GetActorLocation())){Phase=EConvoyCarPhase::Unloading;PhaseTime=0;Speed=0;}
+   if(!bAborted&&(bPolice||IsInFront(PC,GetActorLocation()))){Phase=EConvoyCarPhase::Unloading;PhaseTime=0;Speed=0;}
    else {UE_LOG(LogTemp,Display,TEXT("Convoy parking rejected: front=%d aborted=%d location=%s"),IsInFront(PC,GetActorLocation()),bAborted,*GetActorLocation().ToString());StartDeparture();} // A player who turns away never receives a parked car behind them.
   }
-  else if(BlockedTime>4.f)StartDeparture();
+  else if(BlockedTime>(bPolice?12.f:4.f))StartDeparture();
  }
  else if(Phase==EConvoyCarPhase::Unloading)UpdatePassengers(DT);
  else
@@ -279,3 +294,86 @@ void AExtractionConvoyCar::Tick(float DT)
  }
 }
 void AExtractionConvoyCar::EndPlay(const EEndPlayReason::Type Reason){Super::EndPlay(Reason);}
+
+void AExtractionConvoyCar::YieldTraffic(const FVector& Direction)
+{
+ const FVector Right=FVector::CrossProduct(FVector::UpVector,Direction);
+ const float Ahead=FMath::Max(1600.f,Speed*2.f);
+ for(TActorIterator<APatrolEnemy> It(GetWorld());It;++It)
+ {
+  auto* N=*It;if(N->Health<=0)continue;
+  const FVector Delta=N->GetActorLocation()-GetActorLocation();
+  const float Along=FVector::DotProduct(Delta,Direction),Across=FVector::DotProduct(Delta,Right);
+  if(FMath::Abs(Delta.Z)>180||Along<-300||Along>Ahead||FMath::Abs(Across)>260)continue;
+  const float Side=Across>=0?1.f:-1.f;
+  const FVector Centre=N->GetActorLocation()-Right*Across;
+  if(!N->RequestTrafficYield(Centre+Right*Side*400.f))N->RequestTrafficYield(Centre-Right*Side*400.f);
+ }
+}
+bool AExtractionConvoyCar::FindPoliceArrival(UWorld* W,APlayerController* PC,const FVector& Target,FVector& Start,FVector& Stop,FRotator& Rotation)
+{
+ if(!W||!PC||!PC->GetPawn())return false;
+ auto* Nav=FNavigationSystem::GetCurrent<UNavigationSystemV1>(W);if(!Nav)return false;
+ // Search all directions from the last known location, including streets below roofs.
+ // Every candidate still needs a full-size road and safe, navigable passenger exits.
+ for(float Radius:{600.f,1000.f,1500.f,2200.f,3200.f,4600.f,6500.f,9000.f,12000.f})
+ for(int32 Side=0;Side<24;++Side)
+ {
+  const FVector Probe=Target+FRotator(0,Side*15.f,0).Vector()*Radius;
+  FNavLocation NavPoint;if(!Nav->ProjectPointToNavigation(Probe,NavPoint,FVector(180,180,6000)))continue;
+  FVector Ground;if(!RoadGround(W,NavPoint.Location,Ground))continue;
+  bool Occupied=false;for(TActorIterator<AExtractionConvoyCar> It(W);It;++It)
+   if(FVector::Dist2D(Ground,It->GetParkingLocation())<650){Occupied=true;break;}
+  if(Occupied)continue;
+  for(int32 Heading=0;Heading<8;++Heading)
+  {
+   const FRotator Yaw(0,Heading*45.f,0);const FVector Direction=Yaw.Vector();
+   FCollisionQueryParams Q(SCENE_QUERY_STAT(PoliceParking));IgnoreBodies(W,Q);
+   // Pedestrians are handled by yielding at runtime; static geometry cannot be ignored.
+   for(TActorIterator<APawn> It(W);It;++It)Q.AddIgnoredActor(*It);
+   if(W->OverlapBlockingTestByChannel(Ground+BodyOffset,Yaw.Quaternion(),ECC_WorldStatic,FCollisionShape::MakeBox(CarHalf+FVector(15,15,0)),Q))continue;
+   bool ExitClear=true;
+   for(const FVector Local:{FVector(-25,200,0),FVector(-120,-200,0),FVector(-120,200,0)})
+   {
+    FVector Exit;FNavLocation ExitNav;
+    if(!RoadGround(W,Ground+Yaw.RotateVector(Local),Exit)||FMath::Abs(Exit.Z-Ground.Z)>25||
+       !Nav->ProjectPointToNavigation(Exit,ExitNav,FVector(60,60,100))||
+       W->OverlapBlockingTestByChannel(Exit+FVector(0,0,95),FQuat::Identity,ECC_Pawn,FCollisionShape::MakeCapsule(45,88),Q)){ExitClear=false;break;}
+   }
+   if(!ExitClear)continue;
+   for(float Length:{1800.f,3000.f,4500.f,6000.f})
+   {
+    FVector Entry;if(!RoadGround(W,Ground-Direction*Length,Entry)||FMath::Abs(Entry.Z-Ground.Z)>25)continue;
+    if(!IsHiddenFromPlayer(W,PC,Entry,Yaw)||!ClearRoad(W,Entry,Ground,nullptr,true))continue;
+    Start=Entry;Stop=Ground;Rotation=Yaw;return true;
+   }
+  }
+ }
+ return false;
+}
+
+void AExtractionConvoyCar::UpdatePoliceStop(float DT)
+{
+ PoliceRetargetTime-=DT;if(PoliceRetargetTime>0)return;PoliceRetargetTime=1.f;
+ auto* Police=GetWorld()->GetSubsystem<UPoliceReinforcements>();if(!Police||!Police->CanDeliver())return;
+ const FVector Target=Police->GetLastKnownLocation();
+ if(FVector::Dist2D(Target,StopLocation)<1200.f)return;
+ // Follow the moving suspect along this validated lane; police cover the remaining
+ // distance on foot instead of cutting through buildings or snapping the car around.
+ const FVector Here=GetActorLocation()-BodyOffset,Forward=GetActorForwardVector();
+ const float Along=FVector::DotProduct(Target-Here,Forward);
+ const float Braking=Speed*Speed/(2.f*1600.f)+350.f;
+ const FVector Probe=Here+Forward*FMath::Clamp(Along,FMath::Max(450.f,Braking),4000.f);
+ FVector Ground;if(!RoadGround(GetWorld(),Probe,Ground,this)||!ClearRoad(GetWorld(),Here,Ground,this,true))return;
+ auto* Nav=FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld());if(!Nav)return;
+ FCollisionQueryParams Q(SCENE_QUERY_STAT(PoliceRetarget),false,this);
+ for(TActorIterator<APawn> It(GetWorld());It;++It)Q.AddIgnoredActor(*It);
+ for(const FVector Local:{FVector(-25,200,0),FVector(-120,-200,0),FVector(-120,200,0)})
+ {
+  FVector Exit;FNavLocation ExitNav;
+  if(!RoadGround(GetWorld(),Ground+GetActorRotation().RotateVector(Local),Exit,this)||
+     !Nav->ProjectPointToNavigation(Exit,ExitNav,FVector(60,60,100))||
+     GetWorld()->OverlapBlockingTestByChannel(Exit+FVector(0,0,95),FQuat::Identity,ECC_Pawn,FCollisionShape::MakeCapsule(45,88),Q))return;
+ }
+ StopLocation=Ground+BodyOffset;
+}

@@ -13,12 +13,14 @@
 #include "Framework/Application/SlateApplication.h"
 #include "Widgets/SWindow.h"
 #include "Widgets/Input/SButton.h"
+#include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Localization/GameLanguage.h"
 #include "Camcorder/CamcorderEquipmentComponent.h"
 #include "Camcorder/BackpackInventory.h"
 #include "Camcorder/RecordingLibrary.h"
 #include "Combat/PatrolEnemy.h"
+#include "Kismet/GameplayStatics.h"
 
 namespace
 {
@@ -138,4 +140,63 @@ bool FGameMenuTest::RunTest(const FString&)
  AddCommand(new FStartPIECommand(false));AddCommand(new FWaitLatentCommand(2));
  AddCommand(new FGameMenuCheck(this));AddCommand(new FEndPlayMapCommand());return true;
 }
+
+namespace
+{
+ TSharedPtr<SScrollBox> GuideScroll(TSharedRef<SWidget> W)
+ {
+  if(!W->GetVisibility().IsVisible())return nullptr;
+  if(W->GetTypeAsString()==TEXT("SScrollBox"))return StaticCastSharedRef<SScrollBox>(W);
+  auto* C=W->GetChildren();for(int32 I=0;I<C->Num();++I)if(auto Found=GuideScroll(C->GetChildAt(I)))return Found;return nullptr;
+ }
+ class FPoliceGuideCheck : public IAutomationLatentCommand
+ {
+  FAutomationTestBase* Test;int32 Step=0;double Next=0,Began=0;bool English=false;TWeakObjectPtr<AGame_Jam_Clean_VersCharacter> Original;
+ public:
+  explicit FPoliceGuideCheck(FAutomationTestBase* T):Test(T){}
+  bool Update() override
+  {
+   const double Now=FPlatformTime::Seconds();if(!Began)Began=Now;
+   if(Now-Began>60){Test->AddError(TEXT("Guide timed out"));GameLanguage::SetEnglish(English);return true;}if(Now<Next)return false;
+   UWorld* W=nullptr;for(const auto& C:GEngine->GetWorldContexts())if(C.WorldType==EWorldType::PIE){W=C.World();break;}
+   auto* PC=W?W->GetFirstPlayerController():nullptr;auto* P=PC?Cast<AGame_Jam_Clean_VersCharacter>(PC->GetPawn()):nullptr;
+   if(!P||!W->GetGameViewport()||!W->GetGameViewport()->GetWindow())return false;
+   auto Window=W->GetGameViewport()->GetWindow();auto* Library=PC->FindComponentByClass<URecordingLibrary>();if(!Library)return false;
+   auto Click=[&](const TCHAR* Text){auto B=MenuButton(Window.ToSharedRef(),GameLanguage::Display(Text));if(!B){Test->AddError(FString(TEXT("Missing guide button: "))+Text);return false;}B->SimulateClick();return true;};
+   auto Wait=[&](){++Step;Next=Now+.6;return false;};
+   auto Shot=[&](const TCHAR* Name){FScreenshotRequest::RequestScreenshot(FString(TEXT("G:/TheTechfiles/ThefinalGameJam/GameMenu/"))+Name+TEXT(".png"),true,false);};
+   switch(Step)
+   {
+   case 0:English=GameLanguage::IsEnglish();GameLanguage::SetEnglish(false);Original=P;UGameplayStatics::OpenLevel(W,FName(*UGameplayStatics::GetCurrentLevelName(W,true)),true,TEXT("ShowTitle"));return Wait();
+   case 1:if(P==Original.Get()||!MenuButton(Window.ToSharedRef(),GameLanguage::Display(TEXT("使用教程"))))return false;if(!Click(TEXT("使用教程")))return true;return Wait();
+   case 2:
+    Test->TestTrue(TEXT("Chinese extraction guide exists"),HasMenuText(Window.ToSharedRef(),TEXT("撤离与结算")));
+    Test->TestTrue(TEXT("Chinese wanted guide exists"),HasMenuText(Window.ToSharedRef(),TEXT("警星与犯罪")));
+    Shot(TEXT("Guide-zh-top"));return Wait();
+   case 3:if(auto Scroll=GuideScroll(Window.ToSharedRef()))Scroll->SetScrollOffset(650);else Test->AddError(TEXT("Missing guide scroll"));return Wait();
+   case 4:Shot(TEXT("Guide-zh-middle"));if(auto Scroll=GuideScroll(Window.ToSharedRef()))Scroll->ScrollToEnd();return Wait();
+   case 5:Shot(TEXT("Guide-zh-bottom"));return Wait();
+   case 6:GameLanguage::SetEnglish(true);return Wait();
+   case 7:
+    Test->TestTrue(TEXT("Open guide immediately translates"),HasMenuText(Window.ToSharedRef(),TEXT("Wanted stars and crimes")));
+    Test->TestTrue(TEXT("Escape heading translates"),HasMenuText(Window.ToSharedRef(),TEXT("Escaping the police")));
+    if(auto Scroll=GuideScroll(Window.ToSharedRef()))Scroll->ScrollToEnd();return Wait();
+   case 8:Shot(TEXT("Guide-en-bottom"));return Wait();
+   case 9:if(auto Scroll=GuideScroll(Window.ToSharedRef()))Scroll->SetScrollOffset(650);return Wait();
+   case 10:Shot(TEXT("Guide-en-middle"));return Wait();
+   case 11:if(auto Scroll=GuideScroll(Window.ToSharedRef()))Scroll->ScrollToStart();return Wait();
+   case 12:Shot(TEXT("Guide-en-top"));return Wait();
+   case 13:if(!Click(TEXT("返回")))return true;return Wait();
+   case 14:Test->TestTrue(TEXT("Guide returns to title"),HasMenuText(Window.ToSharedRef(),GameLanguage::Display(TEXT("开始游戏"))));if(!Click(TEXT("开始游戏")))return true;return Wait();
+   default:
+    Test->TestFalse(TEXT("Leaving title restores gameplay input"),W->IsPaused()||PC->bShowMouseCursor||PC->IsMoveInputIgnored()||PC->IsLookInputIgnored());
+    GameLanguage::SetEnglish(English);return true;
+   }
+  }
+ };
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPoliceGuideTest,"Game.Frontend.PoliceGuide",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
+bool FPoliceGuideTest::RunTest(const FString&)
+{AddCommand(new FStartPIECommand(false));AddCommand(new FWaitLatentCommand(2));AddCommand(new FPoliceGuideCheck(this));AddCommand(new FEndPlayMapCommand());return true;}
+
 #endif

@@ -2,6 +2,7 @@
 #include "ExtractionPoint.h"
 #include "ExtractionConvoyCar.h"
 #include "Combat/PatrolEnemy.h"
+#include "Combat/PoliceReinforcements.h"
 #include "Game_Jam_Clean_VersCharacter.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/BoxComponent.h"
@@ -22,7 +23,7 @@
 class FConvoyCheck : public IAutomationLatentCommand
 {
 public:
- explicit FConvoyCheck(FAutomationTestBase* T,bool V=false,bool Two=false):Visual(V),RequireTwo(Two),Test(T){}
+ explicit FConvoyCheck(FAutomationTestBase* T,bool V=false,bool Two=false):Visual(V),RequireTwoSpaces(Two),Test(T){}
  virtual bool Update() override
  {
   UWorld* W=nullptr;for(const auto& C:GEngine->GetWorldContexts())if(C.WorldType==EWorldType::PIE){W=C.World();break;}
@@ -47,7 +48,7 @@ public:
      {
       PC->SetControlRotation(FRotator(0,Yaw,0));P->GetFirstPersonCameraComponent()->SetWorldRotation(FRotator(0,Yaw,0));PC->PlayerCameraManager->UpdateCamera(.016f);
       Found=AExtractionConvoyCar::FindArrival(W,PC,Entry,Stop,Heading);
-      if(Found&&RequireTwo)
+      if(Found&&RequireTwoSpaces)
       {
        auto* Preview=W->SpawnActor<AExtractionConvoyCar>(Entry+FVector(0,0,76),Heading);
        if(Preview)
@@ -74,32 +75,13 @@ public:
    if(Debris)Debris->Destroy();
    Point->ExtractingPlayer=P;Point->State=EExtractionState::Extracting;Point->RemainingSeconds=600;
    S->Claim(Point.Get());
-   if(RequireTwo)
-   {
-    // Select a seed whose next production wave draw is two; all placement and delivery code stays real.
-    for(int32 Seed=0;Seed<100;++Seed){FMath::RandInit(Seed);if(FMath::RandRange(1,2)==2){FMath::RandInit(Seed);break;}}
-   }
    S->UpdateResponse(0);
-   if(!Test->TestTrue(TEXT("Wave contains one or two cars"),S->Cars.Num()>=1&&S->Cars.Num()<=2))return true;
-   if(RequireTwo)Test->TestEqual(TEXT("Two-car encounter actually starts both cars"),S->Cars.Num(),2);
+   if(!Test->TestEqual(TEXT("Each extraction wave contains exactly one car"),S->Cars.Num(),1))return true;
    Expected=S->Cars.Num()*4;
-   TArray<UBoxComponent*> VehicleBodies;
-   for(TActorIterator<AExtractionPoint> It(W);It;++It)VehicleBodies.Add(It->VehicleBody);
-   for(auto C:S->Cars)if(C.IsValid())VehicleBodies.Add(C->CollisionBody);
-   for(auto* Body:VehicleBodies)
-   {
-    Test->TestTrue(TEXT("Vehicle body blocks bullet channel"),Body->GetCollisionResponseToChannel(ECC_Visibility)==ECR_Block);
-    const FVector Half=Body->GetUnscaledBoxExtent();
-    for(float Height:{-.6f,0.f,.6f})for(int32 Side=0;Side<4;++Side)
-    {
-     FVector Local(0,0,Half.Z*Height);
-     if(Side<2)Local.X=(Side==0?1:-1)*(Half.X+3);else Local.Y=(Side==2?1:-1)*(Half.Y+3);
-     const FVector RayStart=Body->GetComponentTransform().TransformPosition(Local);
-     const FVector RayEnd=Body->GetComponentTransform().TransformPosition(FVector(0,0,Half.Z*Height));
-     FHitResult BulletHit;FCollisionQueryParams BulletQuery(SCENE_QUERY_STAT(ConvoyBulletCheck),true);
-     Test->TestTrue(TEXT("Real world bullet trace stops at vehicle"),W->LineTraceSingleByChannel(BulletHit,RayStart,RayEnd,ECC_Visibility,BulletQuery)&&BulletHit.GetActor()==Body->GetOwner());
-    }
-   }
+   for(TActorIterator<AExtractionPoint> It(W);It;++It)
+    Test->TestTrue(TEXT("Parked movement box does not block bullets"),It->VehicleBody->GetCollisionResponseToChannel(ECC_Visibility)==ECR_Ignore);
+   for(auto C:S->Cars)if(C.IsValid())
+    Test->TestTrue(TEXT("Convoy movement box does not block bullets"),C->CollisionBody->GetCollisionResponseToChannel(ECC_Visibility)==ECR_Ignore);
    for(auto C:S->Cars)if(C.IsValid())C->SetActorTickEnabled(false);
    ++Stage;return false;
   }
@@ -140,7 +122,35 @@ public:
    Test->TestTrue(TEXT("Disembarked shooters can fire while player looks away"),Fired);
    P->Health=100;PC->SetControlRotation(SavedView);P->GetFirstPersonCameraComponent()->SetWorldRotation(SavedView);PC->PlayerCameraManager->UpdateCamera(.016f);
    auto* Victim=S->Responders[0].Get();FHitResult Hit(Victim,Victim->GetCapsuleComponent(),Victim->GetActorLocation(),FVector::UpVector);
+   auto* Police=W->GetSubsystem<UPoliceReinforcements>();
+   Test->TestEqual(TEXT("Extraction starts without wanted stars"),Police->GetWantedLevel(),0);
+   const FTransform WitnessTransform(FRotator::ZeroRotator,Victim->GetActorLocation()+FVector(250,0,0));
+   auto* Witness=W->SpawnActorDeferred<APatrolEnemy>(APatrolEnemy::StaticClass(),WitnessTransform,nullptr,nullptr,ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+   Witness->NPCRole=ENPCRole::Police;Witness->FinishSpawning(WitnessTransform);Witness->SetActorTickEnabled(false);
+   W->GetSubsystem<UDataTransmitter>()->TransmitHit(Hit,1,FVector::ForwardVector,PC,P);
+   Test->TestEqual(TEXT("Wounding real convoy gang does not raise stars"),Police->GetWantedLevel(),0);
+   Test->TestNull(TEXT("Police do not retaliate for wounding convoy gang"),Witness->CombatTarget.Get());
+   Victim->BecomeInjured();
+   const int32 DownedAmmo=Victim->HeldWeapon->Magazine;
+   for(int32 Frame=0;Frame<100;++Frame)Victim->Tick(.05f);
+   Test->TestNull(TEXT("Downed responder does not reacquire a target"),Victim->CombatTarget.Get());
+   Test->TestEqual(TEXT("Downed responder cannot fire"),Victim->HeldWeapon->Magazine,DownedAmmo);
+   const int32 BeforeDownedWave=S->WaveNumber;S->UpdateResponse(5);
+   Test->TestEqual(TEXT("Partial downing does not start another wave"),S->WaveNumber,BeforeDownedWave);
+   Test->TestEqual(TEXT("Living downed member does not count as a fighter"),S->GetLivingResponders(),Expected-1);
    W->GetSubsystem<UDataTransmitter>()->TransmitHit(Hit,10000,FVector::ForwardVector,PC,P);
+   Test->TestEqual(TEXT("Finishing real convoy gang does not raise stars"),Police->GetWantedLevel(),0);
+   Test->TestNull(TEXT("Police do not retaliate for killing convoy gang"),Witness->CombatTarget.Get());
+   auto* Shooter=S->Responders[1].Get();
+   Witness->WitnessViolence(Witness,P,true);
+   Witness->CrossfireCooldown=Shooter->CrossfireCooldown=18.f;
+   FHitResult OfficerHit(Witness,Witness->GetCapsuleComponent(),Witness->GetActorLocation(),FVector::UpVector);
+   const float Applied=W->GetSubsystem<UDataTransmitter>()->TransmitHit(OfficerHit,54,FVector::ForwardVector,Shooter->GetController(),Shooter);
+   Test->TestEqual(TEXT("Extraction gang hitting police keeps original crossfire damage cap"),Applied,GetDefault<UGlobalData>()->PoliceGangMaxHitDamage);
+   Test->TestTrue(TEXT("Hit officer immediately retaliates against extraction gang"),Witness->CombatTarget==Shooter);
+   Test->TestEqual(TEXT("Police against extraction gang keeps crossfire accuracy"),Witness->ShotHitChance(Shooter),GetDefault<UGlobalData>()->PoliceGangHitChance);
+   Test->TestEqual(TEXT("Extraction gang against police keeps crossfire accuracy"),Shooter->ShotHitChance(Witness),GetDefault<UGlobalData>()->PoliceGangHitChance);
+   Witness->Destroy();
    const int32 Wave=S->WaveNumber;S->UpdateResponse(5);
    Test->TestEqual(TEXT("Partial kill does not start next wave"),S->WaveNumber,Wave);
    Test->TestEqual(TEXT("Partial kill is not individually replenished"),S->GetLivingResponders(),Expected-1);
@@ -154,8 +164,10 @@ public:
    {
     for(auto N:S->Responders)if(N.IsValid()&&N->Health>0)
     {
-     FHitResult Hit(N.Get(),N->GetCapsuleComponent(),N->GetActorLocation(),FVector::UpVector);
-     W->GetSubsystem<UDataTransmitter>()->TransmitHit(Hit,10000,FVector::ForwardVector,PC,P);
+     N->BecomeInjured();
+     Test->TestTrue(TEXT("Cleared wave member remains alive while downed"),N->Health>0);
+     // Frozen fixtures must not block the departing car's lane.
+     N->SetActorLocation(N->GetActorLocation()+FVector(0,0,-3000),false,nullptr,ETeleportType::TeleportPhysics);
     }
     SquadCleared=true;
    }
@@ -164,8 +176,9 @@ public:
    Test->TestFalse(TEXT("Cars drive out of sight and retire without accumulating"),Any);
    // Re-enter after eight historical waves; there must be no obsolete eight-car ceiling.
    S->WaveNumber=8;S->SpawnRetry=0;S->UpdateResponse(1);
-   Test->TestEqual(TEXT("Cleared wave permits wave nine"),S->WaveNumber,9);
-   Test->TestTrue(TEXT("Next wave starts with cars, not teleporting enemies"),!S->Cars.IsEmpty()&&S->GetLivingResponders()==0);
+   Test->TestEqual(TEXT("Downed survivors permit wave nine without finishing kills"),S->WaveNumber,9);
+   Test->TestEqual(TEXT("Next wave also contains exactly one car"),S->Cars.Num(),1);
+   Test->TestEqual(TEXT("Next wave has no teleporting enemies"),S->GetLivingResponders(),0);
    for(auto C:S->Cars)if(C.IsValid())C->SetActorTickEnabled(false);
    PC->SetControlRotation(PC->GetControlRotation()+FRotator(0,180,0));P->GetFirstPersonCameraComponent()->SetWorldRotation(PC->GetControlRotation());PC->PlayerCameraManager->UpdateCamera(.016f);
    ++Stage;Elapsed=0;return false;
@@ -186,7 +199,7 @@ public:
   return true;
  }
 private:
- bool Visual=false,RequireTwo=false,SquadCleared=false;double LastStep=0;
+ bool Visual=false,RequireTwoSpaces=false,SquadCleared=false;double LastStep=0;
  FAutomationTestBase* Test;int32 Stage=0,Expected=0;float Elapsed=0;
  FVector Entry,Stop;FRotator Heading;TWeakObjectPtr<AExtractionPoint> Point;
 };
@@ -196,7 +209,7 @@ bool FConvoyTest::RunTest(const FString&)
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FConvoyVisualTest,"Game.Extraction.ConvoyVisual",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
 bool FConvoyVisualTest::RunTest(const FString&)
 {AddCommand(new FStartPIECommand(false));AddCommand(new FWaitLatentCommand(2));AddCommand(new FConvoyCheck(this,true));AddCommand(new FEndPlayMapCommand());return true;}
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FConvoyTwoCarsTest,"Game.Extraction.ConvoyTwoCars",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
-bool FConvoyTwoCarsTest::RunTest(const FString&)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FConvoySingleCarOnWideRoadTest,"Game.Extraction.ConvoySingleCarOnWideRoad",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
+bool FConvoySingleCarOnWideRoadTest::RunTest(const FString&)
 {AddCommand(new FStartPIECommand(false));AddCommand(new FWaitLatentCommand(2));AddCommand(new FConvoyCheck(this,false,true));AddCommand(new FEndPlayMapCommand());return true;}
 #endif

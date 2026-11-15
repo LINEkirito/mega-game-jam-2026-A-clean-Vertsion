@@ -161,7 +161,15 @@ TSharedRef<SWidget> GameFrontend::Tutorial(TFunction<void()> Close)
   +SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)[SNew(SGuideIcon).Kind(I)]
   +SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0,8)[Label(StepsText[I],20,230)]];
  Rows->AddSlot().AutoHeight().Padding(0,16)[Steps];
- Rows->AddSlot().AutoHeight().Padding(0,0,0,18)[Label(TEXT("15 米内对准撤离车辆，按 F 启动撤离；留在范围内 60 秒，可转身还击。死亡得分减半，撤离保留全分。"),16)];
+ Rows->AddSlot().AutoHeight().Padding(0,0,0,18)[Label(TEXT("对准撤离车辆按 F 开始撤离，留在附近等待接应。"),16)];
+ Rows->AddSlot().AutoHeight().Padding(0,8,0,4)[Label(TEXT("撤离与结算"),23,700)];
+ Rows->AddSlot().AutoHeight().Padding(0,0,0,12)[Label(TEXT("撤离期间会有黑帮驾车袭击。守住撤离点，带回你的拍摄成果。"),16,700)];
+ Rows->AddSlot().AutoHeight().Padding(0,8,0,4)[Label(TEXT("警星与犯罪"),23,700)];
+ Rows->AddSlot().AutoHeight().Padding(0,0,0,12)[Label(TEXT("伤害平民或警察会遭到通缉；警星越高，警察增援越多。"),16,700)];
+ Rows->AddSlot().AutoHeight().Padding(0,8,0,4)[Label(TEXT("警察增援"),23,700)];
+ Rows->AddSlot().AutoHeight().Padding(0,0,0,12)[Label(TEXT("警车送来增援，警察下车后追击你。"),16,700)];
+ Rows->AddSlot().AutoHeight().Padding(0,8,0,4)[Label(TEXT("甩开警察"),23,700)];
+ Rows->AddSlot().AutoHeight().Padding(0,0,0,12)[Label(TEXT("甩开警察的视线并躲藏，可以摆脱通缉。"),16,700)];
  Rows->AddSlot().AutoHeight()[Button(TEXT("返回"),MoveTemp(Close))];
  return SNew(SBox).WidthOverride(760).HeightOverride(700)[SNew(SScrollBox)+SScrollBox::Slot()[Rows]];
 }

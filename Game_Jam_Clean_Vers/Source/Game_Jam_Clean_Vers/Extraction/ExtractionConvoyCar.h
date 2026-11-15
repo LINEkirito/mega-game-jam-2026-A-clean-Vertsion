@@ -32,9 +32,12 @@ public:
  UPROPERTY(Transient) TArray<TObjectPtr<UStaticMeshComponent>> Wheels;
  UPROPERTY(Transient) TArray<TObjectPtr<USkeletalMeshComponent>> Riders;
  static bool FindArrival(UWorld* World,APlayerController* PC,FVector& Start,FVector& Stop,FRotator& Rotation);
+ static bool FindPoliceArrival(UWorld* World,APlayerController* PC,const FVector& Target,FVector& Start,FVector& Stop,FRotator& Rotation);
+ int32 GetUndeliveredPassengers() const {return bAborted||Phase==EConvoyCarPhase::Departing?0:FMath::Max(0,PassengerCount-Delivered);}
+ FVector GetParkingLocation() const {return StopLocation-FVector(0,0,76);}
  static bool IsInFront(APlayerController* PC,const FVector& Location);
  static bool IsHiddenFromPlayer(UWorld* World,APlayerController* PC,const FVector& Location,const FRotator& Rotation,const AActor* Ignore=nullptr);
- static bool ClearRoad(UWorld* World,const FVector& Start,const FVector& End,const AActor* Ignore=nullptr);
+ static bool ClearRoad(UWorld* World,const FVector& Start,const FVector& End,const AActor* Ignore=nullptr,bool IgnorePawns=false);
 private:
  friend class FConvoyCheck;
  UPROPERTY(Transient) TObjectPtr<UAnimSequence> DriverIdle;
@@ -52,6 +55,9 @@ private:
  int32 DoorForSeat(int32 Index) const;
  void UpdatePassengers(float DT);
  void StartDeparture();
+ float PoliceRetargetTime=0;
+ void UpdatePoliceStop(float DT);
+ void YieldTraffic(const FVector& Direction);
  bool MoveAlongRoad(float DT,const FVector& Target,bool Brake);
  UStaticMeshComponent* AddPart(const TCHAR* Name,const TCHAR* Part,const FVector& Location,const FRotator& Rotation=FRotator::ZeroRotator);
 };

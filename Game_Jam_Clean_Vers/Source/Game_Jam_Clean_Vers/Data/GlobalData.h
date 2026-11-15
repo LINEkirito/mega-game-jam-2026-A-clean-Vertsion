@@ -6,6 +6,13 @@ UCLASS(Config=Game,DefaultConfig,BlueprintType)
 class GAME_JAM_CLEAN_VERS_API UGlobalData:public UObject {
  GENERATED_BODY()
 public:
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Police",meta=(ClampMin="100",Units="cm/s")) float PoliceCarSpeed=1600.f;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Police",meta=(ClampMin="100",Units="cm/s")) float PoliceYieldSpeed=500.f;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Police") TArray<int32> WantedThresholds={1,3,6,10,15};
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Police") TArray<int32> WantedOfficerCaps={3,6,9,12,15};
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Police") TArray<int32> WantedCarCaps={1,1,2,2,3};
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Police") TArray<float> WantedBackupIntervals={30,25,20,15,12};
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Police") TArray<float> WantedEscapeSeconds={20,30,45,60,75};
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Extraction",meta=(ClampMin="100",Units="cm/s")) float ConvoySpeed=700.f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Extraction",meta=(ClampMin="1",Units="cm")) float ExtractionRadius=1500.f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Extraction",meta=(ClampMin="0.1",Units="s")) float ExtractionSeconds=60.f;
@@ -72,6 +79,7 @@ public:
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Police") float PoliceShotInterval=1.8f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Police") float PoliceSpreadDegrees=0;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Gang",meta=(ClampMin="0",ClampMax="1")) float GangHitChance=.7f;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Extraction",meta=(ClampMin="0",ClampMax="1")) float ExtractionGangHitChance=.45f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Combat",meta=(ClampMin="0",ClampMax="1")) float PoliceGangHitChance=.08f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Combat",meta=(ClampMin="0.001",ClampMax="1")) float PoliceGangDamageScale=.02f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Combat",meta=(ClampMin="0.01")) float PoliceGangMaxHitDamage=.5f;
@@ -87,6 +95,9 @@ public:
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Movement") float NPCWalkSpeed=180.f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Movement") float NPCCombatAdvanceSpeed=180.f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Movement") float NPCCombatStopDistance=260.f;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Extraction",meta=(ClampMin="100",Units="cm")) float ExtractionCombatDistance=900.f;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Extraction",meta=(ClampMin="100",Units="cm")) float ExtractionRetreatDistance=650.f;
+ UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Extraction",meta=(ClampMin="10",ClampMax="40",Units="deg")) float ExtractionFiringSectorAngle=35.f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="NPC|Movement") float NPCSearchSpeed=300.f;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Weapon") int32 RifleCapacity=30;
  UPROPERTY(Config,EditAnywhere,BlueprintReadOnly,Category="Weapon") int32 PistolCapacity=26;

@@ -8,6 +8,7 @@
 #include "EngineUtils.h"
 #include "Components/BoxComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Camera/CameraComponent.h"
 #include "GameFramework/PlayerController.h"
@@ -41,9 +42,10 @@ public:
    Player->GetCharacterMovement()->DisableMovement();Player->SetActorLocation(FVector(35000,35000,1000),false,nullptr,ETeleportType::TeleportPhysics);
    FActorSpawnParameters Params;Params.SpawnCollisionHandlingOverride=ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
    Point=W->SpawnActor<AExtractionPoint>(FVector(35480,35000,925),FRotator::ZeroRotator,Params);
+   Point->VehicleMesh->SetStaticMesh(LoadObject<UStaticMesh>(nullptr,TEXT("/Game/Luxury_Sedan_1_Pack/Meshes/SM_Luxury_Sedan_1")));
    Point->SetActorTickEnabled(false);
-   PC->SetControlRotation(FRotator::ZeroRotator);
-   Player->GetFirstPersonCameraComponent()->SetWorldRotation(FRotator::ZeroRotator);PC->PlayerCameraManager->UpdateCamera(.016f);
+   PC->SetControlRotation(FRotator(-10,0,0));
+   Player->GetFirstPersonCameraComponent()->SetWorldRotation(FRotator(-10,0,0));PC->PlayerCameraManager->UpdateCamera(.016f);
    ++Stage;return false; // Allow the camera manager to update the real view.
   }
   if(Stage==1)
@@ -57,6 +59,7 @@ public:
    Player->SetActorLocation(Here-FVector(1250,0,0));Test->TestTrue(TEXT("1500cm is in range"),P->IsPlayerInRange(Player));Player->SetActorLocation(Here);
    Test->TestTrue(TEXT("Real view ray hits vehicle"),P->IsLookedAtBy(PC));
    auto* Blocker=W->SpawnActor<AExtractionPoint>(FVector(35200,35000,925),FRotator::ZeroRotator);
+   Blocker->VehicleBody->SetCollisionResponseToChannel(ECC_Visibility,ECR_Block); // Explicit wall fixture.
    Blocker->VehicleBody->SetBoxExtent(FVector(10,100,100));Blocker->SetActorTickEnabled(false);
    Test->TestFalse(TEXT("Occluder prevents activation through walls"),P->TryStart(PC));Blocker->Destroy();
    const bool WasEnglish=GameLanguage::IsEnglish();
@@ -82,9 +85,11 @@ public:
    auto* Enemy=W->SpawnActorDeferred<APatrolEnemy>(APatrolEnemy::StaticClass(),Spawn,nullptr,nullptr,ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
    Enemy->PatrolRadius=0;Enemy->FinishSpawning(Spawn);Enemy->SetActorTickEnabled(false);
    auto* Session=W->GetSubsystem<UExtractionSubsystem>();
+   Test->TestEqual(TEXT("Ambient gang retains ordinary accuracy"),Enemy->ShotHitChance(Player),GetDefault<UGlobalData>()->GangHitChance);
    Test->TestFalse(TEXT("Ambient gang no longer responds to extraction"),Enemy->TickExtractionResponse(.016f));
    Enemy->SetTarget(Player);Test->TestNull(TEXT("Ambient NPC cannot lock extracting player"),Enemy->CombatTarget.Get());
    Session->Responders.Add(Enemy);
+   Test->TestEqual(TEXT("Extraction gang accuracy is 45 percent"),Enemy->ShotHitChance(Player),.45f);
    Enemy->SightRange=500;Enemy->TickExtractionResponse(.016f);
    Test->TestTrue(TEXT("Assigned responder keeps player target outside sight range"),Enemy->CombatTarget==Player);
    Test->TestTrue(TEXT("Responder tracks latest player location"),Enemy->LastKnown.Equals(Here,1));
@@ -130,7 +135,7 @@ bool FExtractionAssetsTest::RunTest(const FString&)
   if(!TestNotNull(Path,Class))continue;
   auto* Point=Class->GetDefaultObject<AExtractionPoint>();
   TestNotNull(TEXT("Vehicle model assigned"),Point->VehicleMesh->GetStaticMesh().Get());
-  TestTrue(TEXT("Vehicle collision body blocks interaction"),Point->VehicleBody->GetCollisionResponseToChannel(ECC_Visibility)==ECR_Block);
+  TestTrue(TEXT("Vehicle collision body still blocks player movement"),Point->VehicleBody->GetCollisionResponseToChannel(ECC_Pawn)==ECR_Block);
  }
  return true;
 }

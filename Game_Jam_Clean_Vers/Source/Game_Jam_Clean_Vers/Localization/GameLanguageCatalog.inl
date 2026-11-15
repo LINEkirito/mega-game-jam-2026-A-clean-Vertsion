@@ -411,3 +411,16 @@ PAIR("出生点被阻挡，暂时无法返回。请稍后重试。", "The spawn 
 
 PAIR("游戏菜单", "Game Menu")
 PAIR("菜单打开时游戏继续运行。", "The game keeps running while this menu is open.")
+
+// Brief extraction and wanted event guide.
+PAIR("撤离与结算", "Extraction and scoring")
+PAIR("警星与犯罪", "Wanted stars and crimes")
+PAIR("警察增援", "Police reinforcements")
+PAIR("甩开警察", "Escaping the police")
+PAIR("对准撤离车辆按 F 开始撤离，留在附近等待接应。", "Face an extraction vehicle and press F, then stay nearby for pickup.")
+PAIR("撤离期间会有黑帮驾车袭击。守住撤离点，带回你的拍摄成果。", "Gang members arrive by car during extraction. Hold your ground and bring your footage back.")
+PAIR("伤害平民或警察会遭到通缉；警星越高，警察增援越多。", "Harming civilians or police makes you wanted. More stars bring more police reinforcements.")
+PAIR("警车送来增援，警察下车后追击你。", "Police cars bring reinforcements, and officers pursue you on foot.")
+PAIR("甩开警察的视线并躲藏，可以摆脱通缉。", "Break police line of sight and hide to lose your wanted level.")
+PAIR("追捕中", "Pursuit")
+PAIR("搜索中", "Searching")

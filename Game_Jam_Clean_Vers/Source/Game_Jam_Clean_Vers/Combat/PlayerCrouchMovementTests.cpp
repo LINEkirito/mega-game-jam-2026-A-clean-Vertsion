@@ -10,6 +10,7 @@
 #include "Game_Jam_Clean_VersCharacter.h"
 #include "CombatEquipmentComponent.h"
 #include "TacticalWeapon.h"
+#include "WeaponTestInventory.h"
 #include "Camcorder/CamcorderEquipmentComponent.h"
 #include "Camcorder/ShoulderCamcorder.h"
 
@@ -21,6 +22,8 @@ class FPlayerCrouchMovementCheck final : public IAutomationLatentCommand
     int32 Slot=0;
     double Started=0;
     float MaxGrip=0,MinEyeClearance=MAX_flt,MaxSpeed=0;
+    FVector SettledEye=FVector::ZeroVector;
+    float MaxEyeDrift=0;
 public:
     explicit FPlayerCrouchMovementCheck(FAutomationTestBase* InTest):Test(InTest){}
     bool Update() override
@@ -35,17 +38,29 @@ public:
         if(!Player||!Equipment||!Combat){Test->AddError(TEXT("Missing crouch test player/equipment"));return true;}
         if(Started==0)
         {
+            GiveTestWeapons(Equipment);
             Player->SetCanBeDamaged(false);
             PC->SetControlRotation(FRotator(0,Player->GetActorRotation().Yaw,0));
             Player->Crouch();Equipment->ActivateQuickSlot(Slot);
-            Started=FPlatformTime::Seconds();MaxGrip=0;MinEyeClearance=MAX_flt;MaxSpeed=0;
+            Started=FPlatformTime::Seconds();MaxGrip=0;MinEyeClearance=MAX_flt;MaxSpeed=0;MaxEyeDrift=0;
             return false;
         }
         const double Elapsed=FPlatformTime::Seconds()-Started;
-        if(Elapsed<4)return false; // Complete the real holster/draw transition.
-        if(Elapsed<7)
+        if(Elapsed<4)
         {
-            Player->AddMovementInput(Player->GetActorForwardVector());
+            SettledEye=Player->GetFirstPersonCameraComponent()->GetRelativeLocation();
+            return false; // Complete the real holster/draw transition.
+        }
+        MaxEyeDrift=FMath::Max(MaxEyeDrift,static_cast<float>(FVector::Distance(
+            SettledEye,Player->GetFirstPersonCameraComponent()->GetRelativeLocation())));
+        if(Elapsed<10)
+        {
+            // Start, strafe, reverse, stop, then restart. The eye must stay fixed
+            // relative to the capsule through every locomotion transition.
+            if(Elapsed<6)Player->AddMovementInput(Player->GetActorForwardVector());
+            else if(Elapsed<7)Player->AddMovementInput(Player->GetActorRightVector());
+            else if(Elapsed<8)Player->AddMovementInput(-Player->GetActorForwardVector());
+            else if(Elapsed>9)Player->AddMovementInput(Player->GetActorForwardVector());
             MaxSpeed=FMath::Max(MaxSpeed,static_cast<float>(Player->GetVelocity().Size2D()));
             if(Elapsed>4.5 && Player->GetVelocity().Size2D()>100.f)
             {
@@ -68,12 +83,13 @@ public:
             }
             return false;
         }
-        if(Elapsed<8)return false;
+        if(Elapsed<11)return false;
+        Test->TestTrue(TEXT("Crouch start/stop/strafe/reverse do not displace the eye"),MaxEyeDrift<.1f);
         Test->TestTrue(TEXT("Actual crouch movement reached test speed"),MaxSpeed>100.f);
         Test->TestTrue(TEXT("Player remains crouched while moving"),Player->bIsCrouched);
         Test->TestTrue(TEXT("Moving crouch eye stays above both shoulders"),MinEyeClearance!=MAX_flt&&MinEyeClearance>8.f);
         Test->TestTrue(TEXT("Both hands retain equipment contact while crouch walking"),MaxGrip<.2f);
-        Test->AddInfo(FString::Printf(TEXT("Crouch slot %d: min shoulder clearance %.3f cm; max grip %.3f cm"),Slot,MinEyeClearance,MaxGrip));
+        Test->AddInfo(FString::Printf(TEXT("Crouch slot %d: min shoulder clearance %.3f cm; max grip %.3f cm; eye drift %.4f cm"),Slot,MinEyeClearance,MaxGrip,MaxEyeDrift));
         Started=0;
         if(++Slot<4)return false;
         Player->UnCrouch();return true;

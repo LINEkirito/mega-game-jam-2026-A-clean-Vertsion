@@ -1,4 +1,5 @@
 #include "PatrolEnemy.h"
+#include "PoliceReinforcements.h"
 #include "Extraction/ExtractionPoint.h"
 #include "Audio/GameAudio.h"
 #include "Audio/CharacterAudio.h"
@@ -256,11 +257,16 @@ void APatrolEnemy::WitnessViolence(AActor* Victim,APawn* Attacker,bool Protected
   return;
  }
  if(NPCRole!=ENPCRole::Police)return;
+ // The victim's original faction takes precedence over an event's protection flag.
+ if(const auto* N=Cast<APatrolEnemy>(Victim);N&&(N->IsGang()||N->IdentityRole==ENPCRole::GangMember||N->IdentityRole==ENPCRole::GangBoss))return;
  // Nearby officers react to the victim's distress, while distant officers require sight.
  if(Victim!=this&&FVector::DistSquared(GetActorLocation(),Victim->GetActorLocation())>FMath::Square(SightRange)&&!CanSeeActor(Victim))return;
  if(Attacker->IsPlayerControlled()&&ProtectedVictim){PriorityOffender=Attacker;SetTarget(Attacker);return;}
  if(auto* Gang=Cast<APatrolEnemy>(Attacker);Gang&&Gang->IsGang()&&(ProtectedVictim||Cast<AGame_Jam_Clean_VersCharacter>(Victim)||Victim==this)){
+  // A fresh hit takes precedence over an older pursuit or a finished street event.
+  if(Victim==this){PriorityOffender=Gang;CrossfireCooldown=0;Gang->CrossfireCooldown=0;}
   ObservedShooter=Gang;if(!IsLiving(PriorityOffender.Get()))SetTarget(Gang);
+  else if(Victim==this)SetTarget(Gang);
  }
 }
 void APatrolEnemy::BecomeInjured()
@@ -466,14 +472,21 @@ float APatrolEnemy::ShotHitChance(const AActor* Target) const
  const bool Police=NPCRole==ENPCRole::Police;
  if(TargetNPC&&((Police&&TargetNPC->IsGang())||(IsGang()&&TargetNPC->NPCRole==ENPCRole::Police)))
   return FMath::Clamp(Rules->PoliceGangHitChance,0.f,1.f);
+ if(IsGang()&&Target)
+  if(const auto* Extraction=GetWorld()->GetSubsystem<UExtractionSubsystem>();Extraction&&Extraction->IsResponder(this)&&Extraction->GetExtractingPlayer()==Target)
+   return FMath::Clamp(Rules->ExtractionGangHitChance,0.f,1.f);
  return Police?1.f:FMath::Clamp(Rules->GangHitChance,0.f,1.f);
 }
 void APatrolEnemy::TickCombat(float DT)
 {
+ if(Health<=0||NPCRole==ENPCRole::Injured)return;
  if(!IsCombatTargetAlive(CombatTarget)){CombatTarget=nullptr;EscalationTarget.Reset();SetActivity(ENPCActivity::Idle);return;}
  const bool Crossfire=IsActivePoliceGangCrossfire(this,CombatTarget);
  const bool Seen=CanSeeActor(CombatTarget,false);
- if(Seen)
+ const auto* Extraction=GetWorld()->GetSubsystem<UExtractionSubsystem>();
+ const bool ExtractionCombat=Extraction&&Extraction->IsResponder(this)&&Extraction->GetExtractingPlayer()==CombatTarget;
+ if(ExtractionCombat)TickExtractionMovement(Seen);
+ else if(Seen)
  {
   LastKnown=CombatTarget->GetActorLocation();LostTime=0;
   const auto* MovementConfig=GetDefault<UGlobalData>();
@@ -699,6 +712,7 @@ void APatrolEnemy::Tick(float DT)
    CharacterAudio::At(this,GameAudio::Sound(*FString::Printf(TEXT("NPC_Footstep%d"),1+AudioFootstepIndex++%4)),AudioPosition-FVector(0,0,85),ECharacterSound::Footstep,.5f,FMath::FRandRange(.96f,1.04f));
   }
  }else AudioFootstepDistance=0;
+ if(TickTrafficYield(DT)){SetMotion();UpdateWeaponPose(DT);return;}
  TickWeaponCarry(DT);
  if(SpeechTime<=0)Speech->SetVisibility(false);
  if(HeldWeapon){
@@ -717,6 +731,12 @@ void APatrolEnemy::Tick(float DT)
  }
  if(auto* P=UGameplayStatics::GetPlayerPawn(this,0))Speech->SetWorldRotation((P->GetActorLocation()-Speech->GetComponentLocation()).Rotation());
  if(NPCRole==ENPCRole::Injured){if(StateTime>7){StateTime=0;Say(TEXT("HELP!"),HelpSound);}SetMotion();UpdateWeaponPose(DT);return;}
+ if(NPCRole==ENPCRole::Police)
+ {
+  auto* Police=GetWorld()->GetSubsystem<UPoliceReinforcements>();
+  if(Police&&Police->IsSearching()&&Police->IsWantedPlayer(PriorityOffender.Get()))
+  {CombatTarget=nullptr;InvestigationLocation=Police->GetLastKnownLocation();InvestigationTime=120;SetActivity(ENPCActivity::Investigate);TickPatrol(DT);SetMotion();UpdateWeaponPose(DT);return;}
+ }
  if(TickExtractionResponse(DT)){TickWeaponCarry(0);SetMotion();UpdateWeaponPose(DT);return;}
  if(TickGangAttackObservation(DT)){SetMotion();UpdateWeaponPose(DT);return;}
  if(IsGang() && !bAimWarning && CombatTarget!=UGameplayStatics::GetPlayerPawn(this,0) && IsPlayerAimingAtMe())
@@ -927,4 +947,36 @@ void APatrolEnemy::TickCounterattack(float DT)
   GetWorld()->GetSubsystem<UDataTransmitter>()->TransmitHit(Hit,GetDefault<UGlobalData>()->NPCMeleeDamage,(Gang->GetActorLocation()-GetActorLocation()).GetSafeNormal(),GetController(),this);
   RetaliationTarget.Reset();FleeFrom(Gang->GetActorLocation());
  }
+}
+
+bool APatrolEnemy::IsYieldingToTraffic() const
+{return bTrafficYielding&&GetWorld()->GetTimeSeconds()<TrafficYieldUntil;}
+bool APatrolEnemy::RequestTrafficYield(const FVector& Point)
+{
+ if(Health<=0||NPCRole==ENPCRole::Injured||!GetCharacterMovement()->IsMovingOnGround())return false;
+ if(IsYieldingToTraffic()){TrafficYieldUntil=GetWorld()->GetTimeSeconds()+1.2f;return true;}
+ auto* Nav=FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld());if(!Nav)return false;
+ FNavLocation Ground;if(!Nav->ProjectPointToNavigation(Point,Ground,FVector(70,70,150)))return false;
+ auto* Path=Nav->FindPathToLocationSynchronously(this,GetActorLocation(),Ground.Location,this);
+ if(!Path||!Path->IsValid()||Path->IsPartial()||Path->GetPathLength()>1000.f)return false;
+ TrafficSavedSpeed=GetCharacterMovement()->MaxWalkSpeed;
+ if(!MoveTo(Ground.Location,20.f))return false;
+ TrafficYieldPoint=Ground.Location;TrafficYieldUntil=GetWorld()->GetTimeSeconds()+1.2f;bTrafficYielding=true;
+ return true;
+}
+bool APatrolEnemy::TickTrafficYield(float DT)
+{
+ if(!bTrafficYielding)return false;
+ if(!IsYieldingToTraffic()||NPCRole==ENPCRole::Injured)
+ {
+  bTrafficYielding=false;GetCharacterMovement()->MaxWalkSpeed=TrafficSavedSpeed;
+  if(auto* AI=Cast<AAIController>(GetController()))AI->StopMovement();MoveRetry=0;DecisionTime=0;return false;
+ }
+ GetCharacterMovement()->MaxWalkSpeed=GetDefault<UGlobalData>()->PoliceYieldSpeed;
+ if(FVector::Dist2D(GetActorLocation(),TrafficYieldPoint)>65.f)
+ {
+  if(MoveRetry<=0){MoveRetry=.4f;MoveTo(TrafficYieldPoint,20.f);}
+  Face(TrafficYieldPoint,DT);
+ }
+ return true;
 }
