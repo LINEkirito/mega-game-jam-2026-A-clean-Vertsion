@@ -102,7 +102,7 @@ namespace
     Audit(TEXT("Language"));Test->TestTrue(TEXT("Chinese language choice is translated in English"),HasText(Window.ToSharedRef(),TEXT("    Chinese")));Shot(TEXT("Language-en"));
     {auto Button=FindButton(Window.ToSharedRef(),TEXT("    Chinese"));if(!Button)return true;Button->SimulateClick();}return Wait();
    case 6:
-    Test->TestFalse(TEXT("Language selection changes preference"),GameLanguage::IsEnglish());Key(EKeys::Escape);return Wait();
+    Test->TestFalse(TEXT("Language selection changes preference"),GameLanguage::IsEnglish());Shot(TEXT("Language-zh"));Key(EKeys::Escape);return Wait();
    case 7:Key(EKeys::Escape);return Wait();
    case 8:
     Test->TestTrue(TEXT("Returning from settings retains the same title and animation instance"),FindTitle(Window.ToSharedRef())==Title);

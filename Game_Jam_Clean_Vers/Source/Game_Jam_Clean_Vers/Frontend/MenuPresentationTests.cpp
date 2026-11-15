@@ -31,11 +31,11 @@ public:
  ~FMenuVisualCapture(){GameLanguage::SetEnglish(PreviousEnglish);}
  bool Update()override
  {
-  if(Page==8)return true;
+  if(Page==12)return true;
   if(Frame==0)
   {
    GameLanguage::SetEnglish(Page%2==0);const auto Nothing=[]{};
-   TSharedRef<SWidget> Panel=Page<2?GameFrontend::Settings(nullptr,Nothing,Nothing):Page<4?GamePerformance::MakePanel(Nothing,Nothing):Page<6?GameFrontend::Pause(Nothing,Nothing,Nothing,Nothing,false):GameFrontend::RunHistory(Nothing);
+   TSharedRef<SWidget> Panel=Page<2?GameFrontend::Settings(nullptr,Nothing,Nothing):Page<4?GamePerformance::MakePanel(Nothing,Nothing):Page<6?GameFrontend::Pause(Nothing,Nothing,Nothing,Nothing,false):Page<8?GameFrontend::RunHistory(Nothing):GameFrontend::Tutorial(Nothing,Page>=10);
    View=SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(FLinearColor(.006f,.005f,.005f)).Padding(40)
     [SNew(SScaleBox).Stretch(EStretch::ScaleToFit).StretchDirection(EStretchDirection::DownOnly)
      [SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(MenuPresentation::Surface()).Padding(26)[SNew(SMenuEntrance)[Panel]]]];
@@ -46,7 +46,7 @@ public:
   TArray<FColor> Pixels;FReadSurfaceDataFlags Flags(RCM_UNorm);Flags.SetLinearToGamma(false);Target->GameThread_GetRenderTargetResource()->ReadPixels(Pixels,Flags);
   TArray64<uint8> PNG;FImageUtils::PNGCompressImageArray(1280,900,Pixels,PNG);
   const FString Folder=FPaths::ProjectSavedDir()/TEXT("Automation/MenuStyleQA");IFileManager::Get().MakeDirectory(*Folder,true);
-  const TCHAR* Names[]={TEXT("Settings"),TEXT("Graphics"),TEXT("Pause"),TEXT("History")};
+  const TCHAR* Names[]={TEXT("Settings"),TEXT("Graphics"),TEXT("Pause"),TEXT("History"),TEXT("Tutorial"),TEXT("ReadyTutorial")};
   Test->TestTrue(TEXT("Save panel preview"),FFileHelper::SaveArrayToFile(PNG,*(Folder/FString::Printf(TEXT("%s-%s.png"),Names[Page/2],Page%2?TEXT("zh"):TEXT("en")))));
   ++Page;Frame=0;return false;
  }

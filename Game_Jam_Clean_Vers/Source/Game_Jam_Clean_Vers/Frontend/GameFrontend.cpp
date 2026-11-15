@@ -32,7 +32,7 @@ namespace
   virtual FVector2D ComputeDesiredSize(float) const override{return FVector2D(70,60);}
   virtual int32 OnPaint(const FPaintArgs&,const FGeometry& G,const FSlateRect&,FSlateWindowElementList& Out,int32 Layer,const FWidgetStyle&,bool) const override
   {
-   auto Line=[&](std::initializer_list<FVector2D> Points){TArray<FVector2D> P;for(auto V:Points)P.Add(V);FSlateDrawElement::MakeLines(Out,Layer,G.ToPaintGeometry(),P,ESlateDrawEffect::None,FLinearColor(.35f,.9f,.78f),true,3.f);};
+   auto Line=[&](std::initializer_list<FVector2D> Points){TArray<FVector2D> P;for(auto V:Points)P.Add(V);FSlateDrawElement::MakeLines(Out,Layer,G.ToPaintGeometry(),P,ESlateDrawEffect::None,MenuPresentation::Paper(),true,3.f);};
    if(Kind==0){Line({{30,6},{38,6},{38,14},{30,14},{30,6}});Line({{34,17},{29,34},{20,52}});Line({{29,34},{43,42},{49,53}});Line({{32,23},{18,29},{12,22}});Line({{32,23},{43,30},{54,29}});}
    else if(Kind==1){Line({{8,18},{44,18},{44,46},{8,46},{8,18}});Line({{44,27},{62,18},{62,46},{44,37}});Line({{16,18},{20,10},{34,10},{38,18}});Line({{19,31},{32,31}});}
    else {Line({{7,32},{16,32},{24,17},{47,17},{55,32},{63,32},{63,47},{7,47},{7,32}});Line({{20,31},{50,31}});Line({{16,47},{16,53},{23,53},{23,47}});Line({{48,47},{48,53},{55,53},{55,47}});}
@@ -155,31 +155,34 @@ TSharedRef<SWidget> GameFrontend::Pause(TFunction<void()> Resume,TFunction<void(
 TSharedRef<SWidget> GameFrontend::Tutorial(TFunction<void()> Close,bool Opening)
 {
  auto Rows=SNew(SVerticalBox);
- Rows->AddSlot().AutoHeight().Padding(0,0,0,20)[Label(TEXT("使用教程"),30)];
+ Rows->AddSlot().AutoHeight().Padding(0,0,0,12)[SNew(SHorizontalBox)
+  +SHorizontalBox::Slot().AutoWidth()[SNew(SBox).WidthOverride(5).HeightOverride(38)[SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(MenuPresentation::Red())]]
+  +SHorizontalBox::Slot().FillWidth(1).Padding(16,0)[MenuLabel(TEXT("使用教程"),30)]];
+ Rows->AddSlot().AutoHeight().Padding(0,0,0,12)[SNew(SBox).HeightOverride(2)[SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(MenuPresentation::Paper()*.25f)]];
  const TCHAR* Keys[]={TEXT("W A S D"),TEXT("SHIFT / CTRL"),TEXT("SPACE"),TEXT("F"),TEXT("1  2  3  4"),TEXT("RMB → LMB"),TEXT("SCROLL / V"),TEXT("R / P")};
  const TCHAR* Texts[]={TEXT("移动"),TEXT("切换冲刺 / 蹲下"),TEXT("跳跃"),TEXT("拾取互动"),TEXT("切换装备；滚轮也可切换"),TEXT("摄像机：举起取景器 → 开始或停止录像"),TEXT("取景时变焦 / 切换自拍"),TEXT("枪械装填 / 摄像机开关机")};
  for(int32 I=0;I<8;++I)
   Rows->AddSlot().AutoHeight().Padding(0,5)[SNew(SHorizontalBox)
-   +SHorizontalBox::Slot().AutoWidth()[SNew(SBox).WidthOverride(210)[SNew(SBorder).Padding(12).BorderBackgroundColor(FLinearColor(.08,.18,.22))[Label(Keys[I],18)]]]
-   +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center).Padding(20,0)[Label(Texts[I],18,480)]];
+   +SHorizontalBox::Slot().AutoWidth()[SNew(SBox).WidthOverride(210)[SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).Padding(12).BorderBackgroundColor(MenuPresentation::Ink())[MenuLabel(Keys[I],18)]]]
+   +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center).Padding(20,0)[MenuLabel(Texts[I],18,480)]];
  auto Steps=SNew(SHorizontalBox);
  const TCHAR* StepsText[]={TEXT("① 探索街区"),TEXT("② 拍摄事件"),TEXT("③ 车辆撤离")};
  for(int32 I=0;I<3;++I)Steps->AddSlot().FillWidth(1).Padding(8)[SNew(SVerticalBox)
   +SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)[SNew(SGuideIcon).Kind(I)]
-  +SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0,8)[Label(StepsText[I],20,230)]];
+  +SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0,8)[MenuLabel(StepsText[I],20,230)]];
  Rows->AddSlot().AutoHeight().Padding(0,16)[Steps];
- Rows->AddSlot().AutoHeight().Padding(0,0,0,18)[Label(TEXT("对准撤离车辆按 F 开始撤离，留在附近等待接应。"),16)];
- Rows->AddSlot().AutoHeight().Padding(0,8,0,4)[Label(TEXT("撤离与结算"),23,700)];
- Rows->AddSlot().AutoHeight().Padding(0,0,0,12)[Label(TEXT("撤离期间会有黑帮驾车袭击。守住撤离点，带回你的拍摄成果。"),16,700)];
- Rows->AddSlot().AutoHeight().Padding(0,8,0,4)[Label(TEXT("警星与犯罪"),23,700)];
- Rows->AddSlot().AutoHeight().Padding(0,0,0,12)[Label(TEXT("伤害平民或警察会遭到通缉；警星越高，警察增援越多。"),16,700)];
- Rows->AddSlot().AutoHeight().Padding(0,8,0,4)[Label(TEXT("警察增援"),23,700)];
- Rows->AddSlot().AutoHeight().Padding(0,0,0,12)[Label(TEXT("警车送来增援，警察下车后追击你。"),16,700)];
- Rows->AddSlot().AutoHeight().Padding(0,8,0,4)[Label(TEXT("甩开警察"),23,700)];
- Rows->AddSlot().AutoHeight().Padding(0,0,0,12)[Label(TEXT("甩开警察的视线并躲藏，可以摆脱通缉。"),16,700)];
+ Rows->AddSlot().AutoHeight().Padding(0,0,0,18)[MenuLabel(TEXT("对准撤离车辆按 F 开始撤离，留在附近等待接应。"),16)];
+ Rows->AddSlot().AutoHeight().Padding(0,8,0,4)[MenuLabel(TEXT("撤离与结算"),23,700)];
+ Rows->AddSlot().AutoHeight().Padding(0,0,0,12)[MenuLabel(TEXT("撤离期间会有黑帮驾车袭击。守住撤离点，带回你的拍摄成果。"),16,700)];
+ Rows->AddSlot().AutoHeight().Padding(0,8,0,4)[MenuLabel(TEXT("警星与犯罪"),23,700)];
+ Rows->AddSlot().AutoHeight().Padding(0,0,0,12)[MenuLabel(TEXT("伤害平民或警察会遭到通缉；警星越高，警察增援越多。"),16,700)];
+ Rows->AddSlot().AutoHeight().Padding(0,8,0,4)[MenuLabel(TEXT("警察增援"),23,700)];
+ Rows->AddSlot().AutoHeight().Padding(0,0,0,12)[MenuLabel(TEXT("警车送来增援，警察下车后追击你。"),16,700)];
+ Rows->AddSlot().AutoHeight().Padding(0,8,0,4)[MenuLabel(TEXT("甩开警察"),23,700)];
+ Rows->AddSlot().AutoHeight().Padding(0,0,0,12)[MenuLabel(TEXT("甩开警察的视线并躲藏，可以摆脱通缉。"),16,700)];
  if(Opening)return SNew(SBox).WidthOverride(760).HeightOverride(700)[SNew(SVerticalBox)
   +SVerticalBox::Slot().FillHeight(1)[SNew(SScrollBox)+SScrollBox::Slot()[Rows]]
-  +SVerticalBox::Slot().AutoHeight().Padding(0,16,0,0)[Button(TEXT("准备好了"),MoveTemp(Close),24)]];
- Rows->AddSlot().AutoHeight()[Button(TEXT("返回"),MoveTemp(Close))];
+  +SVerticalBox::Slot().AutoHeight().Padding(0,16,0,0)[MenuButton(TEXT("准备好了"),MoveTemp(Close),24)]];
+ Rows->AddSlot().AutoHeight()[MenuButton(TEXT("返回"),MoveTemp(Close))];
  return SNew(SBox).WidthOverride(760).HeightOverride(700)[SNew(SScrollBox)+SScrollBox::Slot()[Rows]];
 }

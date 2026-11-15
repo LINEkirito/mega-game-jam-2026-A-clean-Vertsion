@@ -226,7 +226,7 @@ namespace
   {
    if(auto* Music=UBackgroundMusic::For(Player.Get()))Music->SetStage(EBackgroundMusicStage::Gameplay);
    if(!bOpen){bFrontend=true;Open(false);}
-   bStyledMenu=false;bMain=false;bIntro=false;bOnboarding=true;
+   bStyledMenu=true;bMain=false;bIntro=false;bOnboarding=true;
    PerformancePanel=GameFrontend::Tutorial([this]{BeginCountdown();},true);ShowPerformance();
   }
   void BeginCountdown()
@@ -331,7 +331,7 @@ namespace
    // Reuse this title view when returning from a submenu so its entrance never restarts.
    if(!MainPanel)MainPanel=GameFrontend::Main([this]{ShowIntro();},[this]{ShowSettings();},[this]
    {
-    bStyledMenu=false;bMain=false;PerformancePanel=GameFrontend::Tutorial([this]{ShowMain();});ShowPerformance();
+    bStyledMenu=true;bMain=false;PerformancePanel=GameFrontend::Tutorial([this]{ShowMain();});ShowPerformance();
    },[this]{bStyledMenu=true;bMain=false;PerformancePanel=GameFrontend::RunHistory([this]{ShowMain();});ShowPerformance();},[this]{if(auto* PC=Player.Get())UKismetSystemLibrary::QuitGame(PC,PC,EQuitPreference::Quit,false);});
    else TitleMenu::FinishEntrance(MainPanel.ToSharedRef());
    PerformancePanel=MainPanel;ShowPerformance();
@@ -357,7 +357,7 @@ namespace
   {
    const bool Title=bFrontend&&(bMain||bIntro);
    Backdrop->SetHAlign(Title?HAlign_Fill:HAlign_Center);Backdrop->SetVAlign(Title?VAlign_Fill:VAlign_Center);
-   Backdrop->SetPadding(Title?0:20);Backdrop->SetBorderBackgroundColor(Title?FLinearColor::Black:FLinearColor(.008f,.013f,.022f,1.f));
+   Backdrop->SetPadding(Title?0:20);Backdrop->SetBorderBackgroundColor(Title?(bMain?FLinearColor::FromSRGBColor(FColor(171,0,0)):FLinearColor::Black):FLinearColor(.008f,.013f,.022f,1.f));
    PanelHost->SetPadding(Title?0:26);PanelHost->SetBorderBackgroundColor(Title?FLinearColor::Transparent:FLinearColor(.025f,.04f,.06f));
    PanelScale->SetStretchDirection(Title?EStretchDirection::Both:EStretchDirection::DownOnly);
    if(bStyledMenu){Backdrop->SetBorderBackgroundColor(FLinearColor(.006f,.005f,.005f));PanelHost->SetBorderBackgroundColor(MenuPresentation::Surface());}
